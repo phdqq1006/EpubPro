@@ -1,0 +1,57 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.vscode/
+
+# Build folders
+build/
+*/build/
+*/*/build/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Google Services
+google-services.json
+
+# NDK
+obj/
+
+# Android Studio Navigation editor temp files
+.navigation/
+
+# Android Studio captures folder
+captures/
+
+# IntelliJ
+*.iml
+.idea/
+.idea_modules/
+
+# Mac
+.DS_Store
+
+# Kotlin
+*.kt.class
+*.kt.json
+
+# Temporary files & extracted libs
+*.zip
+lib-sherpa-onnx/
+sherpa-onnx-extracted/
+dummy.kt
+test.kt
+

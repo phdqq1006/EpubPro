@@ -1,0 +1,24 @@
+package com.epubpro.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.navigation.compose.rememberNavController
+import com.epubpro.app.navigation.AppNavHost
+import com.epubpro.core.designsystem.theme.EpubProTheme
+import dagger.hilt.android.AndroidEntryPoint
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            EpubProTheme {
+                val navController = rememberNavController()
+                AppNavHost(navController = navController)
+            }
+        }
+    }
+}
