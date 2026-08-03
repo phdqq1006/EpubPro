@@ -31,10 +31,6 @@ dependencies {
     implementation(project(":core:storage"))
     implementation(project(":core:tts"))
 
-    // Readium Kotlin Toolkit
-    implementation(libs.readium.shared)
-    implementation(libs.readium.streamer)
-    implementation(libs.readium.navigator)
 
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)

@@ -5,7 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.core.reader.engine.EpubChapterHeader
-import com.epubpro.core.reader.engine.ReadiumEngine
+import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.domain.model.*
@@ -45,7 +45,7 @@ class ReaderViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val bookmarkRepository: BookmarkRepository,
     private val storageManager: EpubStorageManager,
-    private val readiumEngine: ReadiumEngine,
+    private val epubEngine: EpubEngine,
     private val preferencesManager: ReaderPreferencesManager,
     private val ttsPreferencesManager: TtsPreferencesManager,
     savedStateHandle: SavedStateHandle
@@ -85,7 +85,7 @@ class ReaderViewModel @Inject constructor(
                 bookRepository.updateLastRead(bookId, System.currentTimeMillis())
                 val file = storageManager.getBookFile(book.filePath)
                 bookFile = file
-                val headers = readiumEngine.extractChapterHeaders(file)
+                val headers = epubEngine.extractChapterHeaders(file)
 
                 val savedProgress = bookRepository.getReadingProgress(bookId).firstOrNull()
                 val initialIndex = (savedProgress?.chapterIndex ?: 0).coerceIn(0, (headers.size - 1).coerceAtLeast(0))
@@ -95,7 +95,7 @@ class ReaderViewModel @Inject constructor(
                 Log.d("EpubPro_VM", "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}")
 
                 val initialHtml = if (headers.isNotEmpty()) {
-                    readiumEngine.loadChapterHtml(file, headers[initialIndex].entryName)
+                    epubEngine.loadChapterHtml(file, headers[initialIndex].entryName)
                 } else ""
 
                 _uiState.update {
@@ -120,7 +120,7 @@ class ReaderViewModel @Inject constructor(
         if (file != null && index in 0 until state.chapters.size) {
             viewModelScope.launch {
                 val header = state.chapters[index]
-                val html = readiumEngine.loadChapterHtml(file, header.entryName)
+                val html = epubEngine.loadChapterHtml(file, header.entryName)
                 _uiState.update {
                     it.copy(
                         currentChapterIndex = index,

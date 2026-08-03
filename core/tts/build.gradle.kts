@@ -27,5 +27,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
-    implementation(files("libs/sherpa-onnx-1.13.4.aar"))
+    compileOnly(files("libs/sherpa-onnx-1.13.4.aar"))
 }

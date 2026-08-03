@@ -73,19 +73,14 @@
 - **Fix**: Bỏ hàm `delay(durationMs)` thừa trong `SherpaTtsEngine.speak()`, chỉ giữ lại `delay(100L)` nhỏ để flush audio. UI lập tức đổi trạng thái ngay khi loa kết thúc đọc.
 - **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
-### Lỗi Unclosed Comment Trong Kotlin Khi Comment Chứa Cú Pháp Slash-Star
+### Lỗi SIGSEGV (SEGV_MAPERR fault addr 0x0) Khi Bấm Tạm Dừng Rồi Bấm Nghe Tiếp
 - **Ngày**: 2026-08-03
-- **Vấn đề**: File `VoiceModelDownloader.kt` báo lỗi compile `Unclosed comment` ở cuối file dù đoạn Javadoc phía trên đã có `*/`.
-- **Root cause**: Trình phân tích cú pháp (Lexer) của Kotlin hỗ trợ multiline comment lồng nhau (nested comments). Trong khối comment Javadoc có ghi chuỗi path `voices/!v/*`, chứa ký tự `/*` khiến Kotlin hiểu là mở thêm 1 level comment mới và làm toàn bộ code phía dưới bị nuốt vào comment.
-- **Fix**: Sửa chuỗi `voices/!v/*` thành `voices/!v` trong comment.
-- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
-
-### Lỗi Lệch Khung Và Vị Trí Tiêu Đề Giữa Các Thẻ Card Chọn Giọng Đọc
-- **Ngày**: 2026-08-03
-- **Vấn đề**: Card "Giọng AI" dài hơn Card "Giọng hệ thống", và tiêu đề 2 thẻ không nằm trên cùng 1 đường thẳng ngang.
-- **Root cause**: Thẻ `Row` chứa 2 card chưa gán `.height(IntrinsicSize.Max)`, và Card 2 thiếu slot rỗng tương đương nhãn "ĐỀ XUẤT" của Card 1.
-- **Fix**: Gán `.height(IntrinsicSize.Max)` cho `Row`, `.fillMaxHeight()` cho cả 2 Card `Box`, và thêm `Text(" ", fontSize = 10.sp)` giữ slot rỗng cho Card 2.
-- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt`
+- **Vấn đề**: Đang nghe đọc sách, bấm Tạm dừng rồi bấm Nghe tiếp làm app văng với lỗi native crash `Fatal signal 11 (SIGSEGV)`.
+- **Root cause**: `PiperTtsEngineWrapper.pause()` và `stop()` trước đó để trống (empty). Khi tạm dừng rồi bấm nghe tiếp, coroutine `speak()` cũ vẫn đang chạy ghi PCM vào `AudioTrack` trên background thread, song song đó coroutine `speak()` mới được tạo ra. Hai luồng cùng truy cập đồng thời vào native `AudioTrack` và `OfflineTts` C++ object dẫn đến va chạm vùng nhớ (Race Condition / Null Pointer dereference).
+- **Fix**:
+  1. Trong `PiperTtsEngineWrapper`, lưu `speakJob: Job?`. Khi gọi `pause()` hoặc `stop()`, thực hiện `speakJob?.cancel()` ngay lập tức để hủy job coroutine cũ và gọi `sherpaTtsEngine.stop()`.
+  2. Trong `SherpaTtsEngine.speak()`, thực hiện ghi PCM vào `AudioTrack` theo từng khối nhỏ 4KB (`chunkSize = 4096`) và kiểm tra `coroutineContext.isActive` trong mỗi vòng lặp. Nếu bị cancel, vòng lặp dừng ngay lập tức và xả buffer `AudioTrack.pause() + flush()`.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
 ---
 

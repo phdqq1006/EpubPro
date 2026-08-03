@@ -12,12 +12,14 @@ import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 @Singleton
 class SherpaTtsEngine @Inject constructor(
@@ -33,7 +35,6 @@ class SherpaTtsEngine @Inject constructor(
 
     /**
      * Khởi tạo engine với file model từ bộ nhớ thiết bị.
-     * Dùng dataDir (espeak-ng-data) thay vì lexicon để VITS Piper phoneme frontend hoạt động đúng.
      */
     suspend fun initialize(
         onnxPath: String,
@@ -47,9 +48,6 @@ class SherpaTtsEngine @Inject constructor(
         val onnxFile = File(onnxPath)
         val tokensFile = File(tokensPath)
 
-        Log.d(TAG, "ONNX: exists=${onnxFile.exists()}, size=${onnxFile.length()}")
-        Log.d(TAG, "Tokens: exists=${tokensFile.exists()}, size=${tokensFile.length()}")
-
         if (!onnxFile.exists() || onnxFile.length() < 1_000_000L) {
             throw FileNotFoundException("ONNX file invalid (${onnxFile.length()} bytes): $onnxPath")
         }
@@ -57,20 +55,11 @@ class SherpaTtsEngine @Inject constructor(
             throw FileNotFoundException("tokens.txt missing: $tokensPath")
         }
 
-        // Kiểm tra espeak-ng-data
-        if (dataDirPath.isNotEmpty()) {
-            val phondata = File(dataDirPath, "phondata")
-            val viDict = File(dataDirPath, "vi_dict")
-            Log.d(TAG, "espeak-ng-data dir=$dataDirPath, phondata=${phondata.exists()}(${phondata.length()}), vi_dict=${viDict.exists()}(${viDict.length()})")
-        }
-
         try {
             val vitsConfig = OfflineTtsVitsModelConfig()
             vitsConfig.model = onnxPath
             vitsConfig.tokens = tokensPath
-            // Dùng dataDir để VITS Piper phoneme frontend hoạt động đúng với tiếng Việt
             vitsConfig.dataDir = dataDirPath
-            // Chỉ set lexicon nếu có và không dùng dataDir
             vitsConfig.lexicon = if (dataDirPath.isEmpty() && lexiconPath.isNotEmpty()) lexiconPath else ""
             vitsConfig.dictDir = ""
             vitsConfig.noiseScale = 0.667f
@@ -88,7 +77,7 @@ class SherpaTtsEngine @Inject constructor(
             ttsConfig.ruleFars = ""
             ttsConfig.maxNumSentences = 1
 
-            Log.d(TAG, "Creating OfflineTts with dataDir='$dataDirPath', lexicon='${vitsConfig.lexicon}'")
+            Log.d(TAG, "Creating OfflineTts with dataDir='$dataDirPath'")
             tts = OfflineTts(assetManager = null, config = ttsConfig)
 
             currentSampleRate = try {
@@ -98,10 +87,7 @@ class SherpaTtsEngine @Inject constructor(
             }
             Log.d(TAG, "OfflineTts created OK. sampleRate=$currentSampleRate Hz")
 
-            if (currentSampleRate <= 0) {
-                Log.e(TAG, "Invalid sample rate: $currentSampleRate")
-                return@withContext
-            }
+            if (currentSampleRate <= 0) return@withContext
 
             val minBuf = AudioTrack.getMinBufferSize(
                 currentSampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
@@ -140,6 +126,7 @@ class SherpaTtsEngine @Inject constructor(
             return@withContext
         }
 
+        coroutineContext.ensureActive()
         Log.d(TAG, "speak() text='$text' speed=$speed")
 
         val audio = try {
@@ -148,9 +135,11 @@ class SherpaTtsEngine @Inject constructor(
             Log.e(TAG, "OfflineTts.generate() threw", t); null
         }
 
+        coroutineContext.ensureActive()
+
         val samples = audio?.samples
         if (samples == null || samples.isEmpty()) {
-            Log.w(TAG, "No audio samples generated (samples=${samples?.size ?: "null"})")
+            Log.w(TAG, "No audio samples generated")
             return@withContext
         }
         Log.d(TAG, "Generated ${samples.size} samples, converting to PCM16...")
@@ -163,17 +152,46 @@ class SherpaTtsEngine @Inject constructor(
             pcm[i * 2 + 1] = ((s.toInt() shr 8) and 0xFF).toByte()
         }
 
-        val written = track.write(pcm, 0, pcm.size)
-        Log.d(TAG, "Written $written bytes to AudioTrack")
+        try {
+            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                track.play()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error playing AudioTrack", t)
+        }
 
-        // track.write() ở MODE_STREAM đã tự động block trong thời gian âm thanh phát ra loa
-        // Không cần delay thêm durationMs để tránh bị nhân đôi thời gian chờ UI
-        delay(100L)
+        // Ghi dữ liệu PCM theo từng chunk 4KB để có thể hủy (cancel) ngay lập tức khi tạm dừng
+        val chunkSize = 4096
+        var offset = 0
+        while (offset < pcm.size && coroutineContext.isActive) {
+            val length = (pcm.size - offset).coerceAtMost(chunkSize)
+            val written = track.write(pcm, offset, length)
+            if (written <= 0) {
+                Log.e(TAG, "AudioTrack write error or stopped: $written")
+                break
+            }
+            offset += written
+        }
+        Log.d(TAG, "Finished writing $offset / ${pcm.size} bytes to AudioTrack (active=${coroutineContext.isActive})")
+    }
+
+    /**
+     * Dừng phát âm thanh ngay lập tức và xả buffer AudioTrack.
+     */
+    fun stop() {
+        Log.d(TAG, "stop() called")
+        try {
+            audioTrack?.pause()
+            audioTrack?.flush()
+        } catch (t: Throwable) {
+            Log.e(TAG, "stop audioTrack error", t)
+        }
     }
 
     fun release() {
         Log.d(TAG, "release()")
-        try { audioTrack?.stop(); audioTrack?.release() } catch (t: Throwable) { Log.e(TAG, "release audioTrack", t) }
+        stop()
+        try { audioTrack?.release() } catch (t: Throwable) { Log.e(TAG, "release audioTrack", t) }
         audioTrack = null
         try { tts?.release() } catch (t: Throwable) { Log.e(TAG, "release tts", t) }
         tts = null

@@ -26,10 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import android.content.Intent
 import com.epubpro.domain.model.Book
-import com.epubpro.domain.model.ReaderEngineType
-import com.epubpro.feature.library.components.ReaderSelectionBottomSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,7 +38,6 @@ fun LibraryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    var selectedBookForEngineSelection by remember { mutableStateOf<Book?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -137,59 +133,12 @@ fun LibraryScreen(
                     items(uiState.books, key = { it.id }) { book ->
                         BookCard(
                             book = book,
-                            onClick = {
-                                viewModel.onBookCardClicked(
-                                    book = book,
-                                    onOpenDirectly = { b, engine ->
-                                        launchEngineForBook(context, b, engine, onBookClick)
-                                    },
-                                    onShowSelectionSheet = {
-                                        selectedBookForEngineSelection = it
-                                    }
-                                )
-                            },
+                            onClick = { onBookClick(book.id) },
                             onDelete = { viewModel.deleteBook(book) }
                         )
                     }
                 }
             }
-        }
-    }
-
-    if (selectedBookForEngineSelection != null) {
-        ReaderSelectionBottomSheet(
-            book = selectedBookForEngineSelection!!,
-            onDismiss = { selectedBookForEngineSelection = null },
-            onSelectEngine = { book, engineType ->
-                selectedBookForEngineSelection = null
-                viewModel.saveEnginePreference(engineType)
-                launchEngineForBook(context, book, engineType, onBookClick)
-            }
-        )
-    }
-}
-
-private fun launchEngineForBook(
-    context: android.content.Context,
-    book: Book,
-    engineType: ReaderEngineType,
-    onBookClick: (String) -> Unit
-) {
-    when (engineType) {
-        ReaderEngineType.WEBVIEW -> {
-            onBookClick(book.id)
-        }
-        ReaderEngineType.READIUM -> {
-            val intent = Intent().apply {
-                setClassName(
-                    context,
-                    "com.epubpro.feature.reader.readium.ReadiumReaderActivity"
-                )
-                putExtra("extra_book_id", book.id)
-                putExtra("extra_file_path", book.filePath)
-                putExtra("extra_book_title", book.title)
-            }
-            context.startActivity(intent)
         }
     }
 }

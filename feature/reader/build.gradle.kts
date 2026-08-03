@@ -46,7 +46,4 @@ dependencies {
     kapt(libs.hilt.compiler)
 
     implementation(libs.androidx.appcompat)
-    implementation(libs.readium.shared)
-    implementation(libs.readium.streamer)
-    implementation(libs.readium.navigator)
 }

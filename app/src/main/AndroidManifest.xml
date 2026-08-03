@@ -31,10 +31,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name="com.epubpro.feature.reader.readium.ReadiumReaderActivity"
-            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
 
 </manifest>

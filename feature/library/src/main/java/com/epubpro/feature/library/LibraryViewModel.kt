@@ -3,7 +3,7 @@ package com.epubpro.feature.library
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubpro.core.reader.engine.ReadiumEngine
+import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.repository.BookRepository
@@ -12,9 +12,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-import com.epubpro.core.storage.ReaderPreferencesManager
-import com.epubpro.domain.model.ReaderEngineType
 
 data class LibraryUiState(
     val books: List<Book> = emptyList(),
@@ -27,30 +24,8 @@ class LibraryViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val searchRepository: SearchRepository,
     private val storageManager: EpubStorageManager,
-    private val readiumEngine: ReadiumEngine,
-    val preferencesManager: ReaderPreferencesManager
+    private val epubEngine: EpubEngine
 ) : ViewModel() {
-
-    fun isEngineConfigured(): Boolean = preferencesManager.isEngineConfigured()
-
-    fun getSavedEngineType(): ReaderEngineType = preferencesManager.getSettings().engineType
-
-    fun saveEnginePreference(engineType: ReaderEngineType) {
-        val currentSettings = preferencesManager.getSettings()
-        preferencesManager.saveSettings(currentSettings.copy(engineType = engineType))
-    }
-
-    fun onBookCardClicked(
-        book: Book,
-        onOpenDirectly: (Book, ReaderEngineType) -> Unit,
-        onShowSelectionSheet: (Book) -> Unit
-    ) {
-        if (isEngineConfigured()) {
-            onOpenDirectly(book, getSavedEngineType())
-        } else {
-            onShowSelectionSheet(book)
-        }
-    }
 
     private val _searchQuery = MutableStateFlow("")
 
@@ -72,11 +47,11 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val file = storageManager.importEpubFromUri(uri, originalName)
-                val book = readiumEngine.parseEpubMetadata(file)
+                val book = epubEngine.parseEpubMetadata(file)
                 bookRepository.insertBook(book)
 
                 // Memory-safe streaming background FTS indexer
-                readiumEngine.indexBookContent(file, book.id, searchRepository)
+                epubEngine.indexBookContent(file, book.id, searchRepository)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

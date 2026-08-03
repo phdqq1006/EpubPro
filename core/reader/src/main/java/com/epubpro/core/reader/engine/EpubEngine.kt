@@ -23,8 +23,10 @@ data class EpubChapterContent(
     val htmlContent: String
 )
 
+typealias ReadiumEngine = EpubEngine
+
 @Singleton
-class ReadiumEngine @Inject constructor(
+class EpubEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     /**

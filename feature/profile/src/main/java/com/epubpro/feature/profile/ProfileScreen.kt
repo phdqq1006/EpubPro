@@ -31,18 +31,25 @@ fun ProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(vertical = 16.dp, horizontal = 16.dp)
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
     ) {
         item {
             Text(
                 text = stringResource(R.string.profile_title),
                 fontSize = 24.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 24.dp),
+                    .padding(top = 16.dp, bottom = 12.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+
+        item {
+            ProfileSectionHeader(
+                title = stringResource(R.string.profile_section_sync),
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
             )
         }
 
@@ -57,11 +64,9 @@ fun ProfileScreen(
 
         item {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.profile_section_settings),
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            ProfileSectionHeader(
+                title = stringResource(R.string.profile_section_settings),
+                modifier = Modifier.padding(vertical = 2.dp)
             )
         }
 
@@ -112,11 +117,9 @@ fun ProfileScreen(
 
         item {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.profile_section_advanced),
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            ProfileSectionHeader(
+                title = stringResource(R.string.profile_section_advanced),
+                modifier = Modifier.padding(vertical = 2.dp)
             )
         }
 
@@ -128,6 +131,42 @@ fun ProfileScreen(
                 onClick = { }
             )
         }
+    }
+}
+
+@Composable
+fun ProfileSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(18.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 0.5.sp
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+        )
     }
 }
 

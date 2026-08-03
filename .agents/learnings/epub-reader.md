@@ -1,7 +1,7 @@
 # EPUB Reader & Layout Engine
 
 > Tổng hợp kiến thức về hệ thống đọc EPUB, WebView rendering, tối ưu bộ nhớ RAM và Room FTS5 trong dự án.
-> Cập nhật lần cuối: 2026-07-31
+> Cập nhật lần cuối: 2026-08-03
 
 ---
 
@@ -10,12 +10,12 @@
 ### On-Demand Lazy Chapter Loading Architecture
 - **Ngày**: 2026-07-23
 - **Chi tiết**: Đối với các file EPUB dung lượng lớn (hàng ngàn chương), không được nạp toàn bộ mã XHTML của tất cả các chương vào RAM cùng một lúc. Tách thành `EpubChapterHeader` (chỉ chứa tiêu đề và đường dẫn entry, tốn <0.01MB RAM) và nạp `loadChapterHtml()` duy nhất chương đang xem vào WebView.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/ReadiumEngine.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
 
 ### Batch Streaming FTS Indexer
 - **Ngày**: 2026-07-23
 - **Chi tiết**: Xây dựng luồng đánh chỉ mục tìm kiếm toàn văn FTS ngầm qua WorkManager/Coroutine bằng cách đọc từng chương từ file Zip, băm chỉ mục theo batch 5 chương/lần và xả bộ nhớ string ngay lập tức để tránh đè nặng lên Garbage Collector.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/ReadiumEngine.kt`, `core/database/src/main/java/com/epubpro/core/database/repository/RepositoryImpls.kt`
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `core/database/src/main/java/com/epubpro/core/database/repository/RepositoryImpls.kt`
 
 ### Fullscreen Reader Overlay Architecture (Chống xô dịch Layout khi ẩn/hiện Controls)
 - **Ngày**: 2026-07-27
@@ -27,10 +27,10 @@
 - **Chi tiết**: Trong kiến trúc CSS multi-column pagination cho EPUB WebView, `column-width` PHẢI đặt trên `body` (multi-column container). Nếu đặt trên `html`, thì `body` là child duy nhất — nếu `body` có fixed height, nó trở thành khối monolithic KHÔNG THỂ bị fragment qua các cột. Kết quả: chỉ 1 cột hiển thị, text tràn dọc bị `overflow-y: hidden` xén sạch.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
-### Multi-Engine Architecture cho EPUB Reader
-- **Ngày**: 2026-07-28
-- **Chi tiết**: Hỗ trợ 2 Engine song song: EpubPro Custom Engine (tốc độ cao, tối ưu RAM, TTS) và Readium SDK 3.0.0 (chuẩn hóa toàn cầu). Sử dụng `ReaderSelectionBottomSheet` ở tầng Thư viện làm lớp định tuyến: mở thẳng Compose cho Custom hoặc `Intent` kích hoạt `ReadiumReaderActivity` cho Readium. Tách biệt hoàn toàn luồng hoạt động.
-- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/readium/ReadiumReaderActivity.kt`
+### Single Native Engine Architecture (Chuyển đổi từ Readium SDK sang EpubEngine duy nhất)
+- **Ngày**: 2026-08-03
+- **Chi tiết**: Gỡ bỏ hoàn toàn bộ thư viện Readium SDK (`org.readium.r2:*`), `ReadiumReaderActivity` và `ReaderSelectionBottomSheet`. Đơn giản hóa kiến trúc bằng cách dùng duy nhất `EpubEngine` tự phát triển dựa trên Compose + Custom WebView, giúp tối ưu dung lượng app, mở sách tức thì và hỗ trợ tô sáng âm thanh TTS offline đồng bộ.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`
 
 ---
 
@@ -41,7 +41,7 @@
 - **Vấn đề**: `java.lang.OutOfMemoryError` khi nạp sách EPUB lớn (1500+ chương).
 - **Root cause**: `extractChapters()` đọc toàn bộ `readText()` của tất cả các entry XHTML trong file EPUB Zip và giữ đồng thời trong một List duy nhất trong bộ nhớ Heap 256MB.
 - **Fix**: Chuyển sang mô hình Lazy Header `extractChapterHeaders()` + nạp `loadChapterHtml()` theo yêu cầu + phân batch 5 chương khi index FTS + bật `android:largeHeap="true"`.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/ReadiumEngine.kt`, `app/src/main/AndroidManifest.xml`
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `app/src/main/AndroidManifest.xml`
 
 ### Lỗi lệch lề văn bản khi cuộn sang trang mới trong CSS Multi-Column Pagination
 - **Ngày**: 2026-07-31
@@ -75,7 +75,7 @@
 - **Fix**: 
   1. Đọc file `.opf` của EPUB package, parse `<manifest>` (id -> href) và `<spine>` (`<itemref idref="...">`) để tạo danh sách ZipEntry theo đúng thứ tự đọc do tác giả quy định.
   2. Xây dựng `naturalOrderComparator()` tách số khỏi chuỗi để so sánh số tự nhiên (`chap1` < `chap2` < `chap1007`) làm phương án dự phòng (fallback).
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/ReadiumEngine.kt`
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`
 
 ### Lỗi đè vị trí đọc về Chương 1 / Trang 1 khi vừa mở sách
 - **Ngày**: 2026-07-27
@@ -101,13 +101,6 @@
 - **Fix**: Đổi thành `cleanHtml.contains("<html", ignoreCase = true)` để detect, và regex `(?i)(<html[^>]*>)` để replace.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 
-### Xung đột Android SDK 36 khi nâng cấp Readium Kotlin Toolkit 3.3.x
-- **Ngày**: 2026-07-28
-- **Vấn đề**: Biên dịch lỗi toàn bộ dự án khi nâng cấp Readium lên bản `3.3.0`.
-- **Root cause**: Phiên bản 3.3.0 phụ thuộc `core-ktx 1.18.0` và ép hệ thống phải dùng Android SDK API 36, AGP 8.9.1 cùng `desugar_jdk_libs 2.1.5`, xung đột trực tiếp với cấu hình API 34 & AGP 8.3.2 hiện tại.
-- **Fix**: Rollback về phiên bản Stable `3.0.0` (tương thích tối đa với API 34). Tránh việc phải cấu hình lại toàn bộ hệ thống Gradle mà vẫn dùng tốt `EpubNavigatorFragment`.
-- **Files liên quan**: `gradle/libs.versions.toml`
-
 ---
 
 ## How-To
@@ -129,7 +122,7 @@
   3. Parse `<spine>` lấy danh sách `idref` từ `<itemref idref="...">`.
   4. Lần lượt lấy ZipEntry tương ứng theo danh sách `idref`.
   5. Nếu không parse được OPF, fallback dùng Natural Order Comparator (`chap1` < `chap2` < `chap1007`) để sắp xếp `htmlEntries`.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/ReadiumEngine.kt`
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`
 
 ### Cách Inject CSS và Viewport Meta vào file XHTML an toàn
 - **Ngày**: 2026-07-27
@@ -143,15 +136,6 @@
   7. Fallback: bọc toàn bộ trong `<!DOCTYPE html><html><head>...</head><body>...</body></html>`.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 
-### Cách khởi tạo Readium PublicationOpener (Readium 3.0.0)
-- **Ngày**: 2026-07-28
-- **Bước thực hiện**:
-  1. API `Streamer` cũ đã bị loại bỏ. Khởi tạo `HttpClient` và `AssetRetriever(contentResolver)`.
-  2. Tạo `PublicationOpener(publicationParser = EpubParser())` (dùng `EpubParser()` thay vì `DefaultPublicationParser` để tránh lỗi cấu hình `pdfFactory`).
-  3. Lấy Asset an toàn qua `assetRetriever.retrieve(url).getOrNull()`.
-  4. Mở Publication, lấy factory `EpubNavigatorFactory(pub)`. Gọi `fragmentFactory.instantiate` và nạp vào FragmentContainer của Activity.
-- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/readium/ReadiumReaderActivity.kt`
-
 ---
 
 ## Patterns
@@ -160,11 +144,6 @@
 - **Ngày**: 2026-07-31
 - **Chi tiết**: Trong EPUB WebView cuộn ngang, luôn set `column-width: 100vw; column-gap: 0px;` trên multi-column container (`body`) và đẩy `padding-left`/`padding-right` vào các phần tử thẻ con dạng khối. Cách này giữ cho khoảng cách phép tính `scrollToPage((page - 1) * 100vw)` khớp 100% tuyệt đối mà không bị lệch lề ở bất kỳ trang nào.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
-
-### Reader Engine Selection Persistence Pattern
-- **Ngày**: 2026-07-31
-- **Chi tiết**: Lưu cấu hình Reader Engine (`WEBVIEW`/`READIUM`) vào `ReaderPreferencesManager`. Trong `LibraryScreen`, nếu `isEngineConfigured()` trả về true, mở trực tiếp sách bằng engine đã chọn mà không hiển thị lại `ReaderSelectionBottomSheet`.
-- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`
 
 ### 4-Directional Margin Geometry Pattern cho EPUB Multi-Column
 - **Ngày**: 2026-07-27
@@ -184,8 +163,3 @@
 - **Ngày**: 2026-07-27
 - **Chi tiết**: Khi CSS stylesheet `!important` bị override bất ngờ trong Android WebView (do EPUB inline styles, WebView bugs, hoặc CSS cascade conflicts), dùng JS `element.style.setProperty(prop, value, 'important')` để set inline `!important` — đây là priority CAO NHẤT trong CSS cascade, không gì override được. Gọi trong `initLayout()` và `resize` event.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
-
-### Safe Result Decoding Pattern (Xử lý Try/Result từ SDK ngoài)
-- **Ngày**: 2026-07-28
-- **Chi tiết**: Khi SDK bên thứ 3 (như Readium) trả về các kiểu `Result` hoặc `Try` tùy chỉnh, TUYỆT ĐỐI không gọi `getOrThrow()`. Luôn bọc trong khối `try-catch`, gọi `getOrNull()`, và dùng toán tử Elvis `?: return` để thoát hàm an toàn, ngăn crash ngầm do Exception cấu trúc.
-- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/readium/ReadiumReaderActivity.kt`

@@ -50,6 +50,7 @@
 
     <!-- Profile Screen -->
     <string name="profile_title">Cá nhân</string>
+    <string name="profile_section_sync">Đồng bộ dữ liệu</string>
     <string name="profile_drive_sync_title">Đồng bộ Drive</string>
     <string name="profile_drive_sync_subtitle">Tự động sao lưu, khôi phục và đồng bộ giữa các thiết bị</string>
     <string name="profile_section_settings">Cài đặt</string>
@@ -114,14 +115,6 @@
     <string name="reader_config_voice_detail">Cấu hình giọng đọc &amp; ngôn ngữ chi tiết...</string>
     <string name="reader_minimize">Thu nhỏ</string>
 
-    <!-- Readium Activity -->
-    <string name="readium_back_to_library_toast">Đang quay lại Thư viện để mở Custom Engine</string>
-    <string name="readium_tts_coming_soon_toast">Readium Native TTS sắp ra mắt</string>
-    <string name="readium_file_not_found_toast">Không tìm thấy file sách EPUB</string>
-    <string name="readium_custom_engine_title">EpubPro Custom Engine</string>
-    <string name="readium_custom_engine_desc">Khuyên dùng: Hỗ trợ tô sáng đoạn đọc và điều khiển chi tiết.</string>
-    <string name="readium_native_tts_title">Readium Native TTS</string>
-    <string name="readium_native_tts_desc">Thử nghiệm: Trình đọc giọng nói cơ bản của bộ SDK Readium.</string>
 
     <!-- TTS Service & Media Notification -->
     <string name="tts_channel_name">EpubPro Text-To-Speech</string>

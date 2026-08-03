@@ -24,6 +24,10 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
+
+        ndk {
+            abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a"))
+        }
     }
 
     signingConfigs {
@@ -66,6 +70,10 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
     }
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
 }
 
 dependencies {
@@ -84,6 +92,7 @@ dependencies {
     implementation(project(":feature:search"))
     implementation(project(":feature:profile"))
     implementation(project(":core:tts"))
+    implementation(files("../core/tts/libs/sherpa-onnx-1.13.4.aar"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

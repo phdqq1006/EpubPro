@@ -4,6 +4,7 @@ import com.epubpro.core.tts.SherpaTtsEngine
 import com.epubpro.core.tts.VoiceModelDownloader
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsVoice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,8 +20,8 @@ class PiperTtsEngineWrapper @Inject constructor(
     private var isEngineReady = false
     private var currentVoiceId = "ngoc_ngan"
     private var currentSpeed = 1.0f
-    
-    // Lưu lại callback để gọi khi play xong
+
+    private var speakJob: Job? = null
     private var onChunkDoneCallback: ((Int) -> Unit)? = null
     private var currentChunkId: Int = -1
 
@@ -56,33 +57,46 @@ class PiperTtsEngineWrapper @Inject constructor(
             onChunkDone(chunk.id)
             return
         }
-        
+
+        // Hủy job speak đang chạy trước đó để không bị phát đè/trùng luồng
+        speakJob?.cancel()
+
         currentChunkId = chunk.id
         onChunkDoneCallback = onChunkDone
-        
-        engineScope.launch {
+
+        speakJob = engineScope.launch {
             onChunkStart(chunk.id)
+            var completedNormally = false
             try {
                 sherpaTtsEngine.speak(chunk.text, speed = currentSpeed)
+                completedNormally = true
             } catch (e: Exception) {
-                e.printStackTrace()
+                if (e !is CancellationException) {
+                    e.printStackTrace()
+                }
             } finally {
-                onChunkDoneCallback?.invoke(currentChunkId)
+                // Chỉ gọi onChunkDone nếu job hoàn thành bình thường, không bị cancel do pause/stop
+                if (completedNormally) {
+                    onChunkDoneCallback?.invoke(currentChunkId)
+                }
             }
         }
     }
 
     override fun pause() {
-        // SherpaTtsEngine hiện tại chưa hỗ trợ pause luồng byte array tốt, ta sẽ tạm bỏ qua hoặc stop
+        speakJob?.cancel()
+        speakJob = null
+        sherpaTtsEngine.stop()
     }
 
     override fun resume() {
-        // Tương tự
+        // TtsService sẽ gọi playCurrentChunk() -> speak()
     }
 
     override fun stop() {
-        sherpaTtsEngine.release()
-        isEngineReady = false
+        speakJob?.cancel()
+        speakJob = null
+        sherpaTtsEngine.stop()
     }
 
     override fun setSpeed(speed: Float) {
@@ -95,7 +109,6 @@ class PiperTtsEngineWrapper @Inject constructor(
 
     override fun setVoice(voiceId: String) {
         this.currentVoiceId = voiceId
-        // Khi đổi giọng, nên re-initialize
         if (isEngineReady) {
             isEngineReady = false
             initialize(onReady = {}, onError = {})
@@ -110,6 +123,9 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun shutdown() {
-        stop()
+        speakJob?.cancel()
+        speakJob = null
+        sherpaTtsEngine.release()
+        isEngineReady = false
     }
 }

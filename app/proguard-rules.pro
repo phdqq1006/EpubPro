@@ -35,3 +35,7 @@
 # Keep data classes in domain and core reader models if reflection/serialization is used
 -keep class com.epubpro.domain.model.** { *; }
 -keep class com.epubpro.core.reader.model.** { *; }
+
+# Sherpa ONNX TTS
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+
