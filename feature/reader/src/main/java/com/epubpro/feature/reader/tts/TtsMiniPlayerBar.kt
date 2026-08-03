@@ -17,7 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import com.epubpro.core.designsystem.R
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,7 +84,7 @@ fun TtsMiniPlayerBar(
                     .clickable { onExpand() }
             ) {
                 Text(
-                    text = if (isPlaying) "Đang phát audio..." else "Tạm dừng audio",
+                    text = if (isPlaying) stringResource(R.string.tts_playing_status) else stringResource(R.string.tts_paused_status),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = primaryColor
@@ -102,7 +104,7 @@ fun TtsMiniPlayerBar(
             IconButton(onClick = onExpand, modifier = Modifier.size(32.dp)) {
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Mở rộng",
+                    contentDescription = stringResource(R.string.action_expand),
                     tint = Color.Gray
                 )
             }
@@ -110,7 +112,7 @@ fun TtsMiniPlayerBar(
             IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Tắt",
+                    contentDescription = stringResource(R.string.action_stop),
                     tint = Color.Gray
                 )
             }

@@ -42,10 +42,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.Book
 
 import com.epubpro.domain.model.ReaderEngineType
@@ -73,7 +75,7 @@ fun ReaderSelectionBottomSheet(
                 .padding(bottom = 24.dp)
         ) {
             Text(
-                text = "Chọn trình đọc sách",
+                text = stringResource(R.string.reader_selection_title),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp
@@ -84,7 +86,7 @@ fun ReaderSelectionBottomSheet(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Sách: \"${book.title}\"",
+                text = stringResource(R.string.reader_selection_book_format, book.title),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
@@ -94,9 +96,9 @@ fun ReaderSelectionBottomSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             ReaderEngineCard(
-                title = "EpubPro Custom Engine",
-                badgeText = "Khuyên dùng",
-                description = "Siêu nhẹ (<10MB RAM), tải trang tức thì, phân trang dọc/ngang mượt mà và hỗ trợ Audio TTS toàn văn.",
+                title = stringResource(R.string.reader_selection_custom_engine_title),
+                badgeText = stringResource(R.string.reader_selection_custom_engine_badge),
+                description = stringResource(R.string.reader_selection_custom_engine_desc),
                 icon = Icons.Default.Speed,
                 isSelected = selectedEngine == ReaderEngineType.WEBVIEW,
                 onClick = { selectedEngine = ReaderEngineType.WEBVIEW }
@@ -105,9 +107,9 @@ fun ReaderSelectionBottomSheet(
             Spacer(modifier = Modifier.height(12.dp))
 
             ReaderEngineCard(
-                title = "Readium Official SDK",
-                badgeText = "Readium 3.3.0",
-                description = "Sử dụng bộ công cụ Readium Kotlin Toolkit chính thức, chuẩn hóa toàn cầu theo thông số kỹ thuật EPUB 3.",
+                title = stringResource(R.string.reader_selection_readium_title),
+                badgeText = stringResource(R.string.reader_selection_readium_badge),
+                description = stringResource(R.string.reader_selection_readium_desc),
                 icon = Icons.Default.MenuBook,
                 isSelected = selectedEngine == ReaderEngineType.READIUM,
                 onClick = { selectedEngine = ReaderEngineType.READIUM }
@@ -127,7 +129,7 @@ fun ReaderSelectionBottomSheet(
                 )
             ) {
                 Text(
-                    text = "Mở sách ngay",
+                    text = stringResource(R.string.reader_selection_open_now),
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp
@@ -243,7 +245,7 @@ private fun ReaderEngineCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.reader_selection_selected),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp).align(Alignment.CenterVertically)
                 )

@@ -18,10 +18,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.epubpro.core.designsystem.R
 import androidx.hilt.navigation.compose.hiltViewModel
+
+data class VoiceItem(
+    val id: String,
+    val name: String,
+    val size: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,22 +45,24 @@ fun AudioSettingsScreen(
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
 
-    val mockVoices = listOf(
-        "Quang Minh \u00B7 60.6 MB" to true,
-        "Ngọc Huyền \u00B7 60.6 MB" to false,
-        "Ngọc Ngạn \u00B7 60.6 MB" to true,
-        "Phương Mai \u00B7 60.6 MB" to false,
-        "Lạc Phi \u00B7 60.6 MB + runtime..." to false,
-        "Duy \u00B7 60.6 MB + runtime..." to false,
-        "Vais1000 \u00B7 20.6 MB" to false
-    )
+    val mockVoices = remember {
+        listOf(
+            VoiceItem("quang_minh", "Quang Minh", "60.6 MB"),
+            VoiceItem("ngoc_huyen", "Ngọc Huyền", "60.6 MB"),
+            VoiceItem("ngoc_ngan", "Ngọc Ngạn", "60.6 MB"),
+            VoiceItem("phuong_mai", "Phương Mai", "60.6 MB"),
+            VoiceItem("lac_phi", "Lạc Phi", "60.6 MB"),
+            VoiceItem("duy", "Duy", "60.6 MB"),
+            VoiceItem("vais1000", "Vais1000", "20.6 MB")
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Cài đặt âm thanh",
+                        text = stringResource(R.string.audio_settings_title),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -60,7 +71,7 @@ fun AudioSettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -195,13 +206,16 @@ fun AudioSettingsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // AI Voice
+                        // AI Voice Card
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .clip(RoundedCornerShape(16.dp))
                                 .border(
                                     width = if (uiState.isAiVoice) 2.dp else 1.dp,
@@ -212,7 +226,7 @@ fun AudioSettingsScreen(
                                 .clickable { viewModel.onAiVoiceToggled(true) }
                                 .padding(16.dp)
                         ) {
-                            Column {
+                            Column(modifier = Modifier.fillMaxHeight()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -257,10 +271,11 @@ fun AudioSettingsScreen(
                             }
                         }
 
-                        // System Voice
+                        // System Voice Card
                         Box(
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .clip(RoundedCornerShape(16.dp))
                                 .border(
                                     width = if (!uiState.isAiVoice) 2.dp else 1.dp,
@@ -271,7 +286,7 @@ fun AudioSettingsScreen(
                                 .clickable { viewModel.onAiVoiceToggled(false) }
                                 .padding(16.dp)
                         ) {
-                            Column {
+                            Column(modifier = Modifier.fillMaxHeight()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -293,7 +308,11 @@ fun AudioSettingsScreen(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Spacer(modifier = Modifier.height(10.dp)) // To match height
+                                Text(
+                                    text = " ",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "Giọng hệ thống",
@@ -406,7 +425,7 @@ fun AudioSettingsScreen(
                             ) {
                                 Text(
                                     text = if (uiState.isAiVoice) {
-                                        if (uiState.selectedVoiceId == "ngoc_ngan") "Ngọc Ngạn" else uiState.selectedVoiceId
+                                        mockVoices.find { it.id == uiState.selectedVoiceId }?.name ?: uiState.selectedVoiceId
                                     } else "Mặc định hệ thống",
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onSurface,
@@ -423,14 +442,14 @@ fun AudioSettingsScreen(
                                     expanded = showVoiceMenu,
                                     onDismissRequest = { showVoiceMenu = false }
                                 ) {
-                                    mockVoices.forEach { (voiceName, _) ->
+                                    mockVoices.forEach { voice ->
                                         DropdownMenuItem(
                                             text = {
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
-                                                    if (uiState.selectedVoiceId == voiceName.split(" \u00B7 ")[0].replace(" ", "_").lowercase()) {
+                                                    if (uiState.selectedVoiceId == voice.id) {
                                                         Icon(
                                                             imageVector = Icons.Default.Check,
                                                             contentDescription = null,
@@ -441,12 +460,11 @@ fun AudioSettingsScreen(
                                                     } else {
                                                         Spacer(modifier = Modifier.width(26.dp))
                                                     }
-                                                    Text(voiceName)
+                                                    Text("${voice.name} · ${voice.size}")
                                                 }
                                             },
                                             onClick = {
-                                                val voiceId = voiceName.split(" \u00B7 ")[0].replace(" ", "_").lowercase()
-                                                viewModel.onVoiceSelected(voiceId)
+                                                viewModel.onVoiceSelected(voice.id)
                                                 showVoiceMenu = false
                                             }
                                         )
@@ -506,49 +524,60 @@ fun AudioSettingsScreen(
                             OutlinedCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { viewModel.downloadCurrentVoice() },
+                                    .clickable(enabled = !uiState.isDownloading) { viewModel.downloadCurrentVoice() },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                 colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CloudDownload,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = if (uiState.isDownloading) "Đang tải giọng..." else "Tải giọng đọc",
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudDownload,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = if (uiState.isDownloading) "Vui lòng chờ..." else "Cần tải khoảng 60MB để dùng ngoại tuyến",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (uiState.isDownloading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            strokeWidth = 2.dp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        IconButton(onClick = { viewModel.checkDownloadComplete() }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = "Kiểm tra tải xong",
-                                                tint = MaterialTheme.colorScheme.primary
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (uiState.isDownloading) "Đang tải giọng đọc (${(uiState.downloadProgress * 100).toInt()}%)..." else "Tải giọng đọc",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = if (uiState.isDownloading) "Vui lòng giữ ứng dụng mở" else "Cần tải khoảng 60MB để dùng ngoại tuyến",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
+                                        if (uiState.isDownloading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    if (uiState.isDownloading) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        LinearProgressIndicator(
+                                            progress = { uiState.downloadProgress },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp)),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                        )
+                                    }
+                                    if (uiState.downloadError != null) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = uiState.downloadError!!,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
                                     }
                                 }
                             }
@@ -584,7 +613,7 @@ fun AudioSettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Tốc độ đọc", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(text = stringResource(R.string.audio_speech_rate), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                         Text(text = String.format("%.1fx", uiState.speechSpeed), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
                     Slider(
@@ -605,7 +634,7 @@ fun AudioSettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(text = "Cao độ", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                        Text(text = stringResource(R.string.audio_speech_pitch), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
                         Text(text = String.format("%.1f", uiState.speechPitch), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
                     Slider(
@@ -620,9 +649,10 @@ fun AudioSettingsScreen(
                     )
                     
                     if (!uiState.isAiVoice) {
+                        val localContext = LocalContext.current
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(
-                            onClick = { },
+                            onClick = { viewModel.testSystemVoice(localContext) },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
                             shape = RoundedCornerShape(24.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
@@ -630,7 +660,7 @@ fun AudioSettingsScreen(
                         ) {
                             Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "Nghe thử", fontWeight = FontWeight.SemiBold)
+                            Text(text = stringResource(R.string.audio_test_play), fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         // AI Voice also has listen button
@@ -646,11 +676,11 @@ fun AudioSettingsScreen(
                             if (uiState.isPlaying) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "Đang phát...", fontWeight = FontWeight.SemiBold)
+                                Text(text = stringResource(R.string.audio_playing), fontWeight = FontWeight.SemiBold)
                             } else {
                                 Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "Nghe thử", fontWeight = FontWeight.SemiBold)
+                                Text(text = stringResource(R.string.audio_test_play), fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -668,7 +698,7 @@ fun AudioSettingsScreen(
                     ) {
                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Lưu cài đặt", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(text = stringResource(R.string.audio_save_settings), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }

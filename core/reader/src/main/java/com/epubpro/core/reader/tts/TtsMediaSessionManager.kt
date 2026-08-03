@@ -13,6 +13,7 @@ import android.os.Build
 import android.support.v4.media.session.MediaSessionCompat
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat as MediaNotificationCompat
+import com.epubpro.core.designsystem.R
 
 class TtsMediaSessionManager(
     private val context: Context,
@@ -46,10 +47,10 @@ class TtsMediaSessionManager(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "EpubPro Text-To-Speech",
+                context.getString(R.string.tts_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Điều khiển đọc sách bằng giọng nói"
+                description = context.getString(R.string.tts_channel_desc)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -88,7 +89,7 @@ class TtsMediaSessionManager(
         openIntent: PendingIntent?
     ): Notification {
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val playPauseTitle = if (isPlaying) "Tạm dừng" else "Phát"
+        val playPauseTitle = if (isPlaying) context.getString(R.string.tts_action_pause) else context.getString(R.string.tts_action_play)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(bookTitle)
@@ -100,7 +101,7 @@ class TtsMediaSessionManager(
             .addAction(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_previous,
-                    "Đoạn trước",
+                    context.getString(R.string.tts_action_prev),
                     createPendingIntent(ACTION_PREV)
                 )
             )
@@ -114,7 +115,7 @@ class TtsMediaSessionManager(
             .addAction(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_next,
-                    "Đoạn sau",
+                    context.getString(R.string.tts_action_next),
                     createPendingIntent(ACTION_NEXT)
                 )
             )

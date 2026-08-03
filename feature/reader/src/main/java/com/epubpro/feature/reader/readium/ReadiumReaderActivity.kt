@@ -6,8 +6,14 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -15,23 +21,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.material.icons.filled.Headset
-import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.MenuBook
-import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.designsystem.theme.EpubProTheme
-import com.epubpro.feature.reader.R
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import org.readium.r2.navigator.epub.EpubNavigatorFactory
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.shared.ExperimentalReadiumApi
@@ -41,9 +42,9 @@ import org.readium.r2.shared.util.asset.AssetRetriever
 import org.readium.r2.shared.util.http.DefaultHttpClient
 import org.readium.r2.shared.util.toUrl
 import org.readium.r2.streamer.PublicationOpener
-import org.readium.r2.streamer.parser.DefaultPublicationParser
 import java.io.File
 
+@OptIn(ExperimentalReadiumApi::class)
 @AndroidEntryPoint
 class ReadiumReaderActivity : AppCompatActivity() {
 
@@ -58,13 +59,13 @@ class ReadiumReaderActivity : AppCompatActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_readium_reader)
+        setContentView(com.epubpro.feature.reader.R.layout.activity_readium_reader)
 
         val bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: ""
         val filePath = intent.getStringExtra(EXTRA_FILE_PATH) ?: ""
         val bookTitle = intent.getStringExtra(EXTRA_BOOK_TITLE) ?: "Đọc truyện"
 
-        val composeTopBar = findViewById<ComposeView>(R.id.compose_top_bar)
+        val composeTopBar = findViewById<ComposeView>(com.epubpro.feature.reader.R.id.compose_top_bar)
         composeTopBar.setContent {
             EpubProTheme {
                 var showSettingsSheet by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -85,7 +86,7 @@ class ReadiumReaderActivity : AppCompatActivity() {
                         IconButton(onClick = { finish() }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Quay lại"
+                                contentDescription = stringResource(R.string.action_back)
                             )
                         }
                     },
@@ -93,13 +94,13 @@ class ReadiumReaderActivity : AppCompatActivity() {
                         IconButton(onClick = { showTtsChoiceSheet = true }) {
                             Icon(
                                 imageVector = Icons.Default.Headset,
-                                contentDescription = "Đọc sách TTS"
+                                contentDescription = stringResource(R.string.reader_tts)
                             )
                         }
                         IconButton(onClick = { showSettingsSheet = true }) {
                             Icon(
                                 imageVector = Icons.Default.FormatSize,
-                                contentDescription = "Cài đặt hiển thị"
+                                contentDescription = stringResource(R.string.reader_display_settings)
                             )
                         }
                     },
@@ -135,12 +136,12 @@ class ReadiumReaderActivity : AppCompatActivity() {
                         ReadiumTtsChoiceContent(
                             onSelectCustomTts = {
                                 showTtsChoiceSheet = false
-                                Toast.makeText(this@ReadiumReaderActivity, "Đang quay lại Thư viện để mở Custom Engine", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@ReadiumReaderActivity, getString(R.string.readium_back_to_library_toast), Toast.LENGTH_SHORT).show()
                                 finish()
                             },
                             onSelectReadiumTts = {
                                 showTtsChoiceSheet = false
-                                Toast.makeText(this@ReadiumReaderActivity, "Readium Native TTS sắp ra mắt", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@ReadiumReaderActivity, getString(R.string.readium_tts_coming_soon_toast), Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -149,7 +150,7 @@ class ReadiumReaderActivity : AppCompatActivity() {
         }
 
         if (filePath.isBlank() || !File(filePath).exists()) {
-            Toast.makeText(this, "Không tìm thấy file sách EPUB", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.readium_file_not_found_toast), Toast.LENGTH_SHORT).show()
             finish()
             return
         }
@@ -236,7 +237,7 @@ class ReadiumReaderActivity : AppCompatActivity() {
                         ) as EpubNavigatorFragment
 
                         supportFragmentManager.beginTransaction()
-                            .replace(R.id.readium_fragment_container, navigatorFragment!!)
+                            .replace(com.epubpro.feature.reader.R.id.readium_fragment_container, navigatorFragment!!)
                             .commitNow()
                             
                         lifecycleScope.launch {
@@ -312,9 +313,9 @@ fun ReadiumTtsChoiceContent(
             .fillMaxWidth()
             .padding(24.dp)
     ) {
-        androidx.compose.material3.Text(
+        Text(
             text = "Chọn trình đọc giọng nói (TTS)",
-            style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
             modifier = androidx.compose.ui.Modifier.padding(bottom = 16.dp)
         )
@@ -329,15 +330,15 @@ fun ReadiumTtsChoiceContent(
                 modifier = androidx.compose.ui.Modifier.padding(16.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.Speed,
                     contentDescription = null,
                     modifier = androidx.compose.ui.Modifier.padding(end = 16.dp),
-                    tint = androidx.compose.material3.MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.primary
                 )
                 androidx.compose.foundation.layout.Column {
-                    androidx.compose.material3.Text("EpubPro Custom Engine", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    androidx.compose.material3.Text("Khuyên dùng: Hỗ trợ tô sáng đoạn đọc và điều khiển chi tiết.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.readium_custom_engine_title), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text(stringResource(R.string.readium_custom_engine_desc), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -350,14 +351,14 @@ fun ReadiumTtsChoiceContent(
                 modifier = androidx.compose.ui.Modifier.padding(16.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.MenuBook,
                     contentDescription = null,
                     modifier = androidx.compose.ui.Modifier.padding(end = 16.dp)
                 )
                 androidx.compose.foundation.layout.Column {
-                    androidx.compose.material3.Text("Readium Native TTS", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    androidx.compose.material3.Text("Thử nghiệm: Trình đọc giọng nói cơ bản của bộ SDK Readium.", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.readium_native_tts_title), fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text(stringResource(R.string.readium_native_tts_desc), style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -1,0 +1,136 @@
+<resources>
+    <!-- App & General -->
+    <string name="app_name">EpubPro</string>
+    <string name="action_back">Trở về</string>
+    <string name="action_delete">Xóa</string>
+    <string name="action_search">Tìm kiếm</string>
+    <string name="action_menu">Menu</string>
+    <string name="action_close">Đóng</string>
+    <string name="action_expand">Mở rộng</string>
+    <string name="action_stop">Tắt</string>
+    <string name="reader_reading_now">Đang đọc</string>
+    <string name="coming_soon_suffix">%1$s (Coming Soon)</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Trang chủ</string>
+    <string name="nav_browse">Duyệt</string>
+    <string name="nav_library">Thư viện</string>
+    <string name="nav_notebook">Sổ tay</string>
+    <string name="nav_profile">Cá nhân</string>
+
+    <!-- Library Screen -->
+    <string name="library_search_placeholder">Tìm tên sách, tác giả...</string>
+    <string name="library_bookmarks_highlights">Bookmarks &amp; Highlights</string>
+    <string name="library_add_book">Thêm sách</string>
+    <string name="library_add_epub">Thêm sách EPUB</string>
+    <string name="library_empty_title">Kệ sách chưa có tác phẩm nào</string>
+    <string name="library_empty_subtitle">Nhấn nút bên dưới để nạp file EPUB từ thiết bị</string>
+    <string name="library_delete_book">Xóa sách</string>
+
+    <!-- Reader Selection BottomSheet -->
+    <string name="reader_selection_title">Chọn trình đọc sách</string>
+    <string name="reader_selection_book_format">Sách: \"%1$s\"</string>
+    <string name="reader_selection_custom_engine_title">EpubPro Custom Engine</string>
+    <string name="reader_selection_custom_engine_badge">Khuyên dùng</string>
+    <string name="reader_selection_custom_engine_desc">Siêu nhẹ (&lt;10MB RAM), tải trang tức thì, phân trang dọc/ngang mượt mà và hỗ trợ Audio TTS toàn văn.</string>
+    <string name="reader_selection_readium_title">Readium Official SDK</string>
+    <string name="reader_selection_readium_badge">Readium 3.3.0</string>
+    <string name="reader_selection_readium_desc">Sử dụng bộ công cụ Readium Kotlin Toolkit chính thức, chuẩn hóa toàn cầu theo thông số kỹ thuật EPUB 3.</string>
+    <string name="reader_selection_open_now">Mở sách ngay</string>
+    <string name="reader_selection_selected">Đã chọn</string>
+
+    <!-- Bookmark Screen -->
+    <string name="bookmark_title">Bookmarks &amp; Highlights</string>
+    <string name="bookmark_tab_format">Bookmarks (%1$d)</string>
+    <string name="highlight_tab_format">Highlights (%1$d)</string>
+    <string name="bookmark_empty">Chưa có bookmark nào</string>
+    <string name="highlight_empty">Chưa có đoạn highlight nào</string>
+    <string name="bookmark_cfi_format">CFI: %1$s</string>
+    <string name="highlight_note_format">Ghi chú: %1$s</string>
+
+    <!-- Profile Screen -->
+    <string name="profile_title">Cá nhân</string>
+    <string name="profile_drive_sync_title">Đồng bộ Drive</string>
+    <string name="profile_drive_sync_subtitle">Tự động sao lưu, khôi phục và đồng bộ giữa các thiết bị</string>
+    <string name="profile_section_settings">Cài đặt</string>
+    <string name="profile_nav_custom_title">Tùy chỉnh thanh điều hướng</string>
+    <string name="profile_nav_custom_subtitle">Chọn tab hiện trực tiếp. Tab ẩn vẫn mở được trong nút Thêm.</string>
+    <string name="profile_appearance_title">Giao diện</string>
+    <string name="profile_appearance_subtitle">Giao diện sáng / Màu chủ đạo / Thẻ chuỗi đọc ở Trang chủ / Ngôn ngữ</string>
+    <string name="profile_reader_defaults_title">Mặc định đọc</string>
+    <string name="profile_reader_defaults_subtitle">Áp dụng cho EPUB, Chế độ đọc và chế độ Văn bản PDF.</string>
+    <string name="profile_audio_settings_title">Cài đặt âm thanh</string>
+    <string name="profile_audio_settings_subtitle">Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp</string>
+    <string name="profile_highlight_tags_title">Tag highlight</string>
+    <string name="profile_highlight_tags_subtitle">Sửa nhãn</string>
+    <string name="profile_section_advanced">Nâng cao</string>
+    <string name="profile_content_filter_title">Lọc nội dung</string>
+    <string name="profile_content_filter_subtitle">Xóa các đoạn văn bản chứa từ khóa</string>
+    <string name="profile_navigate_to_format">Đi tới %1$s</string>
+
+    <!-- Audio Settings Screen -->
+    <string name="audio_settings_title">Cài đặt Âm thanh TTS</string>
+    <string name="audio_step_1_title">1. Chọn Ngôn ngữ đọc</string>
+    <string name="audio_step_1_subtitle">Chọn ngôn ngữ để lọc các giọng đọc phù hợp</string>
+    <string name="audio_step_2_title">2. Chọn Giọng đọc (Voice)</string>
+    <string name="audio_step_2_subtitle">Thử nghiệm các giọng đọc tự nhiên hoặc giọng hệ thống</string>
+    <string name="audio_step_3_title">3. Tinh chỉnh Âm thanh</string>
+    <string name="audio_step_3_subtitle">Điều chỉnh tốc độ và cao độ phù hợp với trải nghiệm đọc</string>
+    <string name="audio_lang_vi">Tiếng Việt</string>
+    <string name="audio_lang_en">English</string>
+    <string name="audio_voice_loading">Đang tải giọng đọc hệ thống...</string>
+    <string name="audio_speech_rate">Tốc độ đọc</string>
+    <string name="audio_speech_pitch">Cao độ</string>
+    <string name="audio_test_play">Nghe thử</string>
+    <string name="audio_playing">Đang phát...</string>
+    <string name="audio_save_settings">Lưu cài đặt</string>
+
+    <!-- Search Screen -->
+    <string name="search_placeholder">Tìm từ khóa trong nội dung...</string>
+    <string name="search_no_results">Không tìm thấy kết quả nào</string>
+
+    <!-- Reader Screen & Components -->
+    <string name="reader_loading">Đang tải sách...</string>
+    <string name="reader_error">Không thể mở sách</string>
+    <string name="reader_toc">Mục lục</string>
+    <string name="reader_settings">Cài đặt đọc</string>
+    <string name="reader_tts">Nghe đọc (TTS)</string>
+    <string name="reader_save_bookmark">Lưu Bookmark</string>
+    <string name="reader_display_settings">Cài đặt hiển thị</string>
+    <string name="reader_prev_chapter">Chương trước</string>
+    <string name="reader_next_chapter">Chương sau</string>
+    <string name="reader_horizontal_scroll">Lật trang ngang</string>
+    <string name="reader_horizontal_scroll_desc">Phân trang theo chiều ngang kiểu sách truyền thống</string>
+    <string name="reader_font_family">Kiểu phông</string>
+    <string name="reader_font_size_format">Kích thước chữ: %1$d sp</string>
+    <string name="reader_line_spacing">Khoảng cách dòng</string>
+    <string name="reader_page_margin">Căn lề trang (Margin)</string>
+    <string name="reader_margin_top_format">Lề trên: %1$d dp</string>
+    <string name="reader_margin_bottom_format">Lề dưới: %1$d dp</string>
+    <string name="reader_margin_left_format">Lề trái: %1$d dp</string>
+    <string name="reader_margin_right_format">Lề phải: %1$d dp</string>
+    <string name="reader_use_ai_voice">Sử dụng giọng AI</string>
+    <string name="reader_use_ai_voice_desc">Giọng đọc AI tự nhiên offline chất lượng cao</string>
+    <string name="reader_config_voice_detail">Cấu hình giọng đọc &amp; ngôn ngữ chi tiết...</string>
+    <string name="reader_minimize">Thu nhỏ</string>
+
+    <!-- Readium Activity -->
+    <string name="readium_back_to_library_toast">Đang quay lại Thư viện để mở Custom Engine</string>
+    <string name="readium_tts_coming_soon_toast">Readium Native TTS sắp ra mắt</string>
+    <string name="readium_file_not_found_toast">Không tìm thấy file sách EPUB</string>
+    <string name="readium_custom_engine_title">EpubPro Custom Engine</string>
+    <string name="readium_custom_engine_desc">Khuyên dùng: Hỗ trợ tô sáng đoạn đọc và điều khiển chi tiết.</string>
+    <string name="readium_native_tts_title">Readium Native TTS</string>
+    <string name="readium_native_tts_desc">Thử nghiệm: Trình đọc giọng nói cơ bản của bộ SDK Readium.</string>
+
+    <!-- TTS Service & Media Notification -->
+    <string name="tts_channel_name">EpubPro Text-To-Speech</string>
+    <string name="tts_channel_desc">Điều khiển đọc sách bằng giọng nói</string>
+    <string name="tts_default_book_title">Sách EPUB</string>
+    <string name="tts_playing_status">Đang phát audio...</string>
+    <string name="tts_paused_status">Tạm dừng audio</string>
+    <string name="tts_action_play">Phát</string>
+    <string name="tts_action_pause">Tạm dừng</string>
+    <string name="tts_action_prev">Đoạn trước</string>
+    <string name="tts_action_next">Đoạn sau</string>
+</resources>

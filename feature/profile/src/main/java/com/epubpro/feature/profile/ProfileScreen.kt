@@ -15,9 +15,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.epubpro.core.designsystem.R
 
 @Composable
 fun ProfileScreen(
@@ -33,7 +35,7 @@ fun ProfileScreen(
     ) {
         item {
             Text(
-                text = "Cá nhân",
+                text = stringResource(R.string.profile_title),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -46,8 +48,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Đồng bộ Drive",
-                subtitle = "Tự động sao lưu, khôi phục và đồng bộ giữa các thiết bị",
+                title = stringResource(R.string.profile_drive_sync_title),
+                subtitle = stringResource(R.string.profile_drive_sync_subtitle),
                 icon = Icons.Default.CloudSync,
                 onClick = { }
             )
@@ -56,7 +58,7 @@ fun ProfileScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Cài đặt",
+                text = stringResource(R.string.profile_section_settings),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -65,8 +67,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Tùy chỉnh thanh điều hướng",
-                subtitle = "Chọn tab hiện trực tiếp. Tab ẩn vẫn mở được trong nút Thêm.",
+                title = stringResource(R.string.profile_nav_custom_title),
+                subtitle = stringResource(R.string.profile_nav_custom_subtitle),
                 icon = Icons.Default.ViewCarousel,
                 onClick = { }
             )
@@ -74,8 +76,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Giao diện",
-                subtitle = "Giao diện sáng / Màu chủ đạo / Thẻ chuỗi đọc ở Trang chủ / Ngôn ngữ",
+                title = stringResource(R.string.profile_appearance_title),
+                subtitle = stringResource(R.string.profile_appearance_subtitle),
                 icon = Icons.Default.Palette,
                 onClick = { }
             )
@@ -83,8 +85,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Mặc định đọc",
-                subtitle = "Áp dụng cho EPUB, Chế độ đọc và chế độ Văn bản PDF.",
+                title = stringResource(R.string.profile_reader_defaults_title),
+                subtitle = stringResource(R.string.profile_reader_defaults_subtitle),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
                 onClick = { }
             )
@@ -92,8 +94,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Cài đặt âm thanh",
-                subtitle = "Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp",
+                title = stringResource(R.string.profile_audio_settings_title),
+                subtitle = stringResource(R.string.profile_audio_settings_subtitle),
                 icon = Icons.Default.VolumeUp,
                 onClick = onNavigateToAudioSettings
             )
@@ -101,8 +103,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Tag highlight",
-                subtitle = "Sửa nhãn",
+                title = stringResource(R.string.profile_highlight_tags_title),
+                subtitle = stringResource(R.string.profile_highlight_tags_subtitle),
                 icon = Icons.Default.Label,
                 onClick = { }
             )
@@ -111,7 +113,7 @@ fun ProfileScreen(
         item {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Nâng cao",
+                text = stringResource(R.string.profile_section_advanced),
                 fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -120,8 +122,8 @@ fun ProfileScreen(
 
         item {
             ProfileItem(
-                title = "Lọc nội dung",
-                subtitle = "Xóa các đoạn văn bản chứa từ khóa",
+                title = stringResource(R.string.profile_content_filter_title),
+                subtitle = stringResource(R.string.profile_content_filter_subtitle),
                 icon = Icons.Default.FilterAlt,
                 onClick = { }
             )
@@ -166,7 +168,7 @@ fun ProfileItem(
         }
         Icon(
             imageVector = Icons.Default.ChevronRight,
-            contentDescription = "Đi tới $title",
+            contentDescription = stringResource(R.string.profile_navigate_to_format, title),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(20.dp)
         )

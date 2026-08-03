@@ -19,7 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import com.epubpro.core.designsystem.R
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,17 +54,17 @@ fun LibraryScreen(
             TopAppBar(
                 title = {
                     Text(
-                        "EpubPro",
+                        stringResource(R.string.app_name),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.headlineMedium
                     )
                 },
                 actions = {
                     IconButton(onClick = onNavigateToSearch) {
-                        Icon(Icons.Default.Search, contentDescription = "Tìm kiếm")
+                        Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search))
                     }
                     IconButton(onClick = onNavigateToBookmarks) {
-                        Icon(Icons.Default.Bookmark, contentDescription = "Bookmarks & Highlights")
+                        Icon(Icons.Default.Bookmark, contentDescription = stringResource(R.string.library_bookmarks_highlights))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -73,8 +75,8 @@ fun LibraryScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { filePickerLauncher.launch("application/epub+zip") },
-                icon = { Icon(Icons.Default.Add, contentDescription = "Thêm sách") },
-                text = { Text("Thêm sách EPUB") },
+                icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.library_add_book)) },
+                text = { Text(stringResource(R.string.library_add_epub)) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
@@ -89,7 +91,7 @@ fun LibraryScreen(
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = viewModel::onSearchQueryChanged,
-                placeholder = { Text("Tìm tên sách, tác giả...") },
+                placeholder = { Text(stringResource(R.string.library_search_placeholder)) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -114,12 +116,12 @@ fun LibraryScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "Kệ sách chưa có tác phẩm nào",
+                            stringResource(R.string.library_empty_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            "Nhấn nút bên dưới để nạp file EPUB từ thiết bị",
+                            stringResource(R.string.library_empty_subtitle),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -228,14 +230,14 @@ fun BookCard(
                         .padding(4.dp)
                 ) {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_menu))
                     }
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Xóa sách", color = MaterialTheme.colorScheme.error) },
+                            text = { Text(stringResource(R.string.library_delete_book), color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showMenu = false
                                 onDelete()

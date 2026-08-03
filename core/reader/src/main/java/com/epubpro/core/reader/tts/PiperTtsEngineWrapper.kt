@@ -28,9 +28,18 @@ class PiperTtsEngineWrapper @Inject constructor(
         engineScope.launch {
             try {
                 if (downloader.isModelDownloaded(currentVoiceId)) {
+                    // Tải espeak-ng-data nếu chưa có
+                    if (!downloader.isEspeakDataReady()) {
+                        downloader.downloadEspeakNgDataIfNeeded()
+                    }
                     val onnxPath = downloader.getModelPath(currentVoiceId)
                     val tokensPath = downloader.getTokensPath(currentVoiceId)
-                    sherpaTtsEngine.initialize(onnxPath = onnxPath, tokensPath = tokensPath)
+                    val espeakDataDir = downloader.getEspeakDataDir()
+                    sherpaTtsEngine.initialize(
+                        onnxPath = onnxPath,
+                        tokensPath = tokensPath,
+                        dataDirPath = espeakDataDir
+                    )
                     isEngineReady = true
                     onReady()
                 } else {

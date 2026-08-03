@@ -16,9 +16,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.TtsSettings
 import com.epubpro.domain.model.TtsVoice
 
@@ -98,7 +100,7 @@ fun TtsSetupBottomSheet(
                 }
 
                 IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Đóng", tint = Color.Gray)
+                    Icon(imageVector = Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.Gray)
                 }
             }
 

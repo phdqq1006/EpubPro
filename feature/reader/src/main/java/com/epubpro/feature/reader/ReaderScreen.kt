@@ -23,9 +23,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.epubpro.core.designsystem.R
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.reader.bridge.ReaderJsBridge
@@ -130,7 +132,7 @@ fun ReaderScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = uiState.book?.title ?: "Đang đọc...",
+                        text = uiState.book?.title ?: stringResource(R.string.reader_loading),
                         maxLines = 1,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
@@ -138,25 +140,25 @@ fun ReaderScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Trở về")
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.onTtsIconButtonClicked() }) {
                         Icon(
                             imageVector = Icons.Default.Headset,
-                            contentDescription = "Đọc sách TTS",
+                            contentDescription = stringResource(R.string.reader_tts),
                             tint = if (uiState.isTtsSpeaking) MaterialTheme.colorScheme.primary else LocalContentColor.current
                         )
                     }
                     IconButton(onClick = { viewModel.addBookmark() }) {
-                        Icon(Icons.Default.BookmarkBorder, contentDescription = "Lưu Bookmark")
+                        Icon(Icons.Default.BookmarkBorder, contentDescription = stringResource(R.string.reader_save_bookmark))
                     }
                     IconButton(onClick = { showTocDrawer = true }) {
-                        Icon(Icons.Default.List, contentDescription = "Mục lục")
+                        Icon(Icons.Default.List, contentDescription = stringResource(R.string.reader_toc))
                     }
                     IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(Icons.Default.FormatSize, contentDescription = "Cài đặt hiển thị")
+                        Icon(Icons.Default.FormatSize, contentDescription = stringResource(R.string.reader_display_settings))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -187,7 +189,7 @@ fun ReaderScreen(
                         onClick = viewModel::previousChapter,
                         enabled = uiState.currentChapterIndex > 0
                     ) {
-                        Icon(Icons.Default.NavigateBefore, contentDescription = "Chương trước")
+                        Icon(Icons.Default.NavigateBefore, contentDescription = stringResource(R.string.reader_prev_chapter))
                     }
 
                     val progressText = if (uiState.settings.isHorizontalPagination) {
@@ -205,7 +207,7 @@ fun ReaderScreen(
                         onClick = viewModel::nextChapter,
                         enabled = uiState.currentChapterIndex < uiState.chapters.size - 1
                     ) {
-                        Icon(Icons.Default.NavigateNext, contentDescription = "Chương sau")
+                        Icon(Icons.Default.NavigateNext, contentDescription = stringResource(R.string.reader_next_chapter))
                     }
                 }
             }
@@ -246,7 +248,7 @@ fun ReaderScreen(
                                     if (isCurrent) {
                                         Icon(
                                             Icons.Default.Book,
-                                            contentDescription = "Đang đọc",
+                                            contentDescription = stringResource(R.string.reader_reading_now),
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
@@ -508,9 +510,9 @@ fun ReaderSettingsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Lật trang ngang", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.reader_horizontal_scroll), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (settings.isHorizontalPagination) "Vuốt/chạm lề để lật trang" else "Cuộn dọc liên tục",
+                    stringResource(R.string.reader_horizontal_scroll_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -528,10 +530,10 @@ fun ReaderSettingsContent(
         )
 
         // --- SECTION 2: Phông chữ & Kiểu chữ ---
-        SettingSectionHeader(title = "Phông chữ & Kiểu chữ", icon = Icons.Default.TextFields)
+        SettingSectionHeader(title = stringResource(R.string.reader_font_family), icon = Icons.Default.TextFields)
         Spacer(modifier = Modifier.height(10.dp))
 
-        Text("Kiểu phông", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.reader_font_family), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -549,7 +551,7 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Kích thước chữ: ${settings.fontSizeSp.toInt()} sp", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.reader_font_size_format, settings.fontSizeSp.toInt()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Slider(
             value = settings.fontSizeSp,
             onValueChange = { onSettingsChanged(settings.copy(fontSizeSp = it)) },
@@ -559,7 +561,7 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text("Khoảng cách dòng", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.reader_line_spacing), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -582,7 +584,7 @@ fun ReaderSettingsContent(
         )
 
         // --- SECTION 3: Phông nền & Màu sắc ---
-        SettingSectionHeader(title = "Phông nền & Màu sắc", icon = Icons.Default.Palette)
+        SettingSectionHeader(title = stringResource(R.string.profile_appearance_title), icon = Icons.Default.Palette)
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(
@@ -608,7 +610,7 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text("Căn lề trang (Margin)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.reader_page_margin), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
@@ -616,7 +618,7 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Lề trên: ${settings.marginTopDp} dp", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_top_format, settings.marginTopDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = settings.marginTopDp.toFloat(),
                     onValueChange = { onSettingsChanged(settings.copy(marginTopDp = it.toInt())) },
@@ -624,7 +626,7 @@ fun ReaderSettingsContent(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text("Lề dưới: ${settings.marginBottomDp} dp", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_bottom_format, settings.marginBottomDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = settings.marginBottomDp.toFloat(),
                     onValueChange = { onSettingsChanged(settings.copy(marginBottomDp = it.toInt())) },
@@ -638,7 +640,7 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Lề trái: ${settings.marginLeftDp} dp", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_left_format, settings.marginLeftDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = settings.marginLeftDp.toFloat(),
                     onValueChange = { onSettingsChanged(settings.copy(marginLeftDp = it.toInt())) },
@@ -646,7 +648,7 @@ fun ReaderSettingsContent(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text("Lề phải: ${settings.marginRightDp} dp", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_right_format, settings.marginRightDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
                     value = settings.marginRightDp.toFloat(),
                     onValueChange = { onSettingsChanged(settings.copy(marginRightDp = it.toInt())) },
@@ -662,7 +664,7 @@ fun ReaderSettingsContent(
         )
 
         // --- SECTION 4: Cấu hình Audio / TTS ---
-        SettingSectionHeader(title = "Cấu hình Giọng đọc & Audio", icon = Icons.Default.VolumeUp)
+        SettingSectionHeader(title = stringResource(R.string.profile_audio_settings_title), icon = Icons.Default.VolumeUp)
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(
@@ -671,9 +673,9 @@ fun ReaderSettingsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text("Sử dụng giọng AI", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.reader_use_ai_voice), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (ttsSettings.isAiVoice) "Giọng đọc AI tự nhiên" else "Giọng đọc mặc định của máy",
+                    stringResource(R.string.reader_use_ai_voice_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -686,7 +688,7 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text("Tốc độ đọc", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.audio_speech_rate), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -711,7 +713,7 @@ fun ReaderSettingsContent(
         ) {
             Icon(Icons.Default.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Cấu hình giọng đọc & ngôn ngữ chi tiết...")
+            Text(stringResource(R.string.reader_config_voice_detail))
         }
 
         Spacer(modifier = Modifier.height(24.dp))

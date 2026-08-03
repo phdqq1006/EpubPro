@@ -15,7 +15,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import com.epubpro.core.designsystem.R
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,7 +107,7 @@ fun TtsAudioPlayerScreen(
                 IconButton(onClick = onCollapse) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Thu nhỏ",
+                        contentDescription = stringResource(R.string.reader_minimize),
                         tint = Color(0xFF424242),
                         modifier = Modifier.size(32.dp)
                     )
@@ -278,7 +280,7 @@ fun TtsAudioPlayerScreen(
                 IconButton(onClick = onSkipPrevious) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Đoạn trước",
+                        contentDescription = stringResource(R.string.tts_action_prev),
                         modifier = Modifier.size(36.dp),
                         tint = Color(0xFF212121)
                     )
@@ -295,7 +297,7 @@ fun TtsAudioPlayerScreen(
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Tạm dừng" else "Phát",
+                        contentDescription = if (isPlaying) stringResource(R.string.tts_action_pause) else stringResource(R.string.tts_action_play),
                         tint = Color.White,
                         modifier = Modifier.size(36.dp)
                     )
@@ -304,7 +306,7 @@ fun TtsAudioPlayerScreen(
                 IconButton(onClick = onSkipNext) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Đoạn tiếp",
+                        contentDescription = stringResource(R.string.tts_action_next),
                         modifier = Modifier.size(36.dp),
                         tint = Color(0xFF212121)
                     )

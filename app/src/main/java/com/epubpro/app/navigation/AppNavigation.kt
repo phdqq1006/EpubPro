@@ -20,6 +20,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import androidx.compose.ui.res.stringResource
+import com.epubpro.core.designsystem.R
 import com.epubpro.feature.bookmark.BookmarkScreen
 import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
@@ -57,10 +59,10 @@ fun AppNavHost(
                             icon = {
                                 Icon(
                                     imageVector = if (selected) destination.selectedIcon else destination.unselectedIcon,
-                                    contentDescription = destination.iconTextId
+                                    contentDescription = stringResource(destination.iconTextId)
                                 )
                             },
-                            label = { Text(destination.titleTextId) }
+                            label = { Text(stringResource(destination.titleTextId)) }
                         )
                     }
                 }
@@ -88,19 +90,19 @@ fun AppNavHost(
 
             composable(Screen.Browse.route) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Duyệt (Coming Soon)")
+                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_browse)))
                 }
             }
 
             composable(Screen.Bookshelf.route) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Thư viện (Coming Soon)")
+                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_library)))
                 }
             }
 
             composable(Screen.Notebook.route) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Sổ tay (Coming Soon)")
+                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_notebook)))
                 }
             }
 

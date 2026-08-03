@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-07-31
+> Cập nhật lần cuối: 2026-08-03
 
 ---
 
@@ -59,6 +59,34 @@
 - **Fix**: Cập nhật `PiperTtsEngineWrapper.kt` đổi `getJsonPath()` thành `getTokensPath()` và truyền tham số dạng named parameters cho `SherpaTtsEngine.initialize(onnxPath = ..., tokensPath = ...)`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
 
+### Lỗi Failed to set eSpeak-ng voice khi gọi OfflineTts.generate()
+- **Ngày**: 2026-08-03
+- **Vấn đề**: Khi bấm Nghe thử, C++ nổ lỗi `Failed to set eSpeak-ng voice` và văng app (SIGABRT).
+- **Root cause**: Thư viện `espeak-ng` tìm kiếm file voice định nghĩa ngôn ngữ Tiếng Việt theo nhiều đường dẫn khác nhau như `lang/aav/vi`, `voices/vi`, và `voices/!v/vi`. Nếu thiếu bất kỳ đường dẫn nào trong số này, `espeak_SetVoiceByName("vi")` sẽ thất bại và quăng ra `std::runtime_error`.
+- **Fix**: Trong `VoiceModelDownloader.kt`, sau khi tải `lang/aav/vi`, tự động thực hiện hàm `ensureVoiceAlias()` tạo bản sao alias đồng thời tại `espeak-ng-data/voices/vi` và `espeak-ng-data/voices/!v/vi`. Cập nhật `isEspeakDataReady()` kiểm tra cả 2 vị trí này.
+- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
+
+### Lỗi Trễ UI Sau Khi Đọc Xong Nút "Đang phát..." Mới Đổi Thành "Nghe thử"
+- **Ngày**: 2026-08-03
+- **Vấn đề**: Sau khi loa đọc hết câu văn, nút bấm UI phải chờ rất lâu (bằng đúng thời lượng audio) mới quay lại trạng thái "Nghe thử".
+- **Root cause**: `AudioTrack.write()` ở chế độ `MODE_STREAM` của Android đã là một hàm đồng bộ tự dừng thread trong thời gian phát âm thanh. Việc gọi thêm `delay(durationMs)` phía sau `track.write()` đã làm thời gian chờ bị **nhân đôi** (2x duration).
+- **Fix**: Bỏ hàm `delay(durationMs)` thừa trong `SherpaTtsEngine.speak()`, chỉ giữ lại `delay(100L)` nhỏ để flush audio. UI lập tức đổi trạng thái ngay khi loa kết thúc đọc.
+- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
+
+### Lỗi Unclosed Comment Trong Kotlin Khi Comment Chứa Cú Pháp Slash-Star
+- **Ngày**: 2026-08-03
+- **Vấn đề**: File `VoiceModelDownloader.kt` báo lỗi compile `Unclosed comment` ở cuối file dù đoạn Javadoc phía trên đã có `*/`.
+- **Root cause**: Trình phân tích cú pháp (Lexer) của Kotlin hỗ trợ multiline comment lồng nhau (nested comments). Trong khối comment Javadoc có ghi chuỗi path `voices/!v/*`, chứa ký tự `/*` khiến Kotlin hiểu là mở thêm 1 level comment mới và làm toàn bộ code phía dưới bị nuốt vào comment.
+- **Fix**: Sửa chuỗi `voices/!v/*` thành `voices/!v` trong comment.
+- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
+
+### Lỗi Lệch Khung Và Vị Trí Tiêu Đề Giữa Các Thẻ Card Chọn Giọng Đọc
+- **Ngày**: 2026-08-03
+- **Vấn đề**: Card "Giọng AI" dài hơn Card "Giọng hệ thống", và tiêu đề 2 thẻ không nằm trên cùng 1 đường thẳng ngang.
+- **Root cause**: Thẻ `Row` chứa 2 card chưa gán `.height(IntrinsicSize.Max)`, và Card 2 thiếu slot rỗng tương đương nhãn "ĐỀ XUẤT" của Card 1.
+- **Fix**: Gán `.height(IntrinsicSize.Max)` cho `Row`, `.fillMaxHeight()` cho cả 2 Card `Box`, và thêm `Text(" ", fontSize = 10.sp)` giữ slot rỗng cho Card 2.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt`
+
 ---
 
 ## How-To
@@ -83,10 +111,15 @@
 
 ### Single Source of Truth via Service StateFlow
 - **Ngày**: 2026-07-27
-- **Chi tiết**: `TtsService` nắm giữ `MutableStateFlow<TtsPlayerState>` duy nhất. `ReaderViewModel` và `ReaderScreen` lắng nghe flow này để cập nhật đồng bộ cho cả Fullscreen Player, Mini Player Bar, và vị trí highlight trong WebView.
+- **Chi tiết**: `TtsService` nắm giữ `MutableStateFlow<TtsPlayerState>` duy nhất. `ReaderViewModel` và `ReaderScreen` lắng hệ flow này để cập nhật đồng bộ cho cả Fullscreen Player, Mini Player Bar, và vị trí highlight trong WebView.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
 
 ### Real-Time Audio Settings Synchronization via Preference Flow
 - **Ngày**: 2026-07-31
-- **Chi tiết**: `TtsPreferencesManager` phát ra `StateFlow<TtsSettings>` mỗi khi thay đổi cài đặt (giọng đọc, tốc độ, cao độ, bật/tắt AI voice). `TtsService` lắng nghe (`collect`) flow này để tự động cập nhật engine đang phát mà không cần restart Service hay truyền Intent thủ công từ UI Tab Cá nhân.
+- **Chi tiết**: `TtsPreferencesManager` phát ra `StateFlow<TtsSettings>` mỗi khi thay đổi cài đặt (giọng đọc, tốc độ, cao độ, bật/tắt AI voice). `TtsService` lắng nghe (`collect`) flow me để tự động cập nhật engine đang phát mà không cần restart Service hay truyền Intent thủ công từ UI Tab Cá nhân.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/TtsPreferencesManager.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt`
+
+### Atomic Temp File Downloading with Fallback Renaming
+- **Ngày**: 2026-08-03
+- **Chi tiết**: Khi tải file binary lớn (ONNX model, dict files), luôn tải về file `.tmp` trước. Dùng `renameTo()` và fallback sang `copyTo(overwrite = true) + delete()` để đảm bảo tính nguyên tử, không để lại file hỏng/rác khi gặp ngắt kết nối mạng.
+- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`

@@ -9,6 +9,7 @@ import com.epubpro.domain.model.SleepTimerOption
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.domain.model.TtsSettings
+import com.epubpro.core.designsystem.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,7 +39,7 @@ class TtsService : Service() {
 
     private var chunks: List<TtsChunk> = emptyList()
     private var currentIndex: Int = 0
-    private var bookTitle: String = "Sách EPUB"
+    private var bookTitle: String = ""
     private var author: String = "EpubPro Reader"
 
     private var sleepTimerJob: Job? = null
@@ -46,6 +47,7 @@ class TtsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        bookTitle = getString(R.string.tts_default_book_title)
         nativeTtsEngine = AndroidNativeTtsEngine(applicationContext)
         mediaSessionManager = TtsMediaSessionManager(
             context = applicationContext,

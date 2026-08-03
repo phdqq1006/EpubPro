@@ -27,6 +27,7 @@ dependencies {
 
     implementation(project(":domain"))
     implementation(project(":core:common"))
+    implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
     implementation(project(":core:tts"))
 
