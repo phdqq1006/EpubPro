@@ -56,8 +56,47 @@ enum class ReaderThemeMode {
     LIGHT,
     DARK,
     SEPIA,
-    OLED,
+    PAPER,
     MIDNIGHT
+}
+
+/** Chế độ đọc sách */
+enum class ReadingMode {
+    SCROLL,             // Cuộn dọc
+    SCROLL_HORIZONTAL,  // Cuộn ngang
+    FLIP,               // Lật trang (horizontal pagination)
+    CONTINUOUS          // Cuốn liên tục
+}
+
+/** Căn chỉnh văn bản */
+enum class TextAlignment {
+    LEFT,
+    JUSTIFY
+}
+
+/** Preset phông chữ */
+enum class FontPreset(val fontFamily: String, val displayName: String) {
+    SERIF("Serif", "Có chân"),
+    LORA("Lora", "Lora"),
+    SOURCE_SERIF("Source Serif 4", "Source Serif"),
+    KINDLE("Georgia", "K")
+}
+
+/** Layout vùng chạm lật trang */
+enum class TapZoneLayout(val displayName: String) {
+    HORIZONTAL("Vùng chạm ngang"),
+    VERTICAL("Vùng chạm dọc"),
+    BOTTOM_SPLIT("Vùng chạm chia trên dưới")
+}
+
+/** Hành động khi chạm vào vùng màn hình */
+enum class TapZoneAction(val label: String) {
+    PREV_PAGE("Trang trước"),
+    NEXT_PAGE("Trang sau"),
+    TOGGLE_CONTROLS("Hiện/Ẩn Menu"),
+    BOOKMARK("Tạo Bookmark"),
+    TTS("Nghe đọc (TTS)"),
+    NONE("Không hành động")
 }
 
 data class ReaderSettings(
@@ -70,7 +109,21 @@ data class ReaderSettings(
     val marginLeftDp: Int = 16,
     val marginRightDp: Int = 16,
     val themeMode: ReaderThemeMode = ReaderThemeMode.LIGHT,
-    val isHorizontalPagination: Boolean = false
+    val isHorizontalPagination: Boolean = true,
+    // Extended fields for Reading Defaults screen
+    val readingMode: ReadingMode = ReadingMode.FLIP,
+    val paragraphSpacingDp: Int = 8,
+    val firstLineIndentDp: Int = 0,
+    val textAlignment: TextAlignment = TextAlignment.LEFT,
+    val showStatusBar: Boolean = true,
+    val showScrollBar: Boolean = false,
+    val keepScreenOn: Boolean = false,
+    // Extended fields for Page Turn Control
+    val tapZoneLayout: TapZoneLayout = TapZoneLayout.HORIZONTAL,
+    val enablePageAnimation: Boolean = true,
+    val enableKeyboardNavigation: Boolean = true,
+    val enableVolumeKeyNavigation: Boolean = false,
+    val pageTurnSpeedMs: Int = 220
 ) {
     val marginDp: Int get() = (marginLeftDp + marginRightDp) / 2
 }

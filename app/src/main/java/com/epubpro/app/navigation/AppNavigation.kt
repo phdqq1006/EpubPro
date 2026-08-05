@@ -25,6 +25,8 @@ import com.epubpro.core.designsystem.R
 import com.epubpro.feature.bookmark.BookmarkScreen
 import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
+import com.epubpro.feature.profile.ReadingDefaultsScreen
+import com.epubpro.feature.profile.PageTurnControlScreen
 import com.epubpro.feature.reader.ReaderScreen
 import com.epubpro.feature.search.SearchScreen
 
@@ -108,12 +110,26 @@ fun AppNavHost(
 
             composable(Screen.Profile.route) {
                 ProfileScreen(
-                    onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) }
+                    onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
+                    onNavigateToReadingDefaults = { navController.navigate(Screen.ReadingDefaults.route) }
                 )
             }
 
             composable(Screen.AudioSettings.route) {
                 com.epubpro.feature.profile.audio.AudioSettingsScreen(
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.ReadingDefaults.route) {
+                ReadingDefaultsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToPageTurnControl = { navController.navigate(Screen.PageTurnControl.route) }
+                )
+            }
+
+            composable(Screen.PageTurnControl.route) {
+                PageTurnControlScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
@@ -173,4 +189,6 @@ sealed class Screen(val route: String) {
     object Notebook : Screen("notebook")
     object Profile : Screen("profile")
     object AudioSettings : Screen("audio_settings")
+    object ReadingDefaults : Screen("reading_defaults")
+    object PageTurnControl : Screen("page_turn_control")
 }

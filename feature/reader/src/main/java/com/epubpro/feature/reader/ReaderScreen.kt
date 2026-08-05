@@ -99,7 +99,9 @@ fun ReaderScreen(
 
                 EpubWebView(
                     htmlContent = uiState.currentChapterHtml,
-                    initialPage = uiState.currentPageInChapter,
+                    previousChapterHtml = uiState.previousChapterHtml,
+                    nextChapterHtml = uiState.nextChapterHtml,
+                    initialPage = uiState.initialPageRequest,
                     settings = uiState.settings,
                     activeTtsParagraphIndex = activeChunkIndex,
                     onPageTapped = viewModel::toggleControls,
@@ -349,10 +351,23 @@ fun ReaderScreen(
     }
 }
 
+private fun sanitizeEpubHtml(html: String): String {
+    return html
+        .replace("""(?i)<meta\s+name=["']viewport["'][^>]*>""".toRegex(), "")
+        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*/>""".toRegex(), "")
+        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*>""".toRegex(), "")
+        .replace("""(?is)<style[^>]*>.*?</style>""".toRegex(), "")
+        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
+        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
+        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
+        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
+}
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun EpubWebView(
     htmlContent: String,
+    previousChapterHtml: String?,
+    nextChapterHtml: String?,
     initialPage: Int,
     settings: ReaderSettings,
     activeTtsParagraphIndex: Int? = null,
@@ -411,46 +426,52 @@ fun EpubWebView(
             }
         },
         update = { webView ->
+            val cleanHtml = sanitizeEpubHtml(htmlContent)
+            val previousPreviewHtml = previousChapterHtml?.let(::sanitizeEpubHtml)
+            val nextPreviewHtml = nextChapterHtml?.let(::sanitizeEpubHtml)
             val css = CssInjector.generateCss(settings)
-            val jsScript = CssInjector.generateJsBridgeScript(settings.isHorizontalPagination, initialPage, settings)
+            val jsScript = CssInjector.generateJsBridgeScript(
+                isHorizontalPagination = settings.isHorizontalPagination,
+                initialPage = initialPage,
+                settings = settings,
+                previousChapterHtml = previousPreviewHtml,
+                nextChapterHtml = nextPreviewHtml
+            )
             val meta = CssInjector.generateMetaAndViewport()
-            val headInjection = "$meta\n$css\n<script>\n$jsScript\n</script>"
-
-            // Strip existing viewport meta and EPUB stylesheets that conflict
-            var cleanHtml = htmlContent
-                .replace("(?i)<meta\\s+name=[\"']viewport[\"'][^>]*>".toRegex(), "")
-                .replace("(?i)<link[^>]*rel=[\"']stylesheet[\"'][^>]*/>".toRegex(), "")
-                .replace("(?i)<link[^>]*rel=[\"']stylesheet[\"'][^>]*>".toRegex(), "")
-            
-            // Strip existing <style> blocks from EPUB that may override our columns
-            cleanHtml = cleanHtml.replace("(?is)<style[^>]*>.*?</style>".toRegex(), "")
-            
-            // Strip inline style attributes from body and html tags
-            cleanHtml = cleanHtml.replace("(?i)(<body[^>]*?)\\s+style\\s*=\\s*\"[^\"]*\"".toRegex(), "$1")
-            cleanHtml = cleanHtml.replace("(?i)(<body[^>]*?)\\s+style\\s*=\\s*'[^']*'".toRegex(), "$1")
-            cleanHtml = cleanHtml.replace("(?i)(<html[^>]*?)\\s+style\\s*=\\s*\"[^\"]*\"".toRegex(), "$1")
-            cleanHtml = cleanHtml.replace("(?i)(<html[^>]*?)\\s+style\\s*=\\s*'[^']*'".toRegex(), "$1")
-
+            val headInjection = """
+                $meta
+                $css
+                <script>
+                $jsScript
+                </script>
+            """.trimIndent()
             val preparedHtml = when {
                 cleanHtml.contains("</head>", ignoreCase = true) -> {
-                    cleanHtml.replace("(?i)</head>".toRegex(), "$headInjection</head>")
+                    "(?i)</head>".toRegex().replace(cleanHtml) {
+                        "$headInjection</head>"
+                    }
                 }
                 cleanHtml.contains("<head>", ignoreCase = true) -> {
-                    cleanHtml.replace("(?i)<head>".toRegex(), "<head>$headInjection")
+                    "(?i)<head>".toRegex().replace(cleanHtml) {
+                        "<head>$headInjection"
+                    }
                 }
                 cleanHtml.contains("<html", ignoreCase = true) -> {
-                    cleanHtml.replace("(?i)(<html[^>]*>)".toRegex(), "$1<head>$headInjection</head>")
+                    "(?i)(<html[^>]*>)".toRegex().replace(cleanHtml) { match ->
+                        "${match.value}<head>$headInjection</head>"
+                    }
                 }
                 else -> {
                     "<!DOCTYPE html><html><head>$headInjection</head><body>$cleanHtml</body></html>"
                 }
             }
 
-            val newHtmlKey = "${htmlContent.hashCode()}_${settings.hashCode()}_${settings.isHorizontalPagination}"
+            val newHtmlKey = "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.hashCode()}_${settings.isHorizontalPagination}"
             if (loadedHtmlKey != newHtmlKey) {
                 loadedHtmlKey = newHtmlKey
                 Log.d("EpubPro_HTML", "Loading HTML, length=${preparedHtml.length}, isHorizontal=${settings.isHorizontalPagination}")
                 Log.d("EpubPro_HTML", "First 1000 chars: ${preparedHtml.take(1000)}")
+
                 webView.loadDataWithBaseURL("file:///android_asset/", preparedHtml, "text/html", "utf-8", null)
             }
         },
@@ -519,8 +540,47 @@ fun ReaderSettingsContent(
             }
             Switch(
                 checked = settings.isHorizontalPagination,
-                onCheckedChange = { onSettingsChanged(settings.copy(isHorizontalPagination = it)) }
+                onCheckedChange = { isHorizontal ->
+                    onSettingsChanged(
+                        settings.copy(
+                            isHorizontalPagination = isHorizontal,
+                            readingMode = if (isHorizontal) {
+                                com.epubpro.domain.model.ReadingMode.FLIP
+                            } else {
+                                com.epubpro.domain.model.ReadingMode.SCROLL
+                            }
+                        )
+                    )
+                }
             )
+        }
+
+        if (settings.isHorizontalPagination) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Tốc độ trượt lật trang: ${settings.pageTurnSpeedMs} ms",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Slider(
+                value = settings.pageTurnSpeedMs.toFloat(),
+                onValueChange = { onSettingsChanged(settings.copy(pageTurnSpeedMs = it.toInt())) },
+                valueRange = 100f..600f,
+                steps = 9
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(120 to "Nhanh (120ms)", 220 to "Vừa (220ms)", 450 to "Chậm (450ms)").forEach { (speed, label) ->
+                    FilterChip(
+                        selected = settings.pageTurnSpeedMs == speed,
+                        onClick = { onSettingsChanged(settings.copy(pageTurnSpeedMs = speed)) },
+                        label = { Text(label, fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
 
         HorizontalDivider(
@@ -600,8 +660,8 @@ fun ReaderSettingsContent(
             ThemeChip("Sepia", Color(0xFFFBF0D9), Color(0xFF4A3B32), settings.themeMode == ReaderThemeMode.SEPIA) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.SEPIA))
             }
-            ThemeChip("OLED", Color.Black, Color.White, settings.themeMode == ReaderThemeMode.OLED) {
-                onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.OLED))
+            ThemeChip("Giấy", Color(0xFFF5F0E8), Color(0xFF3C3530), settings.themeMode == ReaderThemeMode.PAPER) {
+                onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.PAPER))
             }
             ThemeChip("Đêm", Color(0xFF0F172A), Color(0xFF94A3B8), settings.themeMode == ReaderThemeMode.MIDNIGHT) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.MIDNIGHT))

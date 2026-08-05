@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import com.epubpro.domain.model.ReaderEngineType
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
+import com.epubpro.domain.model.ReadingMode
+import com.epubpro.domain.model.TapZoneLayout
+import com.epubpro.domain.model.TextAlignment
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,7 +45,45 @@ class ReaderPreferencesManager @Inject constructor(
         } catch (e: Exception) {
             ReaderThemeMode.LIGHT
         }
-        val isHorizontal = prefs.getBoolean(KEY_IS_HORIZONTAL, true)
+        val legacyIsHorizontal = prefs.getBoolean(KEY_IS_HORIZONTAL, true)
+
+        // Extended fields
+        val readingModeName = prefs.getString(KEY_READING_MODE, ReadingMode.FLIP.name) ?: ReadingMode.FLIP.name
+        val readingMode = try {
+            ReadingMode.valueOf(readingModeName)
+        } catch (e: Exception) {
+            ReadingMode.FLIP
+        }
+        val isHorizontal = if (prefs.contains(KEY_READING_MODE)) {
+            readingMode == ReadingMode.FLIP || readingMode == ReadingMode.SCROLL_HORIZONTAL
+        } else {
+            legacyIsHorizontal
+        }
+
+        val textAlignmentName = prefs.getString(KEY_TEXT_ALIGNMENT, TextAlignment.LEFT.name) ?: TextAlignment.LEFT.name
+        val textAlignment = try {
+            TextAlignment.valueOf(textAlignmentName)
+        } catch (e: Exception) {
+            TextAlignment.LEFT
+        }
+
+        val paragraphSpacingDp = prefs.getInt(KEY_PARAGRAPH_SPACING, 8)
+        val firstLineIndentDp = prefs.getInt(KEY_FIRST_LINE_INDENT, 0)
+        val showStatusBar = prefs.getBoolean(KEY_SHOW_STATUS_BAR, true)
+        val showScrollBar = prefs.getBoolean(KEY_SHOW_SCROLL_BAR, false)
+        val keepScreenOn = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false)
+
+        val tapZoneLayoutName = prefs.getString(KEY_TAP_ZONE_LAYOUT, TapZoneLayout.HORIZONTAL.name) ?: TapZoneLayout.HORIZONTAL.name
+        val tapZoneLayout = try {
+            TapZoneLayout.valueOf(tapZoneLayoutName)
+        } catch (e: Exception) {
+            TapZoneLayout.HORIZONTAL
+        }
+
+        val enablePageAnimation = prefs.getBoolean(KEY_ENABLE_PAGE_ANIMATION, true)
+        val enableKeyboardNavigation = prefs.getBoolean(KEY_ENABLE_KEYBOARD_NAV, true)
+        val enableVolumeKeyNavigation = prefs.getBoolean(KEY_ENABLE_VOLUME_KEY_NAV, false)
+        val pageTurnSpeedMs = prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220)
 
         return ReaderSettings(
             engineType = engineType,
@@ -54,7 +95,19 @@ class ReaderPreferencesManager @Inject constructor(
             marginLeftDp = marginLeftDp,
             marginRightDp = marginRightDp,
             themeMode = themeMode,
-            isHorizontalPagination = isHorizontal
+            isHorizontalPagination = isHorizontal,
+            readingMode = readingMode,
+            paragraphSpacingDp = paragraphSpacingDp,
+            firstLineIndentDp = firstLineIndentDp,
+            textAlignment = textAlignment,
+            showStatusBar = showStatusBar,
+            showScrollBar = showScrollBar,
+            keepScreenOn = keepScreenOn,
+            tapZoneLayout = tapZoneLayout,
+            enablePageAnimation = enablePageAnimation,
+            enableKeyboardNavigation = enableKeyboardNavigation,
+            enableVolumeKeyNavigation = enableVolumeKeyNavigation,
+            pageTurnSpeedMs = pageTurnSpeedMs,
         )
     }
 
@@ -70,6 +123,19 @@ class ReaderPreferencesManager @Inject constructor(
             .putInt(KEY_MARGIN_RIGHT, settings.marginRightDp)
             .putString(KEY_THEME_MODE, settings.themeMode.name)
             .putBoolean(KEY_IS_HORIZONTAL, settings.isHorizontalPagination)
+            // Extended fields
+            .putString(KEY_READING_MODE, settings.readingMode.name)
+            .putInt(KEY_PARAGRAPH_SPACING, settings.paragraphSpacingDp)
+            .putInt(KEY_FIRST_LINE_INDENT, settings.firstLineIndentDp)
+            .putString(KEY_TEXT_ALIGNMENT, settings.textAlignment.name)
+            .putBoolean(KEY_SHOW_STATUS_BAR, settings.showStatusBar)
+            .putBoolean(KEY_SHOW_SCROLL_BAR, settings.showScrollBar)
+            .putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOn)
+            .putString(KEY_TAP_ZONE_LAYOUT, settings.tapZoneLayout.name)
+            .putBoolean(KEY_ENABLE_PAGE_ANIMATION, settings.enablePageAnimation)
+            .putBoolean(KEY_ENABLE_KEYBOARD_NAV, settings.enableKeyboardNavigation)
+            .putBoolean(KEY_ENABLE_VOLUME_KEY_NAV, settings.enableVolumeKeyNavigation)
+            .putInt(KEY_PAGE_TURN_SPEED_MS, settings.pageTurnSpeedMs)
             .apply()
     }
 
@@ -85,5 +151,18 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_MARGIN_RIGHT = "margin_right_dp"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_IS_HORIZONTAL = "is_horizontal_pagination"
+        // Extended keys
+        private const val KEY_READING_MODE = "reading_mode"
+        private const val KEY_PARAGRAPH_SPACING = "paragraph_spacing_dp"
+        private const val KEY_FIRST_LINE_INDENT = "first_line_indent_dp"
+        private const val KEY_TEXT_ALIGNMENT = "text_alignment"
+        private const val KEY_SHOW_STATUS_BAR = "show_status_bar"
+        private const val KEY_SHOW_SCROLL_BAR = "show_scroll_bar"
+        private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+        private const val KEY_TAP_ZONE_LAYOUT = "tap_zone_layout"
+        private const val KEY_ENABLE_PAGE_ANIMATION = "enable_page_animation"
+        private const val KEY_ENABLE_KEYBOARD_NAV = "enable_keyboard_nav"
+        private const val KEY_ENABLE_VOLUME_KEY_NAV = "enable_volume_key_nav"
+        private const val KEY_PAGE_TURN_SPEED_MS = "page_turn_speed_ms"
     }
 }

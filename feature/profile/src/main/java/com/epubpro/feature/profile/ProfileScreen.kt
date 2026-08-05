@@ -23,7 +23,8 @@ import com.epubpro.core.designsystem.R
 
 @Composable
 fun ProfileScreen(
-    onNavigateToAudioSettings: () -> Unit = {}
+    onNavigateToAudioSettings: () -> Unit = {},
+    onNavigateToReadingDefaults: () -> Unit = {}
 ) {
     var notificationsEnabled by remember { mutableStateOf(true) }
 
@@ -93,7 +94,7 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_reader_defaults_title),
                 subtitle = stringResource(R.string.profile_reader_defaults_subtitle),
                 icon = Icons.AutoMirrored.Filled.MenuBook,
-                onClick = { }
+                onClick = onNavigateToReadingDefaults
             )
         }
 

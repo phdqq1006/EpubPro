@@ -2,6 +2,7 @@ package com.epubpro.core.reader.style
 
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
+import org.json.JSONObject
 
 object CssInjector {
 
@@ -16,8 +17,8 @@ object CssInjector {
             ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
             ReaderThemeMode.DARK -> "#0F172A" to "#F8FAFC"
             ReaderThemeMode.SEPIA -> "#FBF0D9" to "#4A3B32"
-            ReaderThemeMode.OLED -> "#000000" to "#FFFFFF"
-            ReaderThemeMode.MIDNIGHT -> "#0F172A" to "#94A3B8"
+            ReaderThemeMode.PAPER -> "#F5F0E8" to "#3C3530"
+            ReaderThemeMode.MIDNIGHT -> "#000000" to "#AAAAAA"
         }
 
         val fontSizePx = settings.fontSizeSp.toInt()
@@ -48,22 +49,22 @@ object CssInjector {
                 box-sizing: border-box !important;
                 word-wrap: break-word !important;
                 overflow-wrap: break-word !important;
-                
+
                 width: 100vw !important;
                 height: 100vh !important;
-                
+
                 -webkit-column-width: 100vw !important;
                 -moz-column-width: 100vw !important;
                 column-width: 100vw !important;
-                
+
                 -webkit-column-gap: 0px !important;
                 -moz-column-gap: 0px !important;
                 column-gap: 0px !important;
-                
+
                 -webkit-column-fill: auto !important;
                 -moz-column-fill: auto !important;
                 column-fill: auto !important;
-                
+
                 overflow: visible !important;
             }
             div, section, article, main, header, footer, aside, nav, figure, blockquote, ul, ol, li, form, fieldset, p, h1, h2, h3, h4, h5, h6 {
@@ -158,7 +159,28 @@ object CssInjector {
         """.trimIndent()
     }
 
-    fun generateJsBridgeScript(isHorizontalPagination: Boolean, initialPage: Int = 1, settings: ReaderSettings = ReaderSettings()): String {
+    fun generateJsBridgeScript(
+        isHorizontalPagination: Boolean,
+        initialPage: Int = 1,
+        settings: ReaderSettings = ReaderSettings(),
+        previousChapterHtml: String? = null,
+        nextChapterHtml: String? = null
+    ): String {
+        val (bgColor, _) = when (settings.themeMode) {
+            ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
+            ReaderThemeMode.DARK -> "#0F172A" to "#F8FAFC"
+            ReaderThemeMode.SEPIA -> "#FBF0D9" to "#4A3B32"
+            ReaderThemeMode.PAPER -> "#F5F0E8" to "#3C3530"
+            ReaderThemeMode.MIDNIGHT -> "#000000" to "#AAAAAA"
+        }
+        fun quoteForInlineScript(value: String): String = JSONObject.quote(value)
+            .replace("<", "\\u003C")
+            .replace(">", "\\u003E")
+            .replace("&", "\\u0026")
+
+        val previousChapterHtmlJson = quoteForInlineScript(previousChapterHtml.orEmpty())
+        val nextChapterHtmlJson = quoteForInlineScript(nextChapterHtml.orEmpty())
+
         return """
             (function() {
                 window.epubproIsHorizontal = $isHorizontalPagination;
@@ -167,6 +189,7 @@ object CssInjector {
                 var marginBottom = ${settings.marginBottomDp};
                 var marginLeft = ${settings.marginLeftDp};
                 var marginRight = ${settings.marginRightDp};
+                var transitionSpeedMs = ${settings.pageTurnSpeedMs};
                 var currentPage = targetInitPage;
                 var totalPages = 1;
                 var startTouchX = 0;
@@ -187,17 +210,17 @@ object CssInjector {
                     var html = document.documentElement;
                     var body = document.body;
                     if (!html || !body) return;
-                    
+
                     var vh = window.innerHeight;
                     var vw = window.innerWidth;
-                    
+
                     // Force html dimensions via inline !important
                     html.style.setProperty('height', vh + 'px', 'important');
                     html.style.setProperty('width', vw + 'px', 'important');
                     html.style.setProperty('margin', '0', 'important');
                     html.style.setProperty('padding', '0', 'important');
                     html.style.setProperty('overflow', 'hidden', 'important');
-                    
+
                     // Force body dimensions via inline !important
                     body.style.setProperty('height', vh + 'px', 'important');
                     body.style.setProperty('width', vw + 'px', 'important');
@@ -216,7 +239,7 @@ object CssInjector {
                     body.style.setProperty('overflow', 'visible', 'important');
                     body.style.setProperty('word-wrap', 'break-word', 'important');
                     body.style.setProperty('overflow-wrap', 'break-word', 'important');
-                    
+
                     dbg('FORCE', 'vh=' + vh + ' vw=' + vw + ' bodyH=' + body.clientHeight);
                 }
 
@@ -225,20 +248,20 @@ object CssInjector {
                         var html = document.documentElement;
                         var body = document.body;
                         if (!html || !body) { dbg('DUMP', 'html or body is null'); return; }
-                        
+
                         var htmlCS = window.getComputedStyle(html);
                         var bodyCS = window.getComputedStyle(body);
-                        
-                        dbg('HTML', 'w=' + html.clientWidth + ' h=' + html.clientHeight 
+
+                        dbg('HTML', 'w=' + html.clientWidth + ' h=' + html.clientHeight
                             + ' scrollW=' + html.scrollWidth + ' scrollH=' + html.scrollHeight
                             + ' overflow=' + htmlCS.overflow);
-                        
-                        dbg('BODY', 'w=' + body.clientWidth + ' h=' + body.clientHeight 
+
+                        dbg('BODY', 'w=' + body.clientWidth + ' h=' + body.clientHeight
                             + ' scrollW=' + body.scrollWidth + ' scrollH=' + body.scrollHeight
                             + ' colWidth=' + bodyCS.columnWidth + ' colGap=' + bodyCS.columnGap
                             + ' height=' + bodyCS.height + ' overflow=' + bodyCS.overflow
                             + ' bodyStyleAttr=' + (body.getAttribute('style') || 'none'));
-                        
+
                         dbg('WINDOW', 'innerW=' + window.innerWidth + ' innerH=' + window.innerHeight
                             + ' scrollX=' + window.scrollX);
                     } catch(e) {
@@ -268,22 +291,45 @@ object CssInjector {
                     return 0;
                 }
 
-                function updatePageMetrics() {
-                    if (!window.epubproIsHorizontal) return;
+                var ignoreScrollMetrics = false;
+                var ignoreScrollTimeout = null;
+
+                function suppressScrollMetrics(durationMs) {
+                    ignoreScrollMetrics = true;
+                    if (ignoreScrollTimeout) clearTimeout(ignoreScrollTimeout);
+                    ignoreScrollTimeout = setTimeout(function() {
+                        ignoreScrollMetrics = false;
+                    }, durationMs || 250);
+                }
+
+                function measureTotalPages() {
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
                     var sw = document.body ? document.body.scrollWidth : pw;
-                    
-                    totalPages = Math.max(1, Math.round(sw / pw));
-                    
-                    if (isExecutingScroll) return;
+                    totalPages = Math.max(1, Math.ceil((sw - 1) / pw));
+                    return pw;
+                }
+
+                function updatePageMetrics() {
+                    if (!window.epubproIsHorizontal) return;
+                    var pw = measureTotalPages();
+
+                    if (isExecutingScroll || isDraggingPage || isCoverOverlayActive || ignoreScrollMetrics) return;
                     var sl = window.scrollX || window.pageXOffset || 0;
                     currentPage = Math.min(totalPages, Math.max(1, Math.round(sl / pw) + 1));
-                    
-                    dbg('METRICS', 'pw=' + pw + ' sw=' + sw + ' totalPages=' + totalPages + ' currentPage=' + currentPage);
-                    
+
+                    dbg('METRICS', 'pw=' + pw + ' totalPages=' + totalPages + ' currentPage=' + currentPage);
+
                     var visibleIndex = getFirstVisibleParagraphIndex();
 
                     if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
+                        window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
+                    }
+                }
+
+                function notifyPageChangeCompleted() {
+                    if (isDraggingPage || isCoverOverlayActive) return;
+                    if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
+                        var visibleIndex = getFirstVisibleParagraphIndex();
                         window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
                     }
                 }
@@ -295,15 +341,10 @@ object CssInjector {
                     isExecutingScroll = true;
                     currentPage = page;
 
-                    var visibleIndex = getFirstVisibleParagraphIndex();
-                    if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
-                        window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
-                    }
-
                     if (animate !== false) {
                         var startX = window.scrollX || window.pageXOffset;
                         var distance = targetX - startX;
-                        var duration = 180; // ms (fast and snappy)
+                        var duration = transitionSpeedMs;
                         var startTime = null;
 
                         function step(timestamp) {
@@ -312,13 +353,14 @@ object CssInjector {
                             var percent = Math.min(progress / duration, 1);
                             var easeOut = 1 - Math.pow(1 - percent, 3);
                             window.scrollTo(startX + distance * easeOut, 0);
-                            
+
                             if (progress < duration) {
                                 window.requestAnimationFrame(step);
                             } else {
                                 window.scrollTo(targetX, 0);
                                 isExecutingScroll = false;
-                                updatePageMetrics();
+                                suppressScrollMetrics(100);
+                                notifyPageChangeCompleted();
                             }
                         }
                         window.requestAnimationFrame(step);
@@ -326,13 +368,13 @@ object CssInjector {
                         window.scrollTo(targetX, 0);
                         setTimeout(function() {
                             isExecutingScroll = false;
-                            updatePageMetrics();
+                            suppressScrollMetrics(100);
+                            notifyPageChangeCompleted();
                         }, 50);
                     }
                 }
 
                 window.epubproGoNextPage = function() {
-                    updatePageMetrics();
                     if (currentPage < totalPages) {
                         scrollToPage(currentPage + 1, true);
                     } else {
@@ -343,7 +385,6 @@ object CssInjector {
                 };
 
                 window.epubproGoPrevPage = function() {
-                    updatePageMetrics();
                     if (currentPage > 1) {
                         scrollToPage(currentPage - 1, true);
                     } else {
@@ -357,6 +398,7 @@ object CssInjector {
 
                 var scrollTimeout = null;
                 window.addEventListener('scroll', function() {
+                    if (ignoreScrollMetrics || isDraggingPage || isCoverOverlayActive) return;
                     if (scrollTimeout) clearTimeout(scrollTimeout);
                     scrollTimeout = setTimeout(updatePageMetrics, 80);
                 }, { passive: true });
@@ -372,11 +414,13 @@ object CssInjector {
                     dbg('INIT', 'initLayout called, readyState=' + document.readyState + ', targetInitPage=' + targetInitPage);
                     forceBodyDimensions();
                     dumpLayout();
-                    if (targetInitPage > 1) {
-                        scrollToPage(targetInitPage, false);
-                    } else {
-                        updatePageMetrics();
-                    }
+                    window.requestAnimationFrame(function() {
+                        window.requestAnimationFrame(function() {
+                            measureTotalPages();
+                            targetInitPage = Math.min(totalPages, Math.max(1, targetInitPage));
+                            scrollToPage(targetInitPage, false);
+                        });
+                    });
                 }
 
                 if (document.readyState === 'complete') {
@@ -388,34 +432,296 @@ object CssInjector {
                 }
                 setTimeout(initLayout, 500);
 
-                document.addEventListener('touchstart', function(e) {
-                    if (e.touches && e.touches.length > 0) {
-                        startTouchX = e.touches[0].clientX;
-                        startTouchY = e.touches[0].clientY;
-                        startTouchTime = Date.now();
+                var startTouchX = 0;
+                var startTouchY = 0;
+                var startTouchTime = 0;
+                var startScrollX = 0;
+                var currentDeltaX = 0;
+                var isDraggingPage = false;
+                var isHorizontalDragConfirmed = false;
+                var activeTopOverlay = null;
+                var activeBottomOverlay = null;
+                var isCoverOverlayActive = false;
+                var dragDirection = 0;
+                var gestureToken = 0;
+                var themeBgColor = '$bgColor';
+                var previousChapterHtml = $previousChapterHtmlJson;
+                var nextChapterHtml = $nextChapterHtmlJson;
+
+                function cleanupCoverOverlay() {
+                    // Restore body scroll ability
+                    var body = document.body;
+                    if (body) body.style.removeProperty('touch-action');
+                    var html = document.documentElement;
+                    if (html) html.style.removeProperty('touch-action');
+                    if (activeTopOverlay && activeTopOverlay.parentNode) {
+                        activeTopOverlay.parentNode.removeChild(activeTopOverlay);
                     }
-                }, { passive: true });
+                    if (activeBottomOverlay && activeBottomOverlay.parentNode) {
+                        activeBottomOverlay.parentNode.removeChild(activeBottomOverlay);
+                    }
+                    if (window.activeBackdropOverlay && window.activeBackdropOverlay.parentNode) {
+                        window.activeBackdropOverlay.parentNode.removeChild(window.activeBackdropOverlay);
+                    }
+                    activeTopOverlay = null;
+                    activeBottomOverlay = null;
+                    window.activeBackdropOverlay = null;
+                    isCoverOverlayActive = false;
+                    dragDirection = 0;
+                    isDraggingPage = false;
+                    isHorizontalDragConfirmed = false;
+                    currentDeltaX = 0;
+                    suppressScrollMetrics(300);
+                }
 
-                document.addEventListener('touchend', function(e) {
-                    if (!e.changedTouches || e.changedTouches.length === 0) return;
-                    var endX = e.changedTouches[0].clientX;
-                    var endY = e.changedTouches[0].clientY;
-                    var diffX = endX - startTouchX;
-                    var diffY = endY - startTouchY;
-                    var duration = Date.now() - startTouchTime;
+                function configurePageLayer(layer, pw, vh, bg) {
+                    var bodyStyle = window.getComputedStyle(document.body);
+                    layer.className = 'epubpro-page-layer';
+                    layer.setAttribute('aria-hidden', 'true');
+                    layer.style.setProperty('position', 'absolute', 'important');
+                    layer.style.setProperty('top', '0px', 'important');
+                    layer.style.setProperty('left', '0px', 'important');
+                    layer.style.setProperty('display', 'block', 'important');
+                    layer.style.setProperty('width', pw + 'px', 'important');
+                    layer.style.setProperty('min-width', pw + 'px', 'important');
+                    layer.style.setProperty('max-width', 'none', 'important');
+                    layer.style.setProperty('height', vh + 'px', 'important');
+                    layer.style.setProperty('margin', '0px', 'important');
+                    layer.style.setProperty('padding-top', marginTop + 'px', 'important');
+                    layer.style.setProperty('padding-bottom', marginBottom + 'px', 'important');
+                    layer.style.setProperty('padding-left', '0px', 'important');
+                    layer.style.setProperty('padding-right', '0px', 'important');
+                    layer.style.setProperty('box-sizing', 'border-box', 'important');
+                    layer.style.setProperty('column-width', pw + 'px', 'important');
+                    layer.style.setProperty('-webkit-column-width', pw + 'px', 'important');
+                    layer.style.setProperty('column-gap', '0px', 'important');
+                    layer.style.setProperty('-webkit-column-gap', '0px', 'important');
+                    layer.style.setProperty('column-fill', 'auto', 'important');
+                    layer.style.setProperty('-webkit-column-fill', 'auto', 'important');
+                    layer.style.setProperty('overflow', 'visible', 'important');
+                    layer.style.setProperty('pointer-events', 'none', 'important');
+                    layer.style.setProperty('touch-action', 'none', 'important');
+                    layer.style.setProperty('background-color', bg, 'important');
+                    layer.style.setProperty('color', bodyStyle.color, 'important');
+                    layer.style.setProperty('font-family', bodyStyle.fontFamily, 'important');
+                    layer.style.setProperty('font-size', bodyStyle.fontSize, 'important');
+                    layer.style.setProperty('line-height', bodyStyle.lineHeight, 'important');
+                }
 
-                    if (Math.abs(diffX) > 35 && Math.abs(diffX) > Math.abs(diffY)) {
-                        if (diffX < 0) {
-                            window.epubproGoNextPage();
-                        } else {
-                            window.epubproGoPrevPage();
-                        }
+                function sanitizePageLayer(layer) {
+                    var removable = layer.querySelectorAll(
+                        'script, #epubpro-top-overlay, #epubpro-bottom-overlay, #epubpro-backdrop-overlay'
+                    );
+                    for (var i = 0; i < removable.length; i++) {
+                        if (removable[i].parentNode) removable[i].parentNode.removeChild(removable[i]);
+                    }
+
+                    var elementsWithIds = layer.querySelectorAll('[id]');
+                    for (var j = 0; j < elementsWithIds.length; j++) {
+                        elementsWithIds[j].removeAttribute('id');
+                    }
+                }
+
+                function createPageLayerFromNodes(nodes, pw, vh, bg) {
+                    var layer = document.createElement('div');
+                    for (var i = 0; i < nodes.length; i++) {
+                        layer.appendChild(nodes[i].cloneNode(true));
+                    }
+                    sanitizePageLayer(layer);
+                    configurePageLayer(layer, pw, vh, bg);
+                    return layer;
+                }
+
+                function createCurrentChapterLayer(body, pw, vh, bg) {
+                    return createPageLayerFromNodes(body.childNodes, pw, vh, bg);
+                }
+
+                function createAdjacentChapterLayer(html, pw, vh, bg) {
+                    if (!html || !html.trim()) return null;
+                    try {
+                        var parsed = new DOMParser().parseFromString(html, 'text/html');
+                        if (!parsed.body) return null;
+                        return createPageLayerFromNodes(parsed.body.childNodes, pw, vh, bg);
+                    } catch (error) {
+                        dbg('PREVIEW_ERROR', error.message || 'Unable to parse adjacent chapter');
+                        return null;
+                    }
+                }
+
+                function mountPageOverlay(layer, pageOffset, pw, vh, bg, zIndex, shadowStyle, overlayId) {
+                    if (!layer) return null;
+
+                    var wrapper = document.createElement('div');
+                    wrapper.style.cssText = 'position:absolute;top:0;left:0;width:' + pw + 'px;height:' + vh + 'px;pointer-events:none;background-color:' + bg + ';';
+                    wrapper.appendChild(layer);
+
+                    var overlay = document.createElement('div');
+                    overlay.id = overlayId;
+                    overlay.style.cssText = 'position:fixed;top:0;left:0;width:' + pw + 'px;height:' + vh + 'px;z-index:' + zIndex + ';overflow:hidden;pointer-events:none;background-color:' + bg + ';will-change:transform;';
+                    if (shadowStyle) overlay.style.boxShadow = shadowStyle;
+                    overlay.appendChild(wrapper);
+                    document.documentElement.appendChild(overlay);
+
+                    var contentWidth = Math.max(pw, layer.scrollWidth);
+                    var pageCount = Math.max(1, Math.ceil((contentWidth - 1) / pw));
+                    var resolvedOffset = pageOffset === 'last' ? (pageCount - 1) * pw : pageOffset;
+                    resolvedOffset = Math.min((pageCount - 1) * pw, Math.max(0, resolvedOffset || 0));
+                    wrapper.style.width = contentWidth + 'px';
+                    wrapper.style.transform = 'translateX(-' + resolvedOffset + 'px)';
+
+                    return overlay;
+                }
+
+                function initCoverOverlay(direction) {
+                    if (isCoverOverlayActive) return;
+
+                    isCoverOverlayActive = true;
+                    dragDirection = direction;
+                    suppressScrollMetrics(10000);
+
+                    var pw = window.innerWidth || document.documentElement.clientWidth || 1;
+                    var vh = window.innerHeight || document.documentElement.clientHeight || 1;
+                    var body = document.body;
+                    if (!body) {
+                        isCoverOverlayActive = false;
                         return;
                     }
 
-                    if (Math.abs(diffX) <= 15 && Math.abs(diffY) <= 15 && duration <= 300) {
-                        var screenWidth = window.innerWidth;
-                        if (window.epubproIsHorizontal) {
+                    var bg = themeBgColor || '#FFFFFF';
+                    var shadowStyle = direction < 0
+                        ? '14px 0 36px rgba(0,0,0,0.45)'
+                        : '-14px 0 36px rgba(0,0,0,0.45)';
+
+                    var backdropOverlay = document.createElement('div');
+                    backdropOverlay.id = 'epubpro-backdrop-overlay';
+                    backdropOverlay.style.cssText = 'position:fixed;top:0;left:0;width:' + pw + 'px;height:' + vh + 'px;z-index:19997;pointer-events:none;background-color:' + bg + ';';
+                    document.documentElement.appendChild(backdropOverlay);
+                    window.activeBackdropOverlay = backdropOverlay;
+
+                    var targetScrollX = startScrollX + (direction < 0 ? pw : -pw);
+                    var isNextBoundary = direction < 0 && currentPage >= totalPages;
+                    var isPreviousBoundary = direction > 0 && currentPage <= 1;
+                    var targetLayer = null;
+                    var targetOffset = targetScrollX;
+
+                    if (isNextBoundary) {
+                        targetLayer = createAdjacentChapterLayer(nextChapterHtml, pw, vh, bg);
+                        targetOffset = 0;
+                    } else if (isPreviousBoundary) {
+                        targetLayer = createAdjacentChapterLayer(previousChapterHtml, pw, vh, bg);
+                        targetOffset = 'last';
+                    } else {
+                        targetLayer = createCurrentChapterLayer(body, pw, vh, bg);
+                    }
+
+                    activeBottomOverlay = mountPageOverlay(
+                        targetLayer,
+                        targetOffset,
+                        pw,
+                        vh,
+                        bg,
+                        19998,
+                        '',
+                        'epubpro-bottom-overlay'
+                    );
+
+                    var currentLayer = createCurrentChapterLayer(body, pw, vh, bg);
+                    activeTopOverlay = mountPageOverlay(
+                        currentLayer,
+                        startScrollX,
+                        pw,
+                        vh,
+                        bg,
+                        19999,
+                        shadowStyle,
+                        'epubpro-top-overlay'
+                    );
+
+                    body.style.setProperty('touch-action', 'none', 'important');
+                    document.documentElement.style.setProperty('touch-action', 'none', 'important');
+                }
+                document.addEventListener('touchstart', function(e) {
+                    if (!window.epubproIsHorizontal) return;
+                    if (e.touches && e.touches.length === 1) {
+                        gestureToken += 1;
+                        cleanupCoverOverlay();
+                        startTouchX = e.touches[0].clientX;
+                        startTouchY = e.touches[0].clientY;
+                        startTouchTime = Date.now();
+                        startScrollX = window.scrollX || window.pageXOffset || 0;
+                        currentDeltaX = 0;
+                        isDraggingPage = true;
+                        isHorizontalDragConfirmed = false;
+                    }
+                }, { passive: true });
+
+                document.addEventListener('touchmove', function(e) {
+                    if (!window.epubproIsHorizontal || !isDraggingPage || !e.touches || e.touches.length === 0) return;
+
+                    // MUST preventDefault IMMEDIATELY before WebView commits scroll gesture
+                    e.preventDefault();
+
+                    var touchX = e.touches[0].clientX;
+                    var touchY = e.touches[0].clientY;
+                    var deltaX = touchX - startTouchX;
+                    var deltaY = touchY - startTouchY;
+
+                    if (!isHorizontalDragConfirmed) {
+                        if (Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+                            isHorizontalDragConfirmed = true;
+                        } else if (Math.abs(deltaY) > 8) {
+                            isDraggingPage = false;
+                            return;
+                        }
+                    }
+
+                    if (isHorizontalDragConfirmed) {
+                        currentDeltaX = deltaX;
+                        var pw = window.innerWidth || document.documentElement.clientWidth || 1;
+
+                        if (!isCoverOverlayActive) {
+                            if (deltaX < 0) {
+                                initCoverOverlay(-1);
+                            } else if (deltaX > 0) {
+                                initCoverOverlay(1);
+                            }
+                        }
+
+                        if (isCoverOverlayActive && activeTopOverlay) {
+                            var clampedX = deltaX;
+                            var hasNextPreview = !!(nextChapterHtml && nextChapterHtml.trim());
+                            var hasPreviousPreview = !!(previousChapterHtml && previousChapterHtml.trim());
+                            var isBlockedNextBoundary = dragDirection < 0 && currentPage === totalPages && !hasNextPreview;
+                            var isBlockedPreviousBoundary = dragDirection > 0 && currentPage === 1 && !hasPreviousPreview;
+
+                            if (isBlockedNextBoundary) {
+                                clampedX = Math.max(-pw * 0.3, deltaX * 0.3);
+                            } else if (isBlockedPreviousBoundary) {
+                                clampedX = Math.min(pw * 0.3, deltaX * 0.3);
+                            } else {
+                                if (dragDirection < 0) clampedX = Math.min(0, Math.max(-pw, deltaX));
+                                if (dragDirection > 0) clampedX = Math.max(0, Math.min(pw, deltaX));
+                            }
+                            activeTopOverlay.style.transform = 'translateX(' + clampedX + 'px)';
+                        }
+                    }
+                }, { passive: false });
+
+                document.addEventListener('touchend', function(e) {
+                    if (!window.epubproIsHorizontal || !isDraggingPage) return;
+                    isDraggingPage = false;
+
+                    if (!isHorizontalDragConfirmed) {
+                        cleanupCoverOverlay();
+                        if (!e.changedTouches || e.changedTouches.length === 0) return;
+                        var endX = e.changedTouches[0].clientX;
+                        var endY = e.changedTouches[0].clientY;
+                        var diffX = endX - startTouchX;
+                        var diffY = endY - startTouchY;
+                        var duration = Date.now() - startTouchTime;
+
+                        if (Math.abs(diffX) <= 15 && Math.abs(diffY) <= 15 && duration <= 300) {
+                            var screenWidth = window.innerWidth;
                             if (endX < screenWidth * 0.30) {
                                 window.epubproGoPrevPage();
                             } else if (endX > screenWidth * 0.70) {
@@ -425,12 +731,177 @@ object CssInjector {
                                     window.ReaderJsBridge.onPageTapped();
                                 }
                             }
-                        } else {
-                            if (window.ReaderJsBridge && window.ReaderJsBridge.onPageTapped) {
-                                window.ReaderJsBridge.onPageTapped();
+                        }
+                        return;
+                    }
+
+                    var duration = Math.max(1, Date.now() - startTouchTime);
+                    var pw = window.innerWidth || document.documentElement.clientWidth || 1;
+                    var velocity = Math.abs(currentDeltaX) / duration;
+                    var threshold = pw * 0.50; // Yêu cầu kéo qua 50% màn hình mới chuyển trang
+                    var completingGestureToken = gestureToken;
+                    var isNextBoundary = dragDirection < 0 && currentPage >= totalPages;
+                    var isPreviousBoundary = dragDirection > 0 && currentPage <= 1;
+
+                    if (isNextBoundary || isPreviousBoundary) {
+                        var hasAdjacentPreview = isNextBoundary
+                            ? !!(nextChapterHtml && nextChapterHtml.trim())
+                            : !!(previousChapterHtml && previousChapterHtml.trim());
+                        var crossedBoundaryThreshold = isNextBoundary
+                            ? (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.35 && velocity > 0.45))
+                            : (currentDeltaX >= threshold || (currentDeltaX > pw * 0.35 && velocity > 0.45));
+                        var boundaryTriggered = hasAdjacentPreview && crossedBoundaryThreshold;
+                        var boundaryOverlay = activeTopOverlay;
+                        var boundaryDone = false;
+
+                        function finishBoundaryGesture() {
+                            if (boundaryDone || completingGestureToken !== gestureToken) return;
+                            boundaryDone = true;
+
+                            if (!boundaryTriggered) {
+                                cleanupCoverOverlay();
+                                return;
+                            }
+
+                            var chapterRequested = false;
+                            if (isNextBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
+                                chapterRequested = true;
+                                window.ReaderJsBridge.onNextChapterRequested();
+                            } else if (isPreviousBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
+                                chapterRequested = true;
+                                window.ReaderJsBridge.onPreviousChapterRequested();
+                            }
+
+                            if (!chapterRequested) {
+                                cleanupCoverOverlay();
+                                return;
+                            }
+
+                            setTimeout(function() {
+                                if (completingGestureToken === gestureToken) cleanupCoverOverlay();
+                            }, 1800);
+                        }
+
+                        if (boundaryOverlay) {
+                            boundaryOverlay.addEventListener('transitionend', function onBoundaryTransitionEnd(ev) {
+                                if (ev.propertyName !== 'transform') return;
+                                boundaryOverlay.removeEventListener('transitionend', onBoundaryTransitionEnd);
+                                finishBoundaryGesture();
+                            });
+                            boundaryOverlay.style.transition = 'transform ' + (transitionSpeedMs / 1000).toFixed(2) + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                            boundaryOverlay.style.transform = boundaryTriggered
+                                ? (isNextBoundary ? 'translateX(-' + pw + 'px)' : 'translateX(' + pw + 'px)')
+                                : 'translateX(0px)';
+                        }
+                        setTimeout(finishBoundaryGesture, transitionSpeedMs + 100);
+                        return;
+                    }
+
+                    if (isCoverOverlayActive && activeTopOverlay) {
+                        var speedSec = (transitionSpeedMs / 1000).toFixed(2);
+                        if (dragDirection < 0) { // Dragging left to go next
+                            if (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.35 && velocity > 0.45)) {
+                                // COMMIT: slide overlay out, scroll native body, then cleanup
+                                var commitOverlay = activeTopOverlay;
+                                var commitDone = false;
+                                function doCommitLeft() {
+                                    if (commitDone || completingGestureToken !== gestureToken) return;
+                                    commitDone = true;
+                                    currentPage = Math.min(totalPages, currentPage + 1);
+                                    window.scrollTo((currentPage - 1) * pw, 0);
+                                    requestAnimationFrame(function() {
+                                        requestAnimationFrame(function() {
+                                            cleanupCoverOverlay();
+                                            notifyPageChangeCompleted();
+                                        });
+                                    });
+                                }
+                                activeTopOverlay.addEventListener('transitionend', function onTE(ev) {
+                                    if (ev.propertyName !== 'transform') return;
+                                    commitOverlay.removeEventListener('transitionend', onTE);
+                                    doCommitLeft();
+                                });
+                                setTimeout(doCommitLeft, transitionSpeedMs + 100);
+                                activeTopOverlay.style.transition = 'transform ' + speedSec + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                                activeTopOverlay.style.transform = 'translateX(-' + pw + 'px)';
+                            } else {
+                                // SNAP-BACK: body never moved, slide overlay back then cleanup
+                                var snapOverlay = activeTopOverlay;
+                                var snapDone = false;
+                                function doSnapLeft() {
+                                    if (snapDone || completingGestureToken !== gestureToken) return;
+                                    snapDone = true;
+                                    window.scrollTo(startScrollX, 0);
+                                    dbg('SNAP_BACK', 'left: done');
+                                    cleanupCoverOverlay();
+                                }
+                                activeTopOverlay.addEventListener('transitionend', function onTE2(ev) {
+                                    if (ev.propertyName !== 'transform') return;
+                                    snapOverlay.removeEventListener('transitionend', onTE2);
+                                    doSnapLeft();
+                                });
+                                setTimeout(doSnapLeft, transitionSpeedMs + 100);
+                                activeTopOverlay.style.transition = 'transform ' + speedSec + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                                activeTopOverlay.style.transform = 'translateX(0px)';
+                                dbg('SNAP_BACK', 'left: anim start');
+                            }
+                        } else if (dragDirection > 0) { // Dragging right to go prev
+                            if (currentDeltaX >= threshold || (currentDeltaX > pw * 0.35 && velocity > 0.45)) {
+                                // COMMIT: slide overlay out, scroll native body, then cleanup
+                                var commitOverlay = activeTopOverlay;
+                                var commitDone = false;
+                                function doCommitRight() {
+                                    if (commitDone || completingGestureToken !== gestureToken) return;
+                                    commitDone = true;
+                                    currentPage = Math.max(1, currentPage - 1);
+                                    window.scrollTo((currentPage - 1) * pw, 0);
+                                    requestAnimationFrame(function() {
+                                        requestAnimationFrame(function() {
+                                            cleanupCoverOverlay();
+                                            notifyPageChangeCompleted();
+                                        });
+                                    });
+                                }
+                                activeTopOverlay.addEventListener('transitionend', function onTE3(ev) {
+                                    if (ev.propertyName !== 'transform') return;
+                                    commitOverlay.removeEventListener('transitionend', onTE3);
+                                    doCommitRight();
+                                });
+                                setTimeout(doCommitRight, transitionSpeedMs + 100);
+                                activeTopOverlay.style.transition = 'transform ' + speedSec + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                                activeTopOverlay.style.transform = 'translateX(' + pw + 'px)';
+                            } else {
+                                // SNAP-BACK: body never moved, slide overlay back then cleanup
+                                var snapOverlay = activeTopOverlay;
+                                var snapDone = false;
+                                function doSnapRight() {
+                                    if (snapDone || completingGestureToken !== gestureToken) return;
+                                    snapDone = true;
+                                    window.scrollTo(startScrollX, 0);
+                                    dbg('SNAP_BACK', 'right: done');
+                                    cleanupCoverOverlay();
+                                }
+                                activeTopOverlay.addEventListener('transitionend', function onTE4(ev) {
+                                    if (ev.propertyName !== 'transform') return;
+                                    snapOverlay.removeEventListener('transitionend', onTE4);
+                                    doSnapRight();
+                                });
+                                setTimeout(doSnapRight, transitionSpeedMs + 100);
+                                activeTopOverlay.style.transition = 'transform ' + speedSec + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                                activeTopOverlay.style.transform = 'translateX(0px)';
+                                dbg('SNAP_BACK', 'right: anim start');
                             }
                         }
+                    } else {
+                        cleanupCoverOverlay();
                     }
+                }, { passive: true });
+
+                document.addEventListener('touchcancel', function() {
+                    if (!window.epubproIsHorizontal) return;
+                    gestureToken += 1;
+                    window.scrollTo(startScrollX, 0);
+                    cleanupCoverOverlay();
                 }, { passive: true });
 
                 window.epubproHighlightTtsParagraph = function(index) {

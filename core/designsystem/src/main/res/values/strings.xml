@@ -116,6 +116,59 @@
     <string name="reader_minimize">Thu nhỏ</string>
 
 
+    <!-- Reading Defaults Screen -->
+    <string name="reading_defaults_title">Mặc định đọc</string>
+    <string name="reading_defaults_info_title">Mặc định đọc</string>
+    <string name="reading_defaults_info_subtitle">Áp dụng cho EPUB, Chế độ đọc và chế độ Văn bản PDF.</string>
+    <string name="reading_defaults_presets">MẪU SẴN</string>
+    <string name="reading_defaults_manage_presets">Quản lý mẫu</string>
+    <string name="reading_defaults_apply">Áp dụng</string>
+    <string name="reading_defaults_reset">Đặt lại mặc định</string>
+    <string name="reading_defaults_preset_default">Mặc định</string>
+    <string name="reading_defaults_preset_compact">Gọn</string>
+    <string name="reading_defaults_preset_comfortable">Thoải mái</string>
+    <!-- Text & Display -->
+    <string name="reading_defaults_section_text">Văn bản và hiển thị</string>
+    <string name="reading_defaults_font_size">Cỡ chữ</string>
+    <string name="reading_defaults_line_spacing">Khoảng cách dòng</string>
+    <string name="reading_defaults_font_family">PHÔNG CHỮ</string>
+    <string name="reading_defaults_font_serif">Có chân</string>
+    <string name="reading_defaults_font_lora">Lora</string>
+    <string name="reading_defaults_font_source_serif">Source Serif</string>
+    <string name="reading_defaults_font_kindle">K</string>
+    <string name="reading_defaults_custom_font">Font tùy chỉnh</string>
+    <!-- Theme -->
+    <string name="reading_defaults_theme">CHỦ ĐỀ</string>
+    <string name="reading_defaults_theme_light">Sáng</string>
+    <string name="reading_defaults_theme_dark">Tối</string>
+    <string name="reading_defaults_theme_warm">Ấm</string>
+    <string name="reading_defaults_theme_paper">Giấy</string>
+    <string name="reading_defaults_theme_night">Đêm</string>
+    <string name="reading_defaults_custom_color">Màu tùy chỉnh</string>
+    <!-- Layout -->
+    <string name="reading_defaults_section_layout">Bố cục</string>
+    <string name="reading_defaults_page_margin">LỀ TRANG</string>
+    <string name="reading_defaults_margin_horizontal">Lề ngang</string>
+    <string name="reading_defaults_margin_vertical">Lề trên dưới</string>
+    <string name="reading_defaults_paragraph">ĐOẠN VĂN</string>
+    <string name="reading_defaults_paragraph_spacing">Khoảng cách đoạn</string>
+    <string name="reading_defaults_first_line_indent">Thụt đầu dòng</string>
+    <string name="reading_defaults_align_left">Trái</string>
+    <string name="reading_defaults_align_justify">Đều hai bên</string>
+    <!-- Reading Mode -->
+    <string name="reading_defaults_section_mode">Chế độ đọc</string>
+    <string name="reading_defaults_mode_scroll">Cuộn</string>
+    <string name="reading_defaults_mode_scroll_horizontal">Cuộn\nngang</string>
+    <string name="reading_defaults_mode_flip">Lật</string>
+    <string name="reading_defaults_mode_continuous">Cuốn</string>
+    <string name="reading_defaults_show_status_bar">Hiển thị thanh trạng thái phía dưới</string>
+    <string name="reading_defaults_show_scroll_bar">Hiển thị thanh cuộn</string>
+    <string name="reading_defaults_page_turn_control">Điều khiển chuyển trang</string>
+    <string name="reading_defaults_tap_zone">Vùng chạm ngang</string>
+    <!-- Reading Behavior -->
+    <string name="reading_defaults_section_behavior">Hành vi đọc</string>
+    <string name="reading_defaults_keep_screen_on">Giữ màn hình luôn sáng</string>
+
     <!-- TTS Service & Media Notification -->
     <string name="tts_channel_name">EpubPro Text-To-Speech</string>
     <string name="tts_channel_desc">Điều khiển đọc sách bằng giọng nói</string>

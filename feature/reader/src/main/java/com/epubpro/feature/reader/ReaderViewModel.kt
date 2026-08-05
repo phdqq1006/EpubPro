@@ -15,6 +15,7 @@ import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsTextParser
 import com.epubpro.core.storage.TtsPreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -26,7 +27,10 @@ data class ReaderUiState(
     val chapters: List<EpubChapterHeader> = emptyList(),
     val currentChapterIndex: Int = 0,
     val currentChapterHtml: String = "",
+    val previousChapterHtml: String? = null,
+    val nextChapterHtml: String? = null,
     val currentPageInChapter: Int = 1,
+    val initialPageRequest: Int = 1,
     val totalPagesInChapter: Int = 1,
     val currentCfi: String = "",
     val settings: ReaderSettings = ReaderSettings(),
@@ -38,6 +42,12 @@ data class ReaderUiState(
     val ttsSettings: TtsSettings = TtsSettings(),
     val ttsPlayerState: TtsPlayerState = TtsPlayerState.Idle,
     val selectedSleepTimer: SleepTimerOption = SleepTimerOption.OFF
+)
+
+private data class ChapterHtmlBundle(
+    val current: String,
+    val previous: String?,
+    val next: String?
 )
 
 @HiltViewModel
@@ -53,6 +63,7 @@ class ReaderViewModel @Inject constructor(
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
     private var bookFile: File? = null
+    private var chapterLoadJob: Job? = null
 
     private val _uiState = MutableStateFlow(ReaderUiState(settings = preferencesManager.getSettings()))
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
@@ -94,17 +105,22 @@ class ReaderViewModel @Inject constructor(
 
                 Log.d("EpubPro_VM", "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}")
 
-                val initialHtml = if (headers.isNotEmpty()) {
-                    epubEngine.loadChapterHtml(file, headers[initialIndex].entryName)
-                } else ""
+                val chapterBundle = if (headers.isNotEmpty()) {
+                    loadChapterBundle(file, headers, initialIndex)
+                } else {
+                    ChapterHtmlBundle("", null, null)
+                }
 
                 _uiState.update {
                     it.copy(
                         book = book,
                         chapters = headers,
                         currentChapterIndex = initialIndex,
-                        currentChapterHtml = initialHtml,
+                        currentChapterHtml = chapterBundle.current,
+                        previousChapterHtml = chapterBundle.previous,
+                        nextChapterHtml = chapterBundle.next,
                         currentPageInChapter = initialPage,
+                        initialPageRequest = initialPage,
                         currentCfi = savedProgress?.currentCfi ?: "",
                         settings = savedSettings,
                         isLoading = false
@@ -114,22 +130,24 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    fun onChapterSelected(index: Int) {
+    fun onChapterSelected(index: Int, openAtLastPage: Boolean = false) {
         val state = _uiState.value
         val file = bookFile
         if (file != null && index in 0 until state.chapters.size) {
-            viewModelScope.launch {
-                val header = state.chapters[index]
-                val html = epubEngine.loadChapterHtml(file, header.entryName)
+            chapterLoadJob?.cancel()
+            chapterLoadJob = viewModelScope.launch {
+                val chapterBundle = loadChapterBundle(file, state.chapters, index)
                 _uiState.update {
                     it.copy(
                         currentChapterIndex = index,
-                        currentChapterHtml = html,
+                        currentChapterHtml = chapterBundle.current,
+                        previousChapterHtml = chapterBundle.previous,
+                        nextChapterHtml = chapterBundle.next,
                         currentPageInChapter = 1,
+                        initialPageRequest = if (openAtLastPage) Int.MAX_VALUE else 1,
                         totalPagesInChapter = 1
                     )
                 }
-                saveProgress()
             }
         }
     }
@@ -139,7 +157,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun previousChapter() {
-        onChapterSelected(_uiState.value.currentChapterIndex - 1)
+        onChapterSelected(_uiState.value.currentChapterIndex - 1, openAtLastPage = true)
     }
 
     fun updatePageMetrics(currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) {
@@ -151,16 +169,36 @@ class ReaderViewModel @Inject constructor(
             ttsPreferencesManager.saveLastTtsChunkIndex(bookId, currentState.currentChapterIndex, firstVisibleChunkIndex)
         }
         
-        if (currentState.currentPageInChapter == currentPage && currentState.totalPagesInChapter == totalPages) {
+        if (
+            currentState.currentPageInChapter == currentPage &&
+            currentState.totalPagesInChapter == totalPages &&
+            currentState.initialPageRequest == currentPage
+        ) {
             return
         }
         _uiState.update {
             it.copy(
                 currentPageInChapter = currentPage,
+                initialPageRequest = currentPage,
                 totalPagesInChapter = totalPages
             )
         }
         saveProgress()
+    }
+
+    private suspend fun loadChapterBundle(
+        file: File,
+        headers: List<EpubChapterHeader>,
+        index: Int
+    ): ChapterHtmlBundle {
+        val current = epubEngine.loadChapterHtml(file, headers[index].entryName)
+        val previous = headers.getOrNull(index - 1)?.let { header ->
+            epubEngine.loadChapterHtml(file, header.entryName)
+        }
+        val next = headers.getOrNull(index + 1)?.let { header ->
+            epubEngine.loadChapterHtml(file, header.entryName)
+        }
+        return ChapterHtmlBundle(current, previous, next)
     }
 
     fun updateSettings(newSettings: ReaderSettings) {
