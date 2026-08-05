@@ -364,11 +364,7 @@ private fun PresetsRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 letterSpacing = 1.sp
             )
-            TextButton(onClick = { /* TODO: manage presets */ }) {
-                Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Quản lý mẫu", fontSize = 12.sp)
-            }
+
         }
 
         Spacer(Modifier.height(8.dp))
@@ -544,7 +540,7 @@ private fun TextDisplaySectionContent(
         icon = Icons.Default.FormatSize,
         label = "Cỡ chữ",
         value = settings.fontSizeSp,
-        displayValue = settings.fontSizeSp.roundToInt().toString(),
+        valueFormatter = { it.roundToInt().toString() },
         range = 12f..32f,
         onValueChange = onFontSizeChange
     )
@@ -556,7 +552,7 @@ private fun TextDisplaySectionContent(
         icon = Icons.Default.FormatLineSpacing,
         label = "Khoảng cách ...",
         value = settings.lineHeightRatio,
-        displayValue = "%.2f".format(settings.lineHeightRatio),
+        valueFormatter = { "%.2f".format(it) },
         range = 1.0f..3.0f,
         onValueChange = onLineHeightChange
     )
@@ -580,8 +576,6 @@ private fun TextDisplaySectionContent(
 
     Spacer(Modifier.height(12.dp))
 
-    // Custom font dropdown (Coming Soon)
-    CustomFontDropdownRow()
 }
 
 @Composable
@@ -620,43 +614,8 @@ private fun FontPresetChip(
             fontSize = 13.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = textColor,
-            fontFamily = when (preset) {
-                FontPreset.LORA -> FontFamily.Serif
-                FontPreset.SOURCE_SERIF -> FontFamily.Serif
-                FontPreset.KINDLE -> FontFamily.Serif
-                else -> FontFamily.Default
-            }
+            fontFamily = mapFontFamily(preset.fontFamily)
         )
-    }
-}
-
-@Composable
-private fun CustomFontDropdownRow() {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { /* Coming Soon */ }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "Font tùy chỉnh",
-                modifier = Modifier.weight(1f),
-                fontSize = 14.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Icon(
-                imageVector = Icons.Default.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
     }
 }
 
@@ -686,7 +645,6 @@ private fun ThemeSection(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ThemeCell(
-                    mode = ReaderThemeMode.LIGHT,
                     label = "Sáng",
                     bgColor = Color.White,
                     textColor = Color(0xFF212121),
@@ -696,7 +654,6 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
                 ThemeCell(
-                    mode = ReaderThemeMode.DARK,
                     label = "Tối",
                     bgColor = Color(0xFF1E1E1E),
                     textColor = Color(0xFFE0E0E0),
@@ -706,7 +663,6 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
                 ThemeCell(
-                    mode = ReaderThemeMode.SEPIA,
                     label = "Ấm",
                     bgColor = Color(0xFFFBF0D9),
                     textColor = Color(0xFF4A3B32),
@@ -716,7 +672,6 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
                 ThemeCell(
-                    mode = ReaderThemeMode.PAPER,
                     label = "Giấy",
                     bgColor = Color(0xFFF5F0E8),
                     textColor = Color(0xFF3C3530),
@@ -726,7 +681,6 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
                 ThemeCell(
-                    mode = ReaderThemeMode.MIDNIGHT,
                     label = "Đêm",
                     bgColor = Color(0xFF0D1117),
                     textColor = Color(0xFF8B949E),
@@ -736,39 +690,12 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
             }
-
-            Spacer(Modifier.height(12.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-            Spacer(Modifier.height(4.dp))
-
-            // Custom color row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { /* Coming soon */ }
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Màu tùy chỉnh",
-                    modifier = Modifier.weight(1f),
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Icon(
-                    imageVector = Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
         }
     }
 }
 
 @Composable
 private fun ThemeCell(
-    mode: ReaderThemeMode,
     label: String,
     bgColor: Color,
     textColor: Color,
@@ -835,7 +762,7 @@ private fun LayoutSectionContent(
         icon = Icons.Default.SwapHoriz,
         label = "Lề ngang",
         value = settings.marginLeftDp.toFloat(),
-        displayValue = settings.marginLeftDp.toString(),
+        valueFormatter = { it.roundToInt().toString() },
         range = 0f..64f,
         steps = 63,
         onValueChange = { onMarginHorizontalChange(it.roundToInt()) }
@@ -847,7 +774,7 @@ private fun LayoutSectionContent(
         icon = Icons.Default.SwapVert,
         label = "Lề trên dưới",
         value = settings.marginTopDp.toFloat(),
-        displayValue = settings.marginTopDp.toString(),
+        valueFormatter = { it.roundToInt().toString() },
         range = 0f..64f,
         steps = 63,
         onValueChange = { onMarginVerticalChange(it.roundToInt()) }
@@ -862,7 +789,7 @@ private fun LayoutSectionContent(
         icon = Icons.Default.FormatLineSpacing,
         label = "Khoảng cách đ...",
         value = settings.paragraphSpacingDp.toFloat(),
-        displayValue = settings.paragraphSpacingDp.toString(),
+        valueFormatter = { it.roundToInt().toString() },
         range = 0f..32f,
         steps = 31,
         onValueChange = { onParagraphSpacingChange(it.roundToInt()) }
@@ -874,7 +801,7 @@ private fun LayoutSectionContent(
         icon = Icons.Default.FormatIndentIncrease,
         label = "Thụt đầu dòng",
         value = settings.firstLineIndentDp.toFloat(),
-        displayValue = settings.firstLineIndentDp.toString(),
+        valueFormatter = { it.roundToInt().toString() },
         range = 0f..32f,
         steps = 31,
         onValueChange = { onFirstLineIndentChange(it.roundToInt()) }
@@ -965,39 +892,22 @@ private fun ReadingModeSectionContent(
     onShowScrollBarChange: (Boolean) -> Unit,
     onNavigateToPageTurnControl: () -> Unit = {}
 ) {
-    // 2x2 grid
     val modes = listOf(
-        Triple(ReadingMode.SCROLL, Icons.Default.Article, "Cuộn"),
-        Triple(ReadingMode.SCROLL_HORIZONTAL, Icons.Default.ViewColumn, "Cuộn\nngang"),
-        Triple(ReadingMode.FLIP, Icons.Default.MenuBook, "Lật"),
-        Triple(ReadingMode.CONTINUOUS, Icons.Default.ViewStream, "Cuốn")
+        Triple(ReadingMode.SCROLL, Icons.Default.Article, "Cuộn dọc"),
+        Triple(ReadingMode.FLIP, Icons.Default.MenuBook, "Lật trang")
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            modes.take(2).forEach { (mode, icon, label) ->
-                ReadingModeCard(
-                    label = label,
-                    icon = icon,
-                    isSelected = settings.readingMode == mode,
-                    onClick = { onReadingModeChange(mode) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            modes.drop(2).forEach { (mode, icon, label) ->
-                ReadingModeCard(
-                    label = label,
-                    icon = icon,
-                    isSelected = settings.readingMode == mode,
-                    onClick = { onReadingModeChange(mode) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        modes.forEach { (mode, icon, label) ->
+            ReadingModeCard(
+                label = label,
+                icon = icon,
+                isSelected = settings.readingMode == mode,
+                onClick = { onReadingModeChange(mode) },
+                modifier = Modifier.weight(1f)
+            )
         }
     }
-
     Spacer(Modifier.height(12.dp))
 
     // Toggles
@@ -1148,11 +1058,13 @@ private fun SettingSliderRow(
     icon: ImageVector,
     label: String,
     value: Float,
-    displayValue: String,
+    valueFormatter: (Float) -> String,
     range: ClosedFloatingPointRange<Float>,
     steps: Int = 0,
     onValueChange: (Float) -> Unit
 ) {
+    var draftValue by remember(value) { mutableFloatStateOf(value) }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
@@ -1171,8 +1083,9 @@ private fun SettingSliderRow(
             modifier = Modifier.width(110.dp)
         )
         Slider(
-            value = value,
-            onValueChange = onValueChange,
+            value = draftValue,
+            onValueChange = { draftValue = it },
+            onValueChangeFinished = { onValueChange(draftValue) },
             valueRange = range,
             steps = steps,
             modifier = Modifier.weight(1f),
@@ -1188,7 +1101,7 @@ private fun SettingSliderRow(
             color = MaterialTheme.colorScheme.primaryContainer
         ) {
             Text(
-                text = displayValue,
+                text = valueFormatter(draftValue),
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1264,11 +1177,11 @@ private fun SectionLabel(text: String) {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-private fun mapFontFamily(fontFamily: String): FontFamily = when (fontFamily) {
-    "Serif", "Source Serif 4", "Georgia", "Lora" -> FontFamily.Serif
-    "Sans-Serif" -> FontFamily.SansSerif
-    "Monospace" -> FontFamily.Monospace
-    else -> FontFamily.Default
+private fun mapFontFamily(fontFamily: String): FontFamily = when (fontFamily.lowercase()) {
+    "serif" -> FontFamily.Serif
+    "sans-serif" -> FontFamily.SansSerif
+    "monospace" -> FontFamily.Monospace
+    else -> FontFamily.Serif
 }
 
 private fun buildFontSubtitle(settings: ReaderSettings): String {

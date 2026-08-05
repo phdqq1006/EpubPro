@@ -2,6 +2,8 @@ package com.epubpro.feature.reader
 
 import android.annotation.SuppressLint
 import android.util.Log
+import android.view.KeyEvent
+import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -32,8 +34,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.reader.bridge.ReaderJsBridge
 import com.epubpro.core.reader.style.CssInjector
-import com.epubpro.domain.model.ReaderEngineType
 import com.epubpro.domain.model.ReaderSettings
+import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
+import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
+import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TtsSettings
 import org.json.JSONObject
@@ -45,6 +49,7 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.feature.reader.tts.TtsAudioPlayerScreen
@@ -62,7 +67,14 @@ fun ReaderScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    val hostView = LocalView.current
     var ttsService by remember { mutableStateOf<TtsService?>(null) }
+
+    DisposableEffect(hostView, uiState.settings.keepScreenOn) {
+        val previousKeepScreenOn = hostView.keepScreenOn
+        hostView.keepScreenOn = uiState.settings.keepScreenOn
+        onDispose { hostView.keepScreenOn = previousKeepScreenOn }
+    }
 
     DisposableEffect(context) {
         val connection = object : ServiceConnection {
@@ -102,6 +114,7 @@ fun ReaderScreen(
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
                     initialPage = uiState.initialPageRequest,
+                    initialVisibleParagraphIndex = uiState.firstVisibleParagraphIndex,
                     settings = uiState.settings,
                     activeTtsParagraphIndex = activeChunkIndex,
                     onPageTapped = viewModel::toggleControls,
@@ -200,11 +213,15 @@ fun ReaderScreen(
                         "Chương ${uiState.currentChapterIndex + 1} / ${uiState.chapters.size.coerceAtLeast(1)}"
                     }
 
-                    Text(
-                        text = progressText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
+                    if (uiState.settings.showStatusBar) {
+                        Text(
+                            text = progressText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                     IconButton(
                         onClick = viewModel::nextChapter,
                         enabled = uiState.currentChapterIndex < uiState.chapters.size - 1
@@ -212,6 +229,29 @@ fun ReaderScreen(
                         Icon(Icons.Default.NavigateNext, contentDescription = stringResource(R.string.reader_next_chapter))
                     }
                 }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = !uiState.showControls && uiState.settings.showStatusBar,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+            ) {
+                val progressText = if (uiState.settings.isHorizontalPagination) {
+                    "Trang ${uiState.currentPageInChapter} / ${uiState.totalPagesInChapter}"
+                } else {
+                    "Chương ${uiState.currentChapterIndex + 1} / ${uiState.chapters.size.coerceAtLeast(1)}"
+                }
+                Text(
+                    text = progressText,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
 
@@ -273,7 +313,7 @@ fun ReaderScreen(
                     ttsSettings = uiState.ttsSettings,
                     onSettingsChanged = viewModel::updateSettings,
                     onTtsSettingsChanged = { newTts: TtsSettings ->
-                        viewModel.onStartListeningFromSetup(newTts, ttsService)
+                        viewModel.updateTtsSettings(newTts, ttsService)
                     },
                     onOpenTtsSetup = {
                         showSettingsSheet = false
@@ -351,6 +391,22 @@ fun ReaderScreen(
     }
 }
 
+internal fun ReaderSettings.contentReloadKey(): Int = listOf(
+    fontSizeSp,
+    fontFamily,
+    lineHeightRatio,
+    marginTopDp,
+    marginBottomDp,
+    marginLeftDp,
+    marginRightDp,
+    themeMode,
+    isHorizontalPagination,
+    paragraphSpacingDp,
+    firstLineIndentDp,
+    textAlignment,
+    showScrollBar
+).hashCode()
+
 private fun sanitizeEpubHtml(html: String): String {
     return html
         .replace("""(?i)<meta\s+name=["']viewport["'][^>]*>""".toRegex(), "")
@@ -369,6 +425,7 @@ fun EpubWebView(
     previousChapterHtml: String?,
     nextChapterHtml: String?,
     initialPage: Int,
+    initialVisibleParagraphIndex: Int,
     settings: ReaderSettings,
     activeTtsParagraphIndex: Int? = null,
     onPageTapped: () -> Unit,
@@ -405,13 +462,16 @@ fun EpubWebView(
         factory = { ctx ->
             WebView(ctx).apply {
                 webViewRef = this
-                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 this.settings.javaScriptEnabled = true
                 this.settings.domStorageEnabled = true
                 this.settings.useWideViewPort = false
                 this.settings.loadWithOverviewMode = false
                 this.settings.textZoom = 100
                 this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                isFocusable = true
+                isFocusableInTouchMode = true
+                requestFocus()
 
                 addJavascriptInterface(jsBridge, "ReaderJsBridge")
                 webViewClient = object : WebViewClient() {
@@ -426,6 +486,42 @@ fun EpubWebView(
             }
         },
         update = { webView ->
+            webView.isVerticalScrollBarEnabled = settings.showScrollBar && !settings.isHorizontalPagination
+            webView.isHorizontalScrollBarEnabled = settings.showScrollBar && settings.isHorizontalPagination
+            webView.setOnKeyListener { _, keyCode, event ->
+                if (event.action != KeyEvent.ACTION_UP) return@setOnKeyListener false
+
+                val direction = when {
+                    settings.enableKeyboardNavigation && keyCode in listOf(
+                        KeyEvent.KEYCODE_DPAD_RIGHT,
+                        KeyEvent.KEYCODE_PAGE_DOWN,
+                        KeyEvent.KEYCODE_SPACE
+                    ) -> 1
+                    settings.enableKeyboardNavigation && keyCode in listOf(
+                        KeyEvent.KEYCODE_DPAD_LEFT,
+                        KeyEvent.KEYCODE_PAGE_UP
+                    ) -> -1
+                    settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN -> 1
+                    settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_UP -> -1
+                    else -> 0
+                }
+
+                if (direction == 0) {
+                    false
+                } else {
+                    val functionName = if (direction > 0) "epubproGoNextPage" else "epubproGoPrevPage"
+                    webView.evaluateJavascript("if (typeof $functionName === 'function') { $functionName(); }", null)
+                    true
+                }
+            }
+
+            val runtimeSpeedMs = if (settings.enablePageAnimation) settings.pageTurnSpeedMs else 0
+            val runtimeActions = JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
+            webView.evaluateJavascript(
+                "if (typeof epubproApplyRuntimeSettings === 'function') { epubproApplyRuntimeSettings($runtimeSpeedMs, $runtimeActions); }",
+                null
+            )
+
             val cleanHtml = sanitizeEpubHtml(htmlContent)
             val previousPreviewHtml = previousChapterHtml?.let(::sanitizeEpubHtml)
             val nextPreviewHtml = nextChapterHtml?.let(::sanitizeEpubHtml)
@@ -433,6 +529,7 @@ fun EpubWebView(
             val jsScript = CssInjector.generateJsBridgeScript(
                 isHorizontalPagination = settings.isHorizontalPagination,
                 initialPage = initialPage,
+                initialVisibleParagraphIndex = initialVisibleParagraphIndex,
                 settings = settings,
                 previousChapterHtml = previousPreviewHtml,
                 nextChapterHtml = nextPreviewHtml
@@ -466,7 +563,7 @@ fun EpubWebView(
                 }
             }
 
-            val newHtmlKey = "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.hashCode()}_${settings.isHorizontalPagination}"
+            val newHtmlKey = "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.contentReloadKey()}"
             if (loadedHtmlKey != newHtmlKey) {
                 loadedHtmlKey = newHtmlKey
                 Log.d("EpubPro_HTML", "Loading HTML, length=${preparedHtml.length}, isHorizontal=${settings.isHorizontalPagination}")
@@ -487,6 +584,13 @@ fun ReaderSettingsContent(
     onTtsSettingsChanged: (TtsSettings) -> Unit = {},
     onOpenTtsSetup: () -> Unit = {}
 ) {
+    var draftPageTurnSpeedMs by remember(settings.pageTurnSpeedMs) { mutableIntStateOf(settings.pageTurnSpeedMs) }
+    var draftFontSizeSp by remember(settings.fontSizeSp) { mutableFloatStateOf(settings.fontSizeSp) }
+    var draftMarginTopDp by remember(settings.marginTopDp) { mutableIntStateOf(settings.marginTopDp) }
+    var draftMarginBottomDp by remember(settings.marginBottomDp) { mutableIntStateOf(settings.marginBottomDp) }
+    var draftMarginLeftDp by remember(settings.marginLeftDp) { mutableIntStateOf(settings.marginLeftDp) }
+    var draftMarginRightDp by remember(settings.marginRightDp) { mutableIntStateOf(settings.marginRightDp) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -501,36 +605,16 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // --- SECTION 1: Trình đọc / Engine ---
-        SettingSectionHeader(title = "Chế độ đọc & Trình đọc", icon = Icons.Default.MenuBook)
+        // --- SECTION 1: Chế độ đọc ---
+        SettingSectionHeader(title = "Chế độ đọc", icon = Icons.Default.MenuBook)
         Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            EngineChip(
-                label = "WebView Engine",
-                subtitle = "Tuỳ biến cao",
-                isSelected = settings.engineType == ReaderEngineType.WEBVIEW,
-                onClick = { onSettingsChanged(settings.copy(engineType = ReaderEngineType.WEBVIEW)) }
-            )
-            EngineChip(
-                label = "Readium Engine",
-                subtitle = "Chuẩn EPUB 3",
-                isSelected = settings.engineType == ReaderEngineType.READIUM,
-                onClick = { onSettingsChanged(settings.copy(engineType = ReaderEngineType.READIUM)) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.reader_horizontal_scroll), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     stringResource(R.string.reader_horizontal_scroll_desc),
@@ -558,25 +642,30 @@ fun ReaderSettingsContent(
         if (settings.isHorizontalPagination) {
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Tốc độ trượt lật trang: ${settings.pageTurnSpeedMs} ms",
+                text = "Tốc độ trượt lật trang: $draftPageTurnSpeedMs ms",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Slider(
-                value = settings.pageTurnSpeedMs.toFloat(),
-                onValueChange = { onSettingsChanged(settings.copy(pageTurnSpeedMs = it.toInt())) },
-                valueRange = 100f..600f,
-                steps = 9
+                value = draftPageTurnSpeedMs.toFloat(),
+                onValueChange = { draftPageTurnSpeedMs = it.toInt() },
+                onValueChangeFinished = {
+                    onSettingsChanged(settings.copy(pageTurnSpeedMs = draftPageTurnSpeedMs))
+                },
+                valueRange = MIN_PAGE_TURN_SPEED_MS.toFloat()..MAX_PAGE_TURN_SPEED_MS.toFloat()
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(120 to "Nhanh (120ms)", 220 to "Vừa (220ms)", 450 to "Chậm (450ms)").forEach { (speed, label) ->
+                PAGE_TURN_SPEED_PRESETS_MS.zip(listOf("Nhanh", "Vừa", "Chậm")).forEach { (speed, name) ->
                     FilterChip(
-                        selected = settings.pageTurnSpeedMs == speed,
-                        onClick = { onSettingsChanged(settings.copy(pageTurnSpeedMs = speed)) },
-                        label = { Text(label, fontSize = 11.sp) },
+                        selected = draftPageTurnSpeedMs == speed,
+                        onClick = {
+                            draftPageTurnSpeedMs = speed
+                            onSettingsChanged(settings.copy(pageTurnSpeedMs = speed))
+                        },
+                        label = { Text("$name (${speed}ms)", fontSize = 11.sp) },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -599,22 +688,27 @@ fun ReaderSettingsContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val fonts = listOf("Serif", "Sans-Serif", "Monospace", "Roboto", "Georgia")
-            fonts.forEach { font ->
+            val fonts = listOf(
+                "serif" to "Có chân",
+                "sans-serif" to "Không chân",
+                "monospace" to "Đơn cách"
+            )
+            fonts.forEach { (fontFamily, label) ->
                 FontFamilyChip(
-                    label = font,
-                    isSelected = settings.fontFamily.equals(font, ignoreCase = true),
-                    onClick = { onSettingsChanged(settings.copy(fontFamily = font)) }
+                    label = label,
+                    isSelected = settings.fontFamily.equals(fontFamily, ignoreCase = true),
+                    onClick = { onSettingsChanged(settings.copy(fontFamily = fontFamily)) }
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(stringResource(R.string.reader_font_size_format, settings.fontSizeSp.toInt()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.reader_font_size_format, draftFontSizeSp.toInt()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Slider(
-            value = settings.fontSizeSp,
-            onValueChange = { onSettingsChanged(settings.copy(fontSizeSp = it)) },
+            value = draftFontSizeSp,
+            onValueChange = { draftFontSizeSp = it },
+            onValueChangeFinished = { onSettingsChanged(settings.copy(fontSizeSp = draftFontSizeSp)) },
             valueRange = 12f..32f,
             steps = 10
         )
@@ -678,18 +772,20 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_top_format, settings.marginTopDp), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_top_format, draftMarginTopDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
-                    value = settings.marginTopDp.toFloat(),
-                    onValueChange = { onSettingsChanged(settings.copy(marginTopDp = it.toInt())) },
+                    value = draftMarginTopDp.toFloat(),
+                    onValueChange = { draftMarginTopDp = it.toInt() },
+                    onValueChangeFinished = { onSettingsChanged(settings.copy(marginTopDp = draftMarginTopDp)) },
                     valueRange = 0f..64f
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_bottom_format, settings.marginBottomDp), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_bottom_format, draftMarginBottomDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
-                    value = settings.marginBottomDp.toFloat(),
-                    onValueChange = { onSettingsChanged(settings.copy(marginBottomDp = it.toInt())) },
+                    value = draftMarginBottomDp.toFloat(),
+                    onValueChange = { draftMarginBottomDp = it.toInt() },
+                    onValueChangeFinished = { onSettingsChanged(settings.copy(marginBottomDp = draftMarginBottomDp)) },
                     valueRange = 0f..64f
                 )
             }
@@ -700,18 +796,20 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_left_format, settings.marginLeftDp), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_left_format, draftMarginLeftDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
-                    value = settings.marginLeftDp.toFloat(),
-                    onValueChange = { onSettingsChanged(settings.copy(marginLeftDp = it.toInt())) },
+                    value = draftMarginLeftDp.toFloat(),
+                    onValueChange = { draftMarginLeftDp = it.toInt() },
+                    onValueChangeFinished = { onSettingsChanged(settings.copy(marginLeftDp = draftMarginLeftDp)) },
                     valueRange = 0f..64f
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_right_format, settings.marginRightDp), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.reader_margin_right_format, draftMarginRightDp), style = MaterialTheme.typography.bodySmall)
                 Slider(
-                    value = settings.marginRightDp.toFloat(),
-                    onValueChange = { onSettingsChanged(settings.copy(marginRightDp = it.toInt())) },
+                    value = draftMarginRightDp.toFloat(),
+                    onValueChange = { draftMarginRightDp = it.toInt() },
+                    onValueChangeFinished = { onSettingsChanged(settings.copy(marginRightDp = draftMarginRightDp)) },
                     valueRange = 0f..64f
                 )
             }
@@ -732,7 +830,7 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.reader_use_ai_voice), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 Text(
                     stringResource(R.string.reader_use_ai_voice_desc),
@@ -786,35 +884,6 @@ fun SettingSectionHeader(title: String, icon: androidx.compose.ui.graphics.vecto
         Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-fun RowScope.EngineChip(
-    label: String,
-    subtitle: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .weight(1f)
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(
-            width = if (isSelected) 2.dp else 1.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, fontSize = 11.sp, color = Color.Gray)
-        }
     }
 }
 

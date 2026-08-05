@@ -52,6 +52,10 @@ enum class ReaderEngineType {
     READIUM
 }
 
+const val MIN_PAGE_TURN_SPEED_MS = 100
+const val MAX_PAGE_TURN_SPEED_MS = 600
+val PAGE_TURN_SPEED_PRESETS_MS = listOf(120, 220, 450)
+
 enum class ReaderThemeMode {
     LIGHT,
     DARK,
@@ -76,12 +80,10 @@ enum class TextAlignment {
 
 /** Preset phông chữ */
 enum class FontPreset(val fontFamily: String, val displayName: String) {
-    SERIF("Serif", "Có chân"),
-    LORA("Lora", "Lora"),
-    SOURCE_SERIF("Source Serif 4", "Source Serif"),
-    KINDLE("Georgia", "K")
+    SERIF("serif", "Có chân"),
+    SANS_SERIF("sans-serif", "Không chân"),
+    MONOSPACE("monospace", "Đơn cách")
 }
-
 /** Layout vùng chạm lật trang */
 enum class TapZoneLayout(val displayName: String) {
     HORIZONTAL("Vùng chạm ngang"),
@@ -93,16 +95,37 @@ enum class TapZoneLayout(val displayName: String) {
 enum class TapZoneAction(val label: String) {
     PREV_PAGE("Trang trước"),
     NEXT_PAGE("Trang sau"),
-    TOGGLE_CONTROLS("Hiện/Ẩn Menu"),
-    BOOKMARK("Tạo Bookmark"),
-    TTS("Nghe đọc (TTS)"),
-    NONE("Không hành động")
+    TOGGLE_CONTROLS("Hiện/Ẩn Menu")
 }
 
+fun defaultTapZoneActions(layout: TapZoneLayout): List<TapZoneAction> = when (layout) {
+    TapZoneLayout.HORIZONTAL -> List(9) { index ->
+        when (index % 3) {
+            0 -> TapZoneAction.PREV_PAGE
+            2 -> TapZoneAction.NEXT_PAGE
+            else -> TapZoneAction.TOGGLE_CONTROLS
+        }
+    }
+    TapZoneLayout.VERTICAL -> List(9) { index ->
+        when (index / 3) {
+            0 -> TapZoneAction.PREV_PAGE
+            2 -> TapZoneAction.NEXT_PAGE
+            else -> TapZoneAction.TOGGLE_CONTROLS
+        }
+    }
+    TapZoneLayout.BOTTOM_SPLIT -> List(9) { index ->
+        when {
+            index < 6 -> TapZoneAction.TOGGLE_CONTROLS
+            index == 6 -> TapZoneAction.PREV_PAGE
+            index == 8 -> TapZoneAction.NEXT_PAGE
+            else -> TapZoneAction.TOGGLE_CONTROLS
+        }
+    }
+}
 data class ReaderSettings(
     val engineType: ReaderEngineType = ReaderEngineType.WEBVIEW,
     val fontSizeSp: Float = 18f,
-    val fontFamily: String = "Serif",
+    val fontFamily: String = "serif",
     val lineHeightRatio: Float = 1.5f,
     val marginTopDp: Int = 16,
     val marginBottomDp: Int = 16,
@@ -120,6 +143,7 @@ data class ReaderSettings(
     val keepScreenOn: Boolean = false,
     // Extended fields for Page Turn Control
     val tapZoneLayout: TapZoneLayout = TapZoneLayout.HORIZONTAL,
+    val tapZoneActions: List<TapZoneAction> = defaultTapZoneActions(TapZoneLayout.HORIZONTAL),
     val enablePageAnimation: Boolean = true,
     val enableKeyboardNavigation: Boolean = true,
     val enableVolumeKeyNavigation: Boolean = false,

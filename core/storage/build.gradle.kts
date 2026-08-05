@@ -29,4 +29,6 @@ dependencies {
     kapt(libs.hilt.compiler)
 
     implementation(libs.androidx.core.ktx)
+
+    testImplementation("junit:junit:4.13.2")
 }

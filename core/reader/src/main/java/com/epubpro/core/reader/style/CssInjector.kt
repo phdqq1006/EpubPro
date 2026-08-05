@@ -2,6 +2,7 @@ package com.epubpro.core.reader.style
 
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
+import com.epubpro.domain.model.TextAlignment
 import org.json.JSONObject
 
 object CssInjector {
@@ -22,7 +23,14 @@ object CssInjector {
         }
 
         val fontSizePx = settings.fontSizeSp.toInt()
-        val marginPx = settings.marginDp
+        val textAlign = if (settings.textAlignment == TextAlignment.JUSTIFY) "justify" else "left"
+        val scrollbarCss = if (settings.showScrollBar) "" else """
+            ::-webkit-scrollbar {
+                width: 0 !important;
+                height: 0 !important;
+                display: none !important;
+            }
+        """.trimIndent()
 
         val paginationCss = if (settings.isHorizontalPagination) {
             """
@@ -114,8 +122,10 @@ object CssInjector {
                     line-height: ${settings.lineHeightRatio} !important;
                 }
                 p {
-                    margin-top: 0.4em !important;
-                    margin-bottom: 0.4em !important;
+                    margin-top: 0 !important;
+                    margin-bottom: ${settings.paragraphSpacingDp}px !important;
+                    text-indent: ${settings.firstLineIndentDp}px !important;
+                    text-align: $textAlign !important;
                     word-break: break-word !important;
                     overflow-wrap: break-word !important;
                 }
@@ -154,6 +164,7 @@ object CssInjector {
                     padding-left: 4px !important;
                     transition: background-color 0.3s ease !important;
                 }
+                $scrollbarCss
                 $paginationCss
             </style>
         """.trimIndent()
@@ -162,6 +173,7 @@ object CssInjector {
     fun generateJsBridgeScript(
         isHorizontalPagination: Boolean,
         initialPage: Int = 1,
+        initialVisibleParagraphIndex: Int = 0,
         settings: ReaderSettings = ReaderSettings(),
         previousChapterHtml: String? = null,
         nextChapterHtml: String? = null
@@ -180,16 +192,18 @@ object CssInjector {
 
         val previousChapterHtmlJson = quoteForInlineScript(previousChapterHtml.orEmpty())
         val nextChapterHtmlJson = quoteForInlineScript(nextChapterHtml.orEmpty())
+        val tapZoneActionsJson = JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
 
         return """
             (function() {
                 window.epubproIsHorizontal = $isHorizontalPagination;
                 var targetInitPage = $initialPage;
+                var targetInitParagraph = $initialVisibleParagraphIndex;
                 var marginTop = ${settings.marginTopDp};
                 var marginBottom = ${settings.marginBottomDp};
                 var marginLeft = ${settings.marginLeftDp};
                 var marginRight = ${settings.marginRightDp};
-                var transitionSpeedMs = ${settings.pageTurnSpeedMs};
+                var transitionSpeedMs = ${if (settings.enablePageAnimation) settings.pageTurnSpeedMs else 0};
                 var currentPage = targetInitPage;
                 var totalPages = 1;
                 var startTouchX = 0;
@@ -310,7 +324,12 @@ object CssInjector {
                 }
 
                 function updatePageMetrics() {
-                    if (!window.epubproIsHorizontal) return;
+                    if (!window.epubproIsHorizontal) {
+                        if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
+                            window.ReaderJsBridge.onPageChanged(1, 1, getFirstVisibleParagraphIndex());
+                        }
+                        return;
+                    }
                     var pw = measureTotalPages();
 
                     if (isExecutingScroll || isDraggingPage || isCoverOverlayActive || ignoreScrollMetrics) return;
@@ -341,7 +360,7 @@ object CssInjector {
                     isExecutingScroll = true;
                     currentPage = page;
 
-                    if (animate !== false) {
+                    if (animate !== false && transitionSpeedMs > 0) {
                         var startX = window.scrollX || window.pageXOffset;
                         var distance = targetX - startX;
                         var duration = transitionSpeedMs;
@@ -375,22 +394,37 @@ object CssInjector {
                 }
 
                 window.epubproGoNextPage = function() {
+                    if (!window.epubproIsHorizontal) {
+                        var root = document.scrollingElement || document.documentElement;
+                        var atEnd = root.scrollTop + window.innerHeight >= root.scrollHeight - 2;
+                        if (atEnd && window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
+                            window.ReaderJsBridge.onNextChapterRequested();
+                        } else {
+                            window.scrollBy({ top: window.innerHeight * 0.85, behavior: transitionSpeedMs > 0 ? 'smooth' : 'auto' });
+                        }
+                        return;
+                    }
                     if (currentPage < totalPages) {
                         scrollToPage(currentPage + 1, true);
-                    } else {
-                        if (window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
-                            window.ReaderJsBridge.onNextChapterRequested();
-                        }
+                    } else if (window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
+                        window.ReaderJsBridge.onNextChapterRequested();
                     }
                 };
 
                 window.epubproGoPrevPage = function() {
+                    if (!window.epubproIsHorizontal) {
+                        var root = document.scrollingElement || document.documentElement;
+                        if (root.scrollTop <= 2 && window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
+                            window.ReaderJsBridge.onPreviousChapterRequested();
+                        } else {
+                            window.scrollBy({ top: -window.innerHeight * 0.85, behavior: transitionSpeedMs > 0 ? 'smooth' : 'auto' });
+                        }
+                        return;
+                    }
                     if (currentPage > 1) {
                         scrollToPage(currentPage - 1, true);
-                    } else {
-                        if (window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
-                            window.ReaderJsBridge.onPreviousChapterRequested();
-                        }
+                    } else if (window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
+                        window.ReaderJsBridge.onPreviousChapterRequested();
                     }
                 };
 
@@ -417,8 +451,23 @@ object CssInjector {
                     window.requestAnimationFrame(function() {
                         window.requestAnimationFrame(function() {
                             measureTotalPages();
+                            var paragraphs = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+                            var anchor = paragraphs[Math.min(paragraphs.length - 1, Math.max(0, targetInitParagraph))];
+                            if (anchor && targetInitParagraph > 0) {
+                                if (window.epubproIsHorizontal) {
+                                    var pw = window.innerWidth || 1;
+                                    var anchorX = anchor.getBoundingClientRect().left + (window.scrollX || 0);
+                                    targetInitPage = Math.floor(anchorX / pw) + 1;
+                                } else {
+                                    anchor.scrollIntoView({ block: 'start', behavior: 'auto' });
+                                }
+                            }
                             targetInitPage = Math.min(totalPages, Math.max(1, targetInitPage));
-                            scrollToPage(targetInitPage, false);
+                            if (window.epubproIsHorizontal) {
+                                scrollToPage(targetInitPage, false);
+                            } else {
+                                updatePageMetrics();
+                            }
                         });
                     });
                 }
@@ -447,6 +496,31 @@ object CssInjector {
                 var themeBgColor = '$bgColor';
                 var previousChapterHtml = $previousChapterHtmlJson;
                 var nextChapterHtml = $nextChapterHtmlJson;
+                var tapZoneActions = $tapZoneActionsJson.split(',');
+
+                window.epubproApplyRuntimeSettings = function(speedMs, actionsCsv) {
+                    transitionSpeedMs = Math.max(0, Number(speedMs) || 0);
+                    if (typeof actionsCsv === 'string') {
+                        var parsedActions = actionsCsv.split(',');
+                        if (parsedActions.length === 9) tapZoneActions = parsedActions;
+                    }
+                };
+
+                function handleConfiguredTap(x, y) {
+                    var width = window.innerWidth || 1;
+                    var height = window.innerHeight || 1;
+                    var column = Math.min(2, Math.max(0, Math.floor(x / (width / 3))));
+                    var row = Math.min(2, Math.max(0, Math.floor(y / (height / 3))));
+                    var zoneIndex = row * 3 + column;
+                    var action = tapZoneActions[zoneIndex] || 'TOGGLE_CONTROLS';
+                    if (action === 'PREV_PAGE') {
+                        window.epubproGoPrevPage();
+                    } else if (action === 'NEXT_PAGE') {
+                        window.epubproGoNextPage();
+                    } else if (window.ReaderJsBridge && window.ReaderJsBridge.onPageTapped) {
+                        window.ReaderJsBridge.onPageTapped();
+                    }
+                }
 
                 function cleanupCoverOverlay() {
                     // Restore body scroll ability
@@ -721,16 +795,7 @@ object CssInjector {
                         var duration = Date.now() - startTouchTime;
 
                         if (Math.abs(diffX) <= 15 && Math.abs(diffY) <= 15 && duration <= 300) {
-                            var screenWidth = window.innerWidth;
-                            if (endX < screenWidth * 0.30) {
-                                window.epubproGoPrevPage();
-                            } else if (endX > screenWidth * 0.70) {
-                                window.epubproGoNextPage();
-                            } else {
-                                if (window.ReaderJsBridge && window.ReaderJsBridge.onPageTapped) {
-                                    window.ReaderJsBridge.onPageTapped();
-                                }
-                            }
+                            handleConfiguredTap(endX, endY);
                         }
                         return;
                     }

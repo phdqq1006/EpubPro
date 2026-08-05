@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.domain.model.ReaderSettings
+import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
+import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
+import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
 import com.epubpro.domain.model.TapZoneAction
 import com.epubpro.domain.model.TapZoneLayout
 
@@ -39,6 +42,7 @@ fun PageTurnControlScreen(
 ) {
     val settings by viewModel.settings.collectAsState()
     var showCustomTapZoneSheet by remember { mutableStateOf(false) }
+    var draftPageTurnSpeedMs by remember(settings.pageTurnSpeedMs) { mutableIntStateOf(settings.pageTurnSpeedMs) }
 
     Scaffold(
         topBar = {
@@ -146,6 +150,18 @@ fun PageTurnControlScreen(
             }
 
             item {
+                PageTurnSpeedControl(
+                    speedMs = draftPageTurnSpeedMs,
+                    onSpeedChanged = { draftPageTurnSpeedMs = it },
+                    onSpeedChangeFinished = { viewModel.setPageTurnSpeed(draftPageTurnSpeedMs) },
+                    onPresetSelected = { speed ->
+                        draftPageTurnSpeedMs = speed
+                        viewModel.setPageTurnSpeed(speed)
+                    }
+                )
+            }
+
+            item {
                 PageTurnToggleRow(
                     icon = Icons.Default.Keyboard,
                     title = "Chuyển trang bằng bàn phím",
@@ -168,9 +184,45 @@ fun PageTurnControlScreen(
 
     if (showCustomTapZoneSheet) {
         CustomTapZoneBottomSheet(
-            currentLayout = settings.tapZoneLayout,
+            currentActions = settings.tapZoneActions,
+            onSave = viewModel::setTapZoneActions,
             onDismiss = { showCustomTapZoneSheet = false }
         )
+    }
+}
+
+@Composable
+private fun PageTurnSpeedControl(
+    speedMs: Int,
+    onSpeedChanged: (Int) -> Unit,
+    onSpeedChangeFinished: () -> Unit,
+    onPresetSelected: (Int) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Tốc độ lật trang: $speedMs ms",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        Slider(
+            value = speedMs.toFloat(),
+            onValueChange = { onSpeedChanged(it.toInt()) },
+            onValueChangeFinished = onSpeedChangeFinished,
+            valueRange = MIN_PAGE_TURN_SPEED_MS.toFloat()..MAX_PAGE_TURN_SPEED_MS.toFloat()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PAGE_TURN_SPEED_PRESETS_MS.zip(listOf("Nhanh", "Vừa", "Chậm")).forEach { (speed, name) ->
+                FilterChip(
+                    selected = speedMs == speed,
+                    onClick = { onPresetSelected(speed) },
+                    label = { Text("$name (${speed}ms)", fontSize = 11.sp) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
@@ -198,7 +250,7 @@ private fun InfoBannerCard() {
             )
             Spacer(modifier = Modifier.width(14.dp))
             Text(
-                text = "Quay lại và nhấn Áp dụng trong cài đặt đọc để lưu",
+                text = "Thay đổi được lưu tự động và đồng bộ với màn đọc",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground,
@@ -597,48 +649,14 @@ private fun PageTurnToggleRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CustomTapZoneBottomSheet(
-    currentLayout: TapZoneLayout,
+    currentActions: List<TapZoneAction>,
+    onSave: (List<TapZoneAction>) -> Unit,
     onDismiss: () -> Unit
 ) {
     var selectedZoneIndex by remember { mutableStateOf<Int?>(null) }
-    val zoneActions = remember {
+    val zoneActions = remember(currentActions) {
         mutableStateMapOf<Int, TapZoneAction>().apply {
-            // Default 9 zones mapping
-            when (currentLayout) {
-                TapZoneLayout.HORIZONTAL -> {
-                    put(0, TapZoneAction.PREV_PAGE)
-                    put(1, TapZoneAction.TOGGLE_CONTROLS)
-                    put(2, TapZoneAction.NEXT_PAGE)
-                    put(3, TapZoneAction.PREV_PAGE)
-                    put(4, TapZoneAction.TOGGLE_CONTROLS)
-                    put(5, TapZoneAction.NEXT_PAGE)
-                    put(6, TapZoneAction.PREV_PAGE)
-                    put(7, TapZoneAction.TOGGLE_CONTROLS)
-                    put(8, TapZoneAction.NEXT_PAGE)
-                }
-                TapZoneLayout.VERTICAL -> {
-                    put(0, TapZoneAction.PREV_PAGE)
-                    put(1, TapZoneAction.PREV_PAGE)
-                    put(2, TapZoneAction.PREV_PAGE)
-                    put(3, TapZoneAction.TOGGLE_CONTROLS)
-                    put(4, TapZoneAction.TOGGLE_CONTROLS)
-                    put(5, TapZoneAction.TOGGLE_CONTROLS)
-                    put(6, TapZoneAction.NEXT_PAGE)
-                    put(7, TapZoneAction.NEXT_PAGE)
-                    put(8, TapZoneAction.NEXT_PAGE)
-                }
-                TapZoneLayout.BOTTOM_SPLIT -> {
-                    put(0, TapZoneAction.TOGGLE_CONTROLS)
-                    put(1, TapZoneAction.TOGGLE_CONTROLS)
-                    put(2, TapZoneAction.TOGGLE_CONTROLS)
-                    put(3, TapZoneAction.TOGGLE_CONTROLS)
-                    put(4, TapZoneAction.TOGGLE_CONTROLS)
-                    put(5, TapZoneAction.TOGGLE_CONTROLS)
-                    put(6, TapZoneAction.PREV_PAGE)
-                    put(7, TapZoneAction.PREV_PAGE)
-                    put(8, TapZoneAction.NEXT_PAGE)
-                }
-            }
+            currentActions.forEachIndexed { index, action -> put(index, action) }
         }
     }
 
@@ -683,7 +701,7 @@ private fun CustomTapZoneBottomSheet(
                         Row(modifier = Modifier.weight(1f)) {
                             repeat(3) { colIndex ->
                                 val zoneIndex = rowIndex * 3 + colIndex
-                                val action = zoneActions[zoneIndex] ?: TapZoneAction.NONE
+                                val action = zoneActions[zoneIndex] ?: TapZoneAction.TOGGLE_CONTROLS
                                 val isSelected = selectedZoneIndex == zoneIndex
 
                                 Box(
@@ -738,7 +756,7 @@ private fun CustomTapZoneBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TapZoneAction.values().take(3).forEach { action ->
+                    TapZoneAction.values().forEach { action ->
                         FilterChip(
                             selected = zoneActions[selectedZoneIndex] == action,
                             onClick = {
@@ -754,7 +772,10 @@ private fun CustomTapZoneBottomSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = onDismiss,
+                onClick = {
+                    onSave(List(9) { index -> zoneActions[index] ?: TapZoneAction.TOGGLE_CONTROLS })
+                    onDismiss()
+                },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp)
             ) {
@@ -769,8 +790,5 @@ private fun CustomTapZoneBottomSheet(
 private fun getActionIconText(action: TapZoneAction): String = when (action) {
     TapZoneAction.PREV_PAGE -> "←"
     TapZoneAction.NEXT_PAGE -> "→"
-    TapZoneAction.TOGGLE_CONTROLS -> "👁"
-    TapZoneAction.BOOKMARK -> "🔖"
-    TapZoneAction.TTS -> "🔊"
-    TapZoneAction.NONE -> "-"
+    TapZoneAction.TOGGLE_CONTROLS -> "Menu"
 }

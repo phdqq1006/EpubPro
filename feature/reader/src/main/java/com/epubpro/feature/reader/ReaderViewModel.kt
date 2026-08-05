@@ -32,6 +32,7 @@ data class ReaderUiState(
     val currentPageInChapter: Int = 1,
     val initialPageRequest: Int = 1,
     val totalPagesInChapter: Int = 1,
+    val firstVisibleParagraphIndex: Int = 0,
     val currentCfi: String = "",
     val settings: ReaderSettings = ReaderSettings(),
     val showControls: Boolean = true,
@@ -69,8 +70,17 @@ class ReaderViewModel @Inject constructor(
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     init {
-        val initialTtsSettings = ttsPreferencesManager.getSettings()
-        _uiState.update { it.copy(ttsSettings = initialTtsSettings) }
+        viewModelScope.launch {
+            preferencesManager.settings.collect { settings ->
+                _uiState.update { it.copy(settings = settings) }
+            }
+        }
+
+        viewModelScope.launch {
+            ttsPreferencesManager.settingsFlow.collect { settings ->
+                _uiState.update { it.copy(ttsSettings = settings) }
+            }
+        }
 
         viewModelScope.launch {
             TtsService.playerState.collect { state ->
@@ -145,7 +155,8 @@ class ReaderViewModel @Inject constructor(
                         nextChapterHtml = chapterBundle.next,
                         currentPageInChapter = 1,
                         initialPageRequest = if (openAtLastPage) Int.MAX_VALUE else 1,
-                        totalPagesInChapter = 1
+                        totalPagesInChapter = 1,
+                        firstVisibleParagraphIndex = 0
                     )
                 }
             }
@@ -172,7 +183,8 @@ class ReaderViewModel @Inject constructor(
         if (
             currentState.currentPageInChapter == currentPage &&
             currentState.totalPagesInChapter == totalPages &&
-            currentState.initialPageRequest == currentPage
+            currentState.initialPageRequest == currentPage &&
+            currentState.firstVisibleParagraphIndex == firstVisibleChunkIndex
         ) {
             return
         }
@@ -180,7 +192,8 @@ class ReaderViewModel @Inject constructor(
             it.copy(
                 currentPageInChapter = currentPage,
                 initialPageRequest = currentPage,
-                totalPagesInChapter = totalPages
+                totalPagesInChapter = totalPages,
+                firstVisibleParagraphIndex = firstVisibleChunkIndex
             )
         }
         saveProgress()
@@ -202,7 +215,6 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun updateSettings(newSettings: ReaderSettings) {
-        _uiState.update { it.copy(settings = newSettings) }
         preferencesManager.saveSettings(newSettings)
     }
 
@@ -303,6 +315,11 @@ class ReaderViewModel @Inject constructor(
 
     fun closeTtsPlayerScreen() {
         _uiState.update { it.copy(showTtsPlayerScreen = false) }
+    }
+
+    fun updateTtsSettings(newSettings: TtsSettings, ttsService: TtsService?) {
+        ttsPreferencesManager.saveSettings(newSettings)
+        ttsService?.updateSettings(newSettings)
     }
 
     fun onStartListeningFromSetup(newSettings: TtsSettings, ttsService: TtsService?) {

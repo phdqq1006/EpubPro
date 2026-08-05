@@ -4,13 +4,33 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.epubpro.domain.model.ReaderEngineType
 import com.epubpro.domain.model.ReaderSettings
+import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
+import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.ReadingMode
+import com.epubpro.domain.model.TapZoneAction
 import com.epubpro.domain.model.TapZoneLayout
 import com.epubpro.domain.model.TextAlignment
+import com.epubpro.domain.model.defaultTapZoneActions
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+
+internal fun normalizePageTurnSpeed(speedMs: Int): Int =
+    speedMs.coerceIn(MIN_PAGE_TURN_SPEED_MS, MAX_PAGE_TURN_SPEED_MS)
+
+internal fun resolveReadingMode(storedName: String?, legacyHorizontal: Boolean): ReadingMode {
+    val parsed = storedName?.let { runCatching { ReadingMode.valueOf(it) }.getOrNull() }
+        ?: return if (legacyHorizontal) ReadingMode.FLIP else ReadingMode.SCROLL
+    return when (parsed) {
+        ReadingMode.SCROLL_HORIZONTAL -> ReadingMode.FLIP
+        ReadingMode.CONTINUOUS -> ReadingMode.SCROLL
+        else -> parsed
+    }
+}
 
 @Singleton
 class ReaderPreferencesManager @Inject constructor(
@@ -19,127 +39,113 @@ class ReaderPreferencesManager @Inject constructor(
     private val prefs: SharedPreferences =
         context.getSharedPreferences("reader_settings_prefs", Context.MODE_PRIVATE)
 
-    fun isEngineConfigured(): Boolean {
-        return prefs.contains(KEY_ENGINE_TYPE)
+    private val _settings = MutableStateFlow(readSettings())
+    val settings: StateFlow<ReaderSettings> = _settings.asStateFlow()
+
+    fun isEngineConfigured(): Boolean = prefs.contains(KEY_ENGINE_TYPE)
+
+    fun getSettings(): ReaderSettings = _settings.value
+
+    @Synchronized
+    fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
+        saveSettings(transform(_settings.value))
     }
 
-    fun getSettings(): ReaderSettings {
-        val engineTypeName = prefs.getString(KEY_ENGINE_TYPE, ReaderEngineType.WEBVIEW.name) ?: ReaderEngineType.WEBVIEW.name
-        val engineType = try {
-            ReaderEngineType.valueOf(engineTypeName)
-        } catch (e: Exception) {
-            ReaderEngineType.WEBVIEW
-        }
-        val fontSizeSp = prefs.getFloat(KEY_FONT_SIZE, 18f)
-        val fontFamily = prefs.getString(KEY_FONT_FAMILY, "Serif") ?: "Serif"
-        val lineHeightRatio = prefs.getFloat(KEY_LINE_HEIGHT, 1.5f)
+    @Synchronized
+    fun saveSettings(settings: ReaderSettings) {
+        val readingMode = resolveReadingMode(settings.readingMode.name, settings.isHorizontalPagination)
+        val tapZoneActions = settings.tapZoneActions
+            .takeIf { it.size == TAP_ZONE_COUNT }
+            ?: defaultTapZoneActions(settings.tapZoneLayout)
+        val normalized = settings.copy(
+            fontFamily = normalizeFontFamily(settings.fontFamily),
+            readingMode = readingMode,
+            isHorizontalPagination = readingMode == ReadingMode.FLIP,
+            tapZoneActions = tapZoneActions,
+            pageTurnSpeedMs = normalizePageTurnSpeed(settings.pageTurnSpeedMs)
+        )
+
+        prefs.edit()
+            .putString(KEY_ENGINE_TYPE, normalized.engineType.name)
+            .putFloat(KEY_FONT_SIZE, normalized.fontSizeSp)
+            .putString(KEY_FONT_FAMILY, normalized.fontFamily)
+            .putFloat(KEY_LINE_HEIGHT, normalized.lineHeightRatio)
+            .putInt(KEY_MARGIN_TOP, normalized.marginTopDp)
+            .putInt(KEY_MARGIN_BOTTOM, normalized.marginBottomDp)
+            .putInt(KEY_MARGIN_LEFT, normalized.marginLeftDp)
+            .putInt(KEY_MARGIN_RIGHT, normalized.marginRightDp)
+            .putString(KEY_THEME_MODE, normalized.themeMode.name)
+            .putBoolean(KEY_IS_HORIZONTAL, normalized.isHorizontalPagination)
+            .putString(KEY_READING_MODE, normalized.readingMode.name)
+            .putInt(KEY_PARAGRAPH_SPACING, normalized.paragraphSpacingDp)
+            .putInt(KEY_FIRST_LINE_INDENT, normalized.firstLineIndentDp)
+            .putString(KEY_TEXT_ALIGNMENT, normalized.textAlignment.name)
+            .putBoolean(KEY_SHOW_STATUS_BAR, normalized.showStatusBar)
+            .putBoolean(KEY_SHOW_SCROLL_BAR, normalized.showScrollBar)
+            .putBoolean(KEY_KEEP_SCREEN_ON, normalized.keepScreenOn)
+            .putString(KEY_TAP_ZONE_LAYOUT, normalized.tapZoneLayout.name)
+            .putString(KEY_TAP_ZONE_ACTIONS, normalized.tapZoneActions.joinToString(",") { it.name })
+            .putBoolean(KEY_ENABLE_PAGE_ANIMATION, normalized.enablePageAnimation)
+            .putBoolean(KEY_ENABLE_KEYBOARD_NAV, normalized.enableKeyboardNavigation)
+            .putBoolean(KEY_ENABLE_VOLUME_KEY_NAV, normalized.enableVolumeKeyNavigation)
+            .putInt(KEY_PAGE_TURN_SPEED_MS, normalized.pageTurnSpeedMs)
+            .apply()
+        _settings.value = normalized
+    }
+
+    private fun readSettings(): ReaderSettings {
+        val engineType = enumPreference(KEY_ENGINE_TYPE, ReaderEngineType.WEBVIEW)
+        val themeMode = enumPreference(KEY_THEME_MODE, ReaderThemeMode.LIGHT)
         val legacyMarginDp = prefs.getInt(KEY_MARGIN_DP, 16)
-        val marginTopDp = prefs.getInt(KEY_MARGIN_TOP, legacyMarginDp)
-        val marginBottomDp = prefs.getInt(KEY_MARGIN_BOTTOM, legacyMarginDp)
-        val marginLeftDp = prefs.getInt(KEY_MARGIN_LEFT, legacyMarginDp)
-        val marginRightDp = prefs.getInt(KEY_MARGIN_RIGHT, legacyMarginDp)
-
-        val themeModeName = prefs.getString(KEY_THEME_MODE, ReaderThemeMode.LIGHT.name) ?: ReaderThemeMode.LIGHT.name
-        val themeMode = try {
-            ReaderThemeMode.valueOf(themeModeName)
-        } catch (e: Exception) {
-            ReaderThemeMode.LIGHT
-        }
         val legacyIsHorizontal = prefs.getBoolean(KEY_IS_HORIZONTAL, true)
-
-        // Extended fields
-        val readingModeName = prefs.getString(KEY_READING_MODE, ReadingMode.FLIP.name) ?: ReadingMode.FLIP.name
-        val readingMode = try {
-            ReadingMode.valueOf(readingModeName)
-        } catch (e: Exception) {
-            ReadingMode.FLIP
-        }
-        val isHorizontal = if (prefs.contains(KEY_READING_MODE)) {
-            readingMode == ReadingMode.FLIP || readingMode == ReadingMode.SCROLL_HORIZONTAL
-        } else {
-            legacyIsHorizontal
-        }
-
-        val textAlignmentName = prefs.getString(KEY_TEXT_ALIGNMENT, TextAlignment.LEFT.name) ?: TextAlignment.LEFT.name
-        val textAlignment = try {
-            TextAlignment.valueOf(textAlignmentName)
-        } catch (e: Exception) {
-            TextAlignment.LEFT
-        }
-
-        val paragraphSpacingDp = prefs.getInt(KEY_PARAGRAPH_SPACING, 8)
-        val firstLineIndentDp = prefs.getInt(KEY_FIRST_LINE_INDENT, 0)
-        val showStatusBar = prefs.getBoolean(KEY_SHOW_STATUS_BAR, true)
-        val showScrollBar = prefs.getBoolean(KEY_SHOW_SCROLL_BAR, false)
-        val keepScreenOn = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false)
-
-        val tapZoneLayoutName = prefs.getString(KEY_TAP_ZONE_LAYOUT, TapZoneLayout.HORIZONTAL.name) ?: TapZoneLayout.HORIZONTAL.name
-        val tapZoneLayout = try {
-            TapZoneLayout.valueOf(tapZoneLayoutName)
-        } catch (e: Exception) {
-            TapZoneLayout.HORIZONTAL
-        }
-
-        val enablePageAnimation = prefs.getBoolean(KEY_ENABLE_PAGE_ANIMATION, true)
-        val enableKeyboardNavigation = prefs.getBoolean(KEY_ENABLE_KEYBOARD_NAV, true)
-        val enableVolumeKeyNavigation = prefs.getBoolean(KEY_ENABLE_VOLUME_KEY_NAV, false)
-        val pageTurnSpeedMs = prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220)
+        val readingMode = resolveReadingMode(prefs.getString(KEY_READING_MODE, null), legacyIsHorizontal)
+        val tapZoneLayout = enumPreference(KEY_TAP_ZONE_LAYOUT, TapZoneLayout.HORIZONTAL)
+        val tapZoneActions = prefs.getString(KEY_TAP_ZONE_ACTIONS, null)
+            ?.split(',')
+            ?.mapNotNull { runCatching { TapZoneAction.valueOf(it) }.getOrNull() }
+            ?.takeIf { it.size == TAP_ZONE_COUNT }
+            ?: defaultTapZoneActions(tapZoneLayout)
 
         return ReaderSettings(
             engineType = engineType,
-            fontSizeSp = fontSizeSp,
-            fontFamily = fontFamily,
-            lineHeightRatio = lineHeightRatio,
-            marginTopDp = marginTopDp,
-            marginBottomDp = marginBottomDp,
-            marginLeftDp = marginLeftDp,
-            marginRightDp = marginRightDp,
+            fontSizeSp = prefs.getFloat(KEY_FONT_SIZE, 18f),
+            fontFamily = normalizeFontFamily(prefs.getString(KEY_FONT_FAMILY, "serif") ?: "serif"),
+            lineHeightRatio = prefs.getFloat(KEY_LINE_HEIGHT, 1.5f),
+            marginTopDp = prefs.getInt(KEY_MARGIN_TOP, legacyMarginDp),
+            marginBottomDp = prefs.getInt(KEY_MARGIN_BOTTOM, legacyMarginDp),
+            marginLeftDp = prefs.getInt(KEY_MARGIN_LEFT, legacyMarginDp),
+            marginRightDp = prefs.getInt(KEY_MARGIN_RIGHT, legacyMarginDp),
             themeMode = themeMode,
-            isHorizontalPagination = isHorizontal,
+            isHorizontalPagination = readingMode == ReadingMode.FLIP,
             readingMode = readingMode,
-            paragraphSpacingDp = paragraphSpacingDp,
-            firstLineIndentDp = firstLineIndentDp,
-            textAlignment = textAlignment,
-            showStatusBar = showStatusBar,
-            showScrollBar = showScrollBar,
-            keepScreenOn = keepScreenOn,
+            paragraphSpacingDp = prefs.getInt(KEY_PARAGRAPH_SPACING, 8),
+            firstLineIndentDp = prefs.getInt(KEY_FIRST_LINE_INDENT, 0),
+            textAlignment = enumPreference(KEY_TEXT_ALIGNMENT, TextAlignment.LEFT),
+            showStatusBar = prefs.getBoolean(KEY_SHOW_STATUS_BAR, true),
+            showScrollBar = prefs.getBoolean(KEY_SHOW_SCROLL_BAR, false),
+            keepScreenOn = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false),
             tapZoneLayout = tapZoneLayout,
-            enablePageAnimation = enablePageAnimation,
-            enableKeyboardNavigation = enableKeyboardNavigation,
-            enableVolumeKeyNavigation = enableVolumeKeyNavigation,
-            pageTurnSpeedMs = pageTurnSpeedMs,
+            tapZoneActions = tapZoneActions,
+            enablePageAnimation = prefs.getBoolean(KEY_ENABLE_PAGE_ANIMATION, true),
+            enableKeyboardNavigation = prefs.getBoolean(KEY_ENABLE_KEYBOARD_NAV, true),
+            enableVolumeKeyNavigation = prefs.getBoolean(KEY_ENABLE_VOLUME_KEY_NAV, false),
+            pageTurnSpeedMs = normalizePageTurnSpeed(prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220))
         )
     }
 
-    fun saveSettings(settings: ReaderSettings) {
-        prefs.edit()
-            .putString(KEY_ENGINE_TYPE, settings.engineType.name)
-            .putFloat(KEY_FONT_SIZE, settings.fontSizeSp)
-            .putString(KEY_FONT_FAMILY, settings.fontFamily)
-            .putFloat(KEY_LINE_HEIGHT, settings.lineHeightRatio)
-            .putInt(KEY_MARGIN_TOP, settings.marginTopDp)
-            .putInt(KEY_MARGIN_BOTTOM, settings.marginBottomDp)
-            .putInt(KEY_MARGIN_LEFT, settings.marginLeftDp)
-            .putInt(KEY_MARGIN_RIGHT, settings.marginRightDp)
-            .putString(KEY_THEME_MODE, settings.themeMode.name)
-            .putBoolean(KEY_IS_HORIZONTAL, settings.isHorizontalPagination)
-            // Extended fields
-            .putString(KEY_READING_MODE, settings.readingMode.name)
-            .putInt(KEY_PARAGRAPH_SPACING, settings.paragraphSpacingDp)
-            .putInt(KEY_FIRST_LINE_INDENT, settings.firstLineIndentDp)
-            .putString(KEY_TEXT_ALIGNMENT, settings.textAlignment.name)
-            .putBoolean(KEY_SHOW_STATUS_BAR, settings.showStatusBar)
-            .putBoolean(KEY_SHOW_SCROLL_BAR, settings.showScrollBar)
-            .putBoolean(KEY_KEEP_SCREEN_ON, settings.keepScreenOn)
-            .putString(KEY_TAP_ZONE_LAYOUT, settings.tapZoneLayout.name)
-            .putBoolean(KEY_ENABLE_PAGE_ANIMATION, settings.enablePageAnimation)
-            .putBoolean(KEY_ENABLE_KEYBOARD_NAV, settings.enableKeyboardNavigation)
-            .putBoolean(KEY_ENABLE_VOLUME_KEY_NAV, settings.enableVolumeKeyNavigation)
-            .putInt(KEY_PAGE_TURN_SPEED_MS, settings.pageTurnSpeedMs)
-            .apply()
+    private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T {
+        val name = prefs.getString(key, fallback.name) ?: fallback.name
+        return runCatching { enumValueOf<T>(name) }.getOrDefault(fallback)
+    }
+
+    private fun normalizeFontFamily(fontFamily: String): String = when (fontFamily.lowercase()) {
+        "sans-serif", "sans serif" -> "sans-serif"
+        "monospace" -> "monospace"
+        else -> "serif"
     }
 
     companion object {
+        private const val TAP_ZONE_COUNT = 9
         private const val KEY_ENGINE_TYPE = "engine_type"
         private const val KEY_FONT_SIZE = "font_size_sp"
         private const val KEY_FONT_FAMILY = "font_family"
@@ -151,7 +157,6 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_MARGIN_RIGHT = "margin_right_dp"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_IS_HORIZONTAL = "is_horizontal_pagination"
-        // Extended keys
         private const val KEY_READING_MODE = "reading_mode"
         private const val KEY_PARAGRAPH_SPACING = "paragraph_spacing_dp"
         private const val KEY_FIRST_LINE_INDENT = "first_line_indent_dp"
@@ -160,6 +165,7 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_SHOW_SCROLL_BAR = "show_scroll_bar"
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_TAP_ZONE_LAYOUT = "tap_zone_layout"
+        private const val KEY_TAP_ZONE_ACTIONS = "tap_zone_actions"
         private const val KEY_ENABLE_PAGE_ANIMATION = "enable_page_animation"
         private const val KEY_ENABLE_KEYBOARD_NAV = "enable_keyboard_nav"
         private const val KEY_ENABLE_VOLUME_KEY_NAV = "enable_volume_key_nav"

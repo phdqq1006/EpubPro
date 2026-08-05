@@ -11,6 +11,20 @@
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Với EPUB lớn, chỉ giữ metadata của toàn bộ spine và tối đa ba chuỗi XHTML: chương trước, hiện tại, chương sau. Chương hiện tại phục vụ WebView; hai chương kề chỉ phục vụ preview ở biên. Không preload xa hơn để tránh quay lại lỗi giữ hàng nghìn chương trong RAM. Việc đọc Zip nên tuần tự trên thiết bị; preview là dữ liệu bổ trợ và không được làm hỏng nội dung chương chính.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
+### Shared Reader Settings StateFlow
+- **Ngày**: 2026-08-05
+- **Chi tiết**: `ReaderPreferencesManager` là nguồn sự thật duy nhất cho `ReaderSettings`: sở hữu `MutableStateFlow`, chuẩn hóa trước khi lưu và phát lại giá trị đã normalize. Reader, Reading Defaults và Page Turn Settings chỉ observe cùng `StateFlow`; mọi cập nhật dạng transform phải chạy trên giá trị mới nhất trong manager để tránh hai ViewModel ghi đè lẫn nhau. Constants dùng chung (range/preset tốc độ) đặt ở domain, không hardcode riêng tại từng UI.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ReadingDefaultsViewModel.kt`
+
+### Tách Rendering Settings và Runtime Settings
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Không dùng toàn bộ `ReaderSettings.hashCode()` làm khóa reload WebView. Chỉ font, theme, margin, paragraph layout, reading mode và scrollbar thuộc `contentReloadKey`. Tốc độ/animation, vùng chạm, phím điều hướng, status bar và keep-screen-on cập nhật qua JavaScript/native runtime. Cách tách này giữ nguyên document và loại bỏ reload chương cho thay đổi không ảnh hưởng HTML.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Semantic Reading Position Anchor
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Số trang không phải vị trí bền vững vì font, margin hoặc theme có thể repaginate chương. Reader lưu index paragraph đầu tiên đang thấy qua JS bridge. Khi nội dung phải render lại, WebView tìm paragraph đó rồi tính lại trang ngang hoặc `scrollIntoView()` trong chế độ cuộn dọc. Chỉ fallback về page index khi chưa có semantic anchor.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 ### Batch Streaming FTS Indexer
 - **Ngày**: 2026-07-23
 - **Chi tiết**: Xây dựng luồng đánh chỉ mục tìm kiếm toàn văn FTS ngầm qua WorkManager/Coroutine bằng cách đọc từng chương từ file Zip, băm chỉ mục theo batch 5 chương/lần và xả bộ nhớ string ngay lập tức để tránh đè nặng lên Garbage Collector.
@@ -26,10 +40,10 @@
 - **Chi tiết**: Trong kiến trúc CSS multi-column pagination cho EPUB WebView, `column-width` PHẢI đặt trên `body` (multi-column container). Nếu đặt trên `html`, thì `body` là child duy nhất — nếu `body` có fixed height, nó trở thành khối monolithic KHÔNG THỂ bị fragment qua các cột. Kết quả: chỉ 1 cột hiển thị, text tràn dọc bị `overflow-y: hidden` xén sạch.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
-### Single Native Engine Architecture (Chuyển đổi từ Readium SDK sang EpubEngine duy nhất)
-- **Ngày**: 2026-08-03
-- **Chi tiết**: Gỡ bỏ hoàn toàn bộ thư viện Readium SDK (`org.readium.r2:*`), `ReadiumReaderActivity` và `ReaderSelectionBottomSheet`. Đơn giản hóa kiến trúc bằng cách dùng duy nhất `EpubEngine` tự phát triển dựa trên Compose + Custom WebView, giúp tối ưu dung lượng app, mở sách tức thì và hỗ trợ tô sáng âm thanh TTS offline đồng bộ.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`
+### Single Native Engine Architecture
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Runtime chỉ dùng `EpubEngine` + Compose WebView; không hiển thị selector Readium khi chưa có renderer thật. `ReaderEngineType.READIUM` có thể tạm tồn tại để đọc dữ liệu legacy nhưng phải được normalize/ẩn khỏi UI và không được quảng bá như feature hoạt động. Khi bổ sung engine mới, cần phân nhánh renderer thật trước khi expose control.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 
 ### Real-time Page Turn Drag Transition Engine Architecture (Hiệu ứng lật trang kéo phủ bóng)
 - **Ngày**: 2026-08-03
@@ -56,6 +70,26 @@
 - **Fix**: Áp dụng mô hình **Dual Overlay**: chặn hoàn toàn cảm ứng native (dùng `touch-action: none` và `preventDefault()`), giấu thẻ `body` thực đi (bằng Backdrop overlay) và chuyển mọi hình ảnh hiển thị trong lúc vuốt vào CSS `transform: translateX` trên thẻ ảo (Top/Bottom Overlay). `window.scrollTo` chỉ được gọi sau khi thả tay (`touchend`) và animation đã xong.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
+### Settings slider reload toàn bộ chương theo từng pixel kéo
+- **Ngày**: 2026-08-05
+- **Vấn đề**: Kéo font size, margin hoặc tốc độ gây nhiều lần ghi SharedPreferences, gọi `loadDataWithBaseURL()` liên tục và làm Reader giật/đổi vị trí.
+- **Root cause**: `onValueChange` persist ngay và khóa HTML chứa `settings.hashCode()`, nên mọi thay đổi runtime đều bị coi là thay đổi document.
+- **Fix**: Giữ draft state trong Compose, chỉ commit tại `onValueChangeFinished`; dùng `contentReloadKey()` cho thuộc tính render và `epubproApplyRuntimeSettings()` cho tốc độ/animation/vùng chạm.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ReadingDefaultsScreen.kt`
+
+### Hai màn Settings ghi đè cấu hình của nhau
+- **Ngày**: 2026-08-05
+- **Vấn đề**: Thay đổi tại Reader hoặc Profile có thể làm mất field vừa cập nhật ở màn còn lại.
+- **Root cause**: Mỗi ViewModel giữ snapshot riêng và gọi `saveSettings(settings.copy(...))` trên dữ liệu có thể đã cũ.
+- **Fix**: Manager singleton sở hữu StateFlow và API `updateSettings(transform)` chạy trên `_settings.value` mới nhất; UI observe cùng flow. Normalize mode, font, tap-zone và speed trước khi persist/emit.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
+
+### Đổi cấu hình TTS vô tình bắt đầu phát truyện
+- **Ngày**: 2026-08-05
+- **Vấn đề**: Bấm giọng AI hoặc tốc độ trong Reader Settings mở player và nạp nội dung phát ngay.
+- **Root cause**: Callback chỉnh cấu hình dùng chung `onStartListeningFromSetup()`, vốn có side effect playback.
+- **Fix**: Tách `updateTtsSettings()` chỉ persist và cập nhật service; giữ `onStartListeningFromSetup()` riêng cho lệnh nghe rõ ràng. Reader và Audio Settings cùng observe `TtsPreferencesManager.settingsFlow`.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt`
 ### OutOfMemoryError do nạp toàn bộ HTML tất cả các chương vào RAM
 - **Ngày**: 2026-07-23
 - **Vấn đề**: `java.lang.OutOfMemoryError` khi nạp sách EPUB lớn (1500+ chương).
@@ -139,23 +173,24 @@
 ## How-To
 
 ### Cách lưu & khôi phục cấu hình đọc sách bằng ReaderPreferencesManager
-- **Ngày**: 2026-07-27
+- **Ngày**: 2026-08-05
 - **Bước thực hiện**:
-  1. Tạo `@Singleton` class `ReaderPreferencesManager` bọc `SharedPreferences`.
-  2. Lưu/đọc bộ tham số `ReaderSettings`: themeMode, fontSizeSp, fontFamily, marginTopDp, marginBottomDp, marginLeftDp, marginRightDp, isHorizontalPagination.
-  3. Inject `ReaderPreferencesManager` vào `ReaderViewModel`. Khởi tạo StateFlow `_uiState` mặc định bằng `preferencesManager.getSettings()`.
-  4. Trong `updateSettings(newSettings)`, gọi `preferencesManager.saveSettings(newSettings)` để persist tức thì.
-- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
-
-### Cách mở rộng ReaderSettings và persist thuộc tính đọc mới
-- **Ngày**: 2026-08-03
+  1. Để `@Singleton ReaderPreferencesManager` đọc SharedPreferences một lần và expose `StateFlow<ReaderSettings>`.
+  2. Trong `saveSettings`, normalize mode/font/tap-zone/speed, persist rồi emit chính giá trị normalized.
+  3. Với cập nhật từng field, dùng `updateSettings { current -> current.copy(...) }` để luôn dựa trên state mới nhất.
+  4. Reader/Profile collect cùng flow; không tạo MutableStateFlow settings riêng trong từng ViewModel.
+  5. Viết migration test cho key cũ, enum cũ và giá trị ngoài range.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `core/storage/src/test/java/com/epubpro/core/storage/ReaderPreferencesMigrationTest.kt`
+### Cách thêm một Reader setting đồng bộ end-to-end
+- **Ngày**: 2026-08-05
 - **Bước thực hiện**:
-  1. Mở rộng `ReaderSettings` data class (bổ sung fields + default values).
-  2. Định nghĩa các enum hỗ trợ (`ReadingMode`, `TextAlignment`, `TapZoneLayout`, `TapZoneAction`).
-  3. Cập nhật `getSettings()` và `saveSettings()` trong `ReaderPreferencesManager` để đọc/lưu `SharedPreferences`.
-  4. Bổ sung helper functions trong `ReadingDefaultsViewModel` để emit StateFlow + persist tự động.
-- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ReadingDefaultsViewModel.kt`
-
+  1. Thêm field/default và constants liên quan vào `ReaderSettings`/domain.
+  2. Thêm key đọc, normalize, lưu và migration fallback trong `ReaderPreferencesManager`.
+  3. Phân loại field là rendering hay runtime; cập nhật `contentReloadKey()` hoặc bridge runtime tương ứng.
+  4. Dùng cùng StateFlow và cùng constants cho Reader Settings lẫn Profile Settings.
+  5. Slider giữ draft và commit khi thả; command/chip có thể persist ngay một lần.
+  6. Thêm unit test reload-key/migration, build, lint, cài ADB và smoke-test đồng bộ hai chiều.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/PageTurnControlScreen.kt`
 ### Cách parse OPF Spine thứ tự chương EPUB & Natural Order Fallback
 - **Ngày**: 2026-07-27
 - **Bước thực hiện**:
@@ -196,25 +231,19 @@
 - **Chi tiết**: Sử dụng Jetpack Compose `Canvas` với `PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)` để vẽ các đường đứt đoạn phân chia vùng chạm lật trang (Ngang 3 cột, Dọc 3 hàng, Chia trên dưới) kết hợp icon điều hướng SVG giúp hiển thị trực quan các chế độ điều khiển.
 - **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/PageTurnControlScreen.kt`
 
-### Interactive 3x3 Grid Customization Bottom Sheet Pattern
-- **Ngày**: 2026-08-03
-- **Chi tiết**: Sử dụng `ModalBottomSheet` kết hợp `remember { mutableStateMapOf<Int, TapZoneAction>() }` biểu diễn ma trận 9 vùng chạm màn hình, cho phép chạm từng ô và gán động các hành động như Lật trang, Bật menu, Bookmark hay TTS.
-- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/PageTurnControlScreen.kt`
-
+### Interactive 3x3 Tap Zone Pattern
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Dùng `ModalBottomSheet` và `mutableStateMapOf<Int, TapZoneAction>()` cho ma trận 9 vùng. Chỉ expose hành động đã có runtime implementation (`PREV_PAGE`, `NEXT_PAGE`, `TOGGLE_CONTROLS`). Khi đổi preset layout, tạo lại đủ 9 action bằng `defaultTapZoneActions(layout)`; khi lưu custom map, validate đúng 9 phần tử trước khi persist.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/PageTurnControlScreen.kt`, `domain/src/main/java/com/epubpro/domain/model/Models.kt`
 ### Strict Multi-Column CSS Math Pattern (100vw Column & Block-Level Margin Padding)
 - **Ngày**: 2026-07-31
 - **Chi tiết**: Trong EPUB WebView cuộn ngang, luôn set `column-width: 100vw; column-gap: 0px;` trên multi-column container (`body`) và đẩy `padding-left`/`padding-right` vào các phần tử thẻ con dạng khối. Cách này giữ cho khoảng cách phép tính `scrollToPage((page - 1) * 100vw)` khớp 100% tuyệt đối mà không bị lệch lề ở bất kỳ trang nào.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
-### 4-Directional Margin Geometry Pattern cho EPUB Multi-Column
-- **Ngày**: 2026-07-27
-- **Chi tiết**: Khi hỗ trợ căn lề 4 hướng (trên, dưới, trái, phải) độc lập trong CSS multi-column pagination:
-  - `padding-top: marginTop; padding-bottom: marginBottom; padding-left: marginLeft; padding-right: marginRight;` trên `body`.
-  - `column-width = calc(100vw - ${marginLeft + marginRight}px)`
-  - `column-gap = ${marginLeft + marginRight}px`
-  - Đảm bảo tổng chu kỳ cột `colWidth + colGap = 100vw`, giúp mỗi trang cuộn ngang bằng đúng 1 viewport mà không bị lệch hay đè viền lề.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `domain/src/main/java/com/epubpro/domain/model/Models.kt`
-
+### 4-Directional Margin Geometry cho EPUB Multi-Column
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Với chu kỳ trang cố định `100vw`, giữ `column-width: 100vw` và `column-gap: 0` trên `body`. Margin trên/dưới đặt ở body; margin trái/phải áp vào từng block content bằng padding + `box-sizing: border-box`. Không đưa tổng margin vào column-gap vì sẽ phá công thức `scrollX = (page - 1) * viewportWidth`.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 ### ViewModel Persistence Guard Pattern (Chống đè dữ liệu khi loading)
 - **Ngày**: 2026-07-27
 - **Chi tiết**: Trong ViewModel hỗ trợ lưu tiến trình (save progress, save settings), luôn kiểm tra `if (state.isLoading || state.isInitializing) return@launch` trong mọi hàm save. Việc này ngăn các callback từ UI/JS phát tín hiệu sớm đè dữ liệu rỗng/mặc định lên DB trước khi dữ liệu thật được load xong.
@@ -225,6 +254,15 @@
 - **Chi tiết**: Khi CSS stylesheet `!important` bị override bất ngờ trong Android WebView (do EPUB inline styles, WebView bugs, hoặc CSS cascade conflicts), dùng JS `element.style.setProperty(prop, value, 'important')` để set inline `!important` — đây là priority CAO NHẤT trong CSS cascade, không gì override được. Gọi trong `initLayout()` và `resize` event.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
+### Draft Slider + Commit-on-Release Pattern
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Slider cấu hình giữ `remember(value)` draft để label/thumb phản hồi tức thì, nhưng chỉ gọi ViewModel/persist tại `onValueChangeFinished`. Chip/toggle là thao tác rời rạc nên cập nhật ngay. Pattern này giảm ghi storage, tránh recomposition dây chuyền và ngăn WebView reload theo từng pixel kéo.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ReadingDefaultsScreen.kt`
+
+### Content Reload Key Regression Test Pattern
+- **Ngày**: 2026-08-05
+- **Chi tiết**: Duy trì pure function tạo reload key chỉ từ rendering fields. Unit test phải chứng minh runtime-only variants giữ nguyên key và rendering variants đổi key. Test này ngăn việc thêm field mới vào `ReaderSettings` rồi vô tình đưa toàn bộ data class hash trở lại khóa WebView.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/test/java/com/epubpro/feature/reader/ReaderContentReloadKeyTest.kt`
 ### Literal Regex Replacement Pattern cho HTML/JavaScript
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Khi replacement chứa JavaScript, JSON, đường dẫn hoặc dữ liệu có `$` và `\`, không dùng overload nhận replacement string. Dùng transform lambda để kết quả được chèn như literal và không bị regex engine diễn giải lần hai.

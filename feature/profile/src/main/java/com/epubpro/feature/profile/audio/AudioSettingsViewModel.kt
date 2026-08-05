@@ -40,22 +40,22 @@ class AudioSettingsViewModel @Inject constructor(
     val uiState: StateFlow<AudioSettingsUiState> = _uiState.asStateFlow()
 
     init {
-        loadSettings()
+        viewModelScope.launch {
+            preferencesManager.settingsFlow.collect { settings ->
+                val voiceId = settings.voiceId ?: "ngoc_ngan"
+                val voiceChanged = _uiState.value.selectedVoiceId != voiceId
+                _uiState.value = _uiState.value.copy(
+                    isAiVoice = settings.isAiVoice,
+                    selectedVoiceId = voiceId,
+                    speechSpeed = settings.speed,
+                    speechPitch = settings.pitch
+                )
+                if (voiceChanged || !_uiState.value.isModelDownloaded) {
+                    checkModelStatus(voiceId)
+                }
+            }
+        }
     }
-
-    private fun loadSettings() {
-        val settings = preferencesManager.getSettings()
-        val voiceId = settings.voiceId ?: "ngoc_ngan"
-        Log.d(TAG, "loadSettings: voiceId=$voiceId, isAiVoice=${settings.isAiVoice}")
-        _uiState.value = _uiState.value.copy(
-            isAiVoice = settings.isAiVoice,
-            selectedVoiceId = voiceId,
-            speechSpeed = settings.speed,
-            speechPitch = settings.pitch
-        )
-        checkModelStatus(voiceId)
-    }
-
     private fun saveSettings() {
         val state = _uiState.value
         val settings = preferencesManager.getSettings().copy(
