@@ -12,6 +12,10 @@ import com.epubpro.domain.model.TapZoneAction
 import com.epubpro.domain.model.TapZoneLayout
 import com.epubpro.domain.model.TextAlignment
 import com.epubpro.domain.model.defaultTapZoneActions
+import com.epubpro.domain.model.ContentFilterPreferences
+import com.epubpro.domain.model.ContentFilterRule
+import org.json.JSONArray
+import org.json.JSONObject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +45,9 @@ class ReaderPreferencesManager @Inject constructor(
 
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<ReaderSettings> = _settings.asStateFlow()
+
+    private val _filterPreferences = MutableStateFlow(readFilterPreferences())
+    val filterPreferences: StateFlow<ContentFilterPreferences> = _filterPreferences.asStateFlow()
 
     fun isEngineConfigured(): Boolean = prefs.contains(KEY_ENGINE_TYPE)
 
@@ -133,6 +140,60 @@ class ReaderPreferencesManager @Inject constructor(
         )
     }
 
+    fun getFilterPreferences(): ContentFilterPreferences = _filterPreferences.value
+
+    @Synchronized
+    fun updateFilterPreferences(transform: (ContentFilterPreferences) -> ContentFilterPreferences) {
+        saveFilterPreferences(transform(_filterPreferences.value))
+    }
+
+    @Synchronized
+    fun saveFilterPreferences(filterPreferences: ContentFilterPreferences) {
+        val rulesArray = JSONArray()
+        filterPreferences.rules.forEach { rule ->
+            val obj = JSONObject().apply {
+                put("id", rule.id)
+                put("pattern", rule.pattern)
+                put("isRegex", rule.isRegex)
+                put("isEnabled", rule.isEnabled)
+            }
+            rulesArray.put(obj)
+        }
+
+        prefs.edit()
+            .putBoolean(KEY_FILTER_ENABLED, filterPreferences.isFilterEnabled)
+            .putString(KEY_FILTER_RULES, rulesArray.toString())
+            .apply()
+
+        _filterPreferences.value = filterPreferences
+    }
+
+    private fun readFilterPreferences(): ContentFilterPreferences {
+        val isEnabled = prefs.getBoolean(KEY_FILTER_ENABLED, false)
+        val rulesJsonStr = prefs.getString(KEY_FILTER_RULES, "[]") ?: "[]"
+        val rulesList = mutableListOf<ContentFilterRule>()
+
+        runCatching {
+            val jsonArray = JSONArray(rulesJsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                rulesList.add(
+                    ContentFilterRule(
+                        id = obj.optString("id"),
+                        pattern = obj.optString("pattern"),
+                        isRegex = obj.optBoolean("isRegex", false),
+                        isEnabled = obj.optBoolean("isEnabled", true)
+                    )
+                )
+            }
+        }
+
+        return ContentFilterPreferences(
+            isFilterEnabled = isEnabled,
+            rules = rulesList
+        )
+    }
+
     private inline fun <reified T : Enum<T>> enumPreference(key: String, fallback: T): T {
         val name = prefs.getString(key, fallback.name) ?: fallback.name
         return runCatching { enumValueOf<T>(name) }.getOrDefault(fallback)
@@ -170,5 +231,7 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_ENABLE_KEYBOARD_NAV = "enable_keyboard_nav"
         private const val KEY_ENABLE_VOLUME_KEY_NAV = "enable_volume_key_nav"
         private const val KEY_PAGE_TURN_SPEED_MS = "page_turn_speed_ms"
+        private const val KEY_FILTER_ENABLED = "content_filter_enabled"
+        private const val KEY_FILTER_RULES = "content_filter_rules"
     }
 }

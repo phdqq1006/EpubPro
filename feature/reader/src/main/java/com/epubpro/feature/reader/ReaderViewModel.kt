@@ -63,7 +63,8 @@ data class ReaderUiState(
     val aiTotalParts: Int = 0,
     val aiError: String? = null,
     val isTestingAiConnection: Boolean = false,
-    val aiConnectionMessage: String? = null
+    val aiConnectionMessage: String? = null,
+    val filterPreferences: ContentFilterPreferences = ContentFilterPreferences()
 ) {
     val displayedChapterHtml: String
         get() = if (contentVersion == ReaderContentVersion.AI) {
@@ -98,13 +99,24 @@ class ReaderViewModel @Inject constructor(
     private var chapterLoadJob: Job? = null
     private var aiProcessingJob: Job? = null
 
-    private val _uiState = MutableStateFlow(ReaderUiState(settings = preferencesManager.getSettings()))
+    private val _uiState = MutableStateFlow(
+        ReaderUiState(
+            settings = preferencesManager.getSettings(),
+            filterPreferences = preferencesManager.getFilterPreferences()
+        )
+    )
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
             preferencesManager.settings.collect { settings ->
                 _uiState.update { it.copy(settings = settings) }
+            }
+        }
+
+        viewModelScope.launch {
+            preferencesManager.filterPreferences.collect { filterPrefs ->
+                _uiState.update { it.copy(filterPreferences = filterPrefs) }
             }
         }
 

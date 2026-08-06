@@ -59,6 +59,16 @@
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Overlay chuyển trang phải dùng các `div` độc lập chứa bản sao `body.childNodes`, không clone hoặc lồng thẻ `<body>` vào document hiện tại vì DOM không hợp lệ và WebView có thể reparent/fragment nội dung sai. Ở trang thường, Bottom Overlay lấy trang kề trong chương hiện tại; ở biên, nó parse chương kề bằng `DOMParser`, chọn trang đầu chương sau hoặc trang cuối chương trước. Chỉ commit đổi chapter sau khi animation vượt ngưỡng.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Vertical Scroll Mode Tap Controls Toggle
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Trong chế độ cuộn dọc (`ReadingMode.SCROLL` / `!window.epubproIsHorizontal`), `touchstart` và `touchend` vẫn phải ghi nhận mốc vị trí chạm để phát hiện hành vi nhấp chạm (`diffX, diffY <= 15px` và `duration <= 300ms`), gọi `handleConfiguredTap()` / `ReaderJsBridge.onPageTapped()` ẩn/hiện TopAppBar và BottomBar. Riêng `touchmove` bỏ qua (return) để WebView thực hiện vuốt cuộn dọc native mượt mà.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Fullscreen System Bars & Reader Theme Background Synchronization
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Để màn hình đọc sách phủ tràn 100% màu nền của theme (tránh vệt trắng ở đỉnh và đáy): (1) Đặt `Modifier.background(readerBgColor)` lên root `Box` của `ReaderScreen`; (2) Sử dụng `DisposableEffect(readerBgColor, isDarkTheme)` cập nhật `window.statusBarColor` và `window.navigationBarColor` bằng `readerBgColor.toArgb()`, kết hợp `WindowCompat.getInsetsController().isAppearanceLightStatusBars = !isDarkTheme` để tự động điều chỉnh màu icon hệ thống (tối trên nền Sepia/Light, sáng trên nền Dark/Midnight); (3) Khôi phục màu gốc trong `onDispose`.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 ---
 
 ## Bugs & Solutions

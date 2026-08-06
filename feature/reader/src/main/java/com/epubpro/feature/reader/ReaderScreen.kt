@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,6 +52,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import com.epubpro.core.reader.tts.TtsService
+import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.feature.reader.tts.TtsAudioPlayerScreen
 import com.epubpro.feature.reader.tts.TtsMiniPlayerBar
@@ -98,8 +100,44 @@ fun ReaderScreen(
         }
     }
 
+    val readerBgColor = when (uiState.settings.themeMode) {
+        ReaderThemeMode.LIGHT -> Color(0xFFFFFFFF)
+        ReaderThemeMode.DARK -> Color(0xFF0F172A)
+        ReaderThemeMode.SEPIA -> Color(0xFFFBF0D9)
+        ReaderThemeMode.PAPER -> Color(0xFFF5F0E8)
+        ReaderThemeMode.MIDNIGHT -> Color(0xFF000000)
+    }
+    val isDarkTheme = uiState.settings.themeMode in listOf(ReaderThemeMode.DARK, ReaderThemeMode.MIDNIGHT)
+
+    DisposableEffect(readerBgColor, isDarkTheme) {
+        val window = (context as? android.app.Activity)?.window
+        val originalStatusBarColor = window?.statusBarColor
+        val originalNavBarColor = window?.navigationBarColor
+        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, hostView) }
+        val originalLightStatus = controller?.isAppearanceLightStatusBars ?: true
+        val originalLightNav = controller?.isAppearanceLightNavigationBars ?: true
+
+        if (window != null) {
+            window.statusBarColor = readerBgColor.toArgb()
+            window.navigationBarColor = readerBgColor.toArgb()
+            controller?.isAppearanceLightStatusBars = !isDarkTheme
+            controller?.isAppearanceLightNavigationBars = !isDarkTheme
+        }
+
+        onDispose {
+            if (window != null && originalStatusBarColor != null && originalNavBarColor != null) {
+                window.statusBarColor = originalStatusBarColor
+                window.navigationBarColor = originalNavBarColor
+                controller?.isAppearanceLightStatusBars = originalLightStatus
+                controller?.isAppearanceLightNavigationBars = originalLightNav
+            }
+        }
+    }
+
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .background(readerBgColor)
     ) {
         // Fullscreen Reader Content Layer (Never resizes when controls toggle)
         if (uiState.isLoading) {
@@ -116,6 +154,7 @@ fun ReaderScreen(
                     initialPage = uiState.initialPageRequest,
                     initialVisibleParagraphIndex = uiState.firstVisibleParagraphIndex,
                     settings = uiState.settings,
+                    filterPreferences = uiState.filterPreferences,
                     activeTtsParagraphIndex = activeChunkIndex,
                     onPageTapped = viewModel::toggleControls,
                     onPageChanged = viewModel::updatePageMetrics,
@@ -451,7 +490,7 @@ private fun sanitizeEpubHtml(html: String): String {
         .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
         .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
 }
-@SuppressLint("SetJavaScriptEnabled")
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun EpubWebView(
     htmlContent: String,
@@ -460,6 +499,7 @@ fun EpubWebView(
     initialPage: Int,
     initialVisibleParagraphIndex: Int,
     settings: ReaderSettings,
+    filterPreferences: ContentFilterPreferences = ContentFilterPreferences(),
     activeTtsParagraphIndex: Int? = null,
     onPageTapped: () -> Unit,
     onPageChanged: (currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) -> Unit,
@@ -565,7 +605,8 @@ fun EpubWebView(
                 initialVisibleParagraphIndex = initialVisibleParagraphIndex,
                 settings = settings,
                 previousChapterHtml = previousPreviewHtml,
-                nextChapterHtml = nextPreviewHtml
+                nextChapterHtml = nextPreviewHtml,
+                filterPreferences = filterPreferences
             )
             val meta = CssInjector.generateMetaAndViewport()
             val headInjection = """

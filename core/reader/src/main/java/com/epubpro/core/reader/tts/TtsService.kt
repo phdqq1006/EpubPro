@@ -4,6 +4,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import com.epubpro.core.reader.filter.ContentSanitizer
+import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsPreferencesManager
 import com.epubpro.domain.model.SleepTimerOption
 import com.epubpro.domain.model.TtsChunk
@@ -26,6 +28,9 @@ class TtsService : Service() {
 
     @Inject
     lateinit var preferencesManager: TtsPreferencesManager
+
+    @Inject
+    lateinit var readerPreferencesManager: ReaderPreferencesManager
 
     @Inject
     lateinit var piperTtsEngineWrapper: PiperTtsEngineWrapper
@@ -133,20 +138,41 @@ class TtsService : Service() {
         if (chunks.isEmpty() || currentIndex !in chunks.indices) return
         val currentChunk = chunks[currentIndex]
 
+        var chunkToSpeak = currentChunk
+        val filterPrefs = readerPreferencesManager.getFilterPreferences()
+        if (filterPrefs.isFilterEnabled) {
+            val sanitized = ContentSanitizer.sanitize(currentChunk.text, filterPrefs)
+            if (sanitized.isBlank()) {
+                // Tự động skip đoạn rỗng nếu toàn bộ từ trong đoạn đều bị lọc
+                if (currentIndex < chunks.size - 1) {
+                    currentIndex++
+                    playCurrentChunk()
+                } else {
+                    _playerState.value = TtsPlayerState.Idle
+                    mediaSessionManager.updatePlaybackState(isPlaying = false)
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                }
+                return
+            }
+            if (sanitized != currentChunk.text) {
+                chunkToSpeak = currentChunk.copy(text = sanitized)
+            }
+        }
+
         val expectedIndex = currentIndex
         val playbackId = ++playbackGeneration
         _playerState.value = TtsPlayerState.Playing(
             currentChunkIndex = currentIndex,
             totalChunks = chunks.size,
-            currentChunk = currentChunk
+            currentChunk = chunkToSpeak
         )
 
-        mediaSessionManager.updateMetadata(bookTitle, author, currentChunk.text)
+        mediaSessionManager.updateMetadata(bookTitle, author, chunkToSpeak.text)
         mediaSessionManager.updatePlaybackState(isPlaying = true)
 
         val notification = mediaSessionManager.buildNotification(
             bookTitle = bookTitle,
-            currentSnippet = currentChunk.text,
+            currentSnippet = chunkToSpeak.text,
             isPlaying = true,
             openIntent = null
         )
@@ -156,13 +182,13 @@ class TtsService : Service() {
         currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
 
         currentEngine.speak(
-            chunk = currentChunk,
+            chunk = chunkToSpeak,
             onChunkStart = { _ -> },
             onChunkDone = { completedChunkId ->
                 serviceScope.launch {
                     if (playbackId != playbackGeneration ||
                         currentIndex != expectedIndex ||
-                        currentChunk.id != completedChunkId
+                        chunkToSpeak.id != completedChunkId
                     ) return@launch
 
                     if (currentIndex < chunks.size - 1) {

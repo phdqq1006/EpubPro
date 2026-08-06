@@ -24,7 +24,8 @@ import com.epubpro.core.designsystem.R
 @Composable
 fun ProfileScreen(
     onNavigateToAudioSettings: () -> Unit = {},
-    onNavigateToReadingDefaults: () -> Unit = {}
+    onNavigateToReadingDefaults: () -> Unit = {},
+    onNavigateToContentFilter: () -> Unit = {}
 ) {
     var notificationsEnabled by remember { mutableStateOf(true) }
 
@@ -129,7 +130,7 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_content_filter_title),
                 subtitle = stringResource(R.string.profile_content_filter_subtitle),
                 icon = Icons.Default.FilterAlt,
-                onClick = { }
+                onClick = onNavigateToContentFilter
             )
         }
     }

@@ -69,13 +69,13 @@ fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = { filePickerLauncher.launch("application/epub+zip") },
-                icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.library_add_book)) },
-                text = { Text(stringResource(R.string.library_add_epub)) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
-            )
+            ) {
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.library_add_book))
+            }
         }
     ) { paddingValues ->
         Column(

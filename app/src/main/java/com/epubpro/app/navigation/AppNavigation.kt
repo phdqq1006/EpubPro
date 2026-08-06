@@ -111,7 +111,14 @@ fun AppNavHost(
             composable(Screen.Profile.route) {
                 ProfileScreen(
                     onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
-                    onNavigateToReadingDefaults = { navController.navigate(Screen.ReadingDefaults.route) }
+                    onNavigateToReadingDefaults = { navController.navigate(Screen.ReadingDefaults.route) },
+                    onNavigateToContentFilter = { navController.navigate(Screen.ContentFilter.route) }
+                )
+            }
+
+            composable(Screen.ContentFilter.route) {
+                com.epubpro.feature.profile.filter.ContentFilterSettingsScreen(
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 
@@ -191,4 +198,5 @@ sealed class Screen(val route: String) {
     object AudioSettings : Screen("audio_settings")
     object ReadingDefaults : Screen("reading_defaults")
     object PageTurnControl : Screen("page_turn_control")
+    object ContentFilter : Screen("content_filter")
 }

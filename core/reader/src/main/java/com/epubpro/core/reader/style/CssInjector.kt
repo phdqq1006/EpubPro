@@ -1,8 +1,10 @@
 package com.epubpro.core.reader.style
 
+import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TextAlignment
+import org.json.JSONArray
 import org.json.JSONObject
 
 object CssInjector {
@@ -188,7 +190,8 @@ object CssInjector {
         initialVisibleParagraphIndex: Int = 0,
         settings: ReaderSettings = ReaderSettings(),
         previousChapterHtml: String? = null,
-        nextChapterHtml: String? = null
+        nextChapterHtml: String? = null,
+        filterPreferences: ContentFilterPreferences = ContentFilterPreferences()
     ): String {
         val (bgColor, _) = when (settings.themeMode) {
             ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
@@ -205,6 +208,20 @@ object CssInjector {
         val previousChapterHtmlJson = quoteForInlineScript(previousChapterHtml.orEmpty())
         val nextChapterHtmlJson = quoteForInlineScript(nextChapterHtml.orEmpty())
         val tapZoneActionsJson = JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
+
+        val rulesJsonArray = JSONArray()
+        if (filterPreferences.isFilterEnabled) {
+            filterPreferences.rules.filter { it.isEnabled && it.pattern.isNotBlank() }.forEach { rule ->
+                val obj = JSONObject().apply {
+                    put("pattern", rule.pattern)
+                    put("isRegex", rule.isRegex)
+                    put("isEnabled", rule.isEnabled)
+                }
+                rulesJsonArray.put(obj)
+            }
+        }
+        val filterRulesJson = quoteForInlineScript(rulesJsonArray.toString())
+        val isFilterEnabled = filterPreferences.isFilterEnabled
 
         return """
             (function() {
@@ -727,10 +744,11 @@ object CssInjector {
                     document.documentElement.style.setProperty('touch-action', 'none', 'important');
                 }
                 document.addEventListener('touchstart', function(e) {
-                    if (!window.epubproIsHorizontal) return;
                     if (e.touches && e.touches.length === 1) {
                         gestureToken += 1;
-                        cleanupCoverOverlay();
+                        if (window.epubproIsHorizontal) {
+                            cleanupCoverOverlay();
+                        }
                         startTouchX = e.touches[0].clientX;
                         startTouchY = e.touches[0].clientY;
                         startTouchTime = Date.now();
@@ -794,8 +812,23 @@ object CssInjector {
                 }, { passive: false });
 
                 document.addEventListener('touchend', function(e) {
-                    if (!window.epubproIsHorizontal || !isDraggingPage) return;
+                    if (!isDraggingPage) return;
                     isDraggingPage = false;
+
+                    if (!window.epubproIsHorizontal) {
+                        if (e.changedTouches && e.changedTouches.length > 0) {
+                            var endX = e.changedTouches[0].clientX;
+                            var endY = e.changedTouches[0].clientY;
+                            var diffX = endX - startTouchX;
+                            var diffY = endY - startTouchY;
+                            var duration = Date.now() - startTouchTime;
+
+                            if (Math.abs(diffX) <= 15 && Math.abs(diffY) <= 15 && duration <= 300) {
+                                handleConfiguredTap(endX, endY);
+                            }
+                        }
+                        return;
+                    }
 
                     if (!isHorizontalDragConfirmed) {
                         cleanupCoverOverlay();
@@ -996,20 +1029,45 @@ object CssInjector {
                     } catch(e) {}
                 };
 
-                document.addEventListener('selectionchange', function() {
-                    var selection = window.getSelection();
-                    if (selection && selection.toString().trim().length > 0) {
-                        var text = selection.toString();
-                        var data = JSON.stringify({
-                            selectedText: text,
-                            startCfi: "epubcfi(/6/2!/4/2/1:0)",
-                            endCfi: "epubcfi(/6/2!/4/2/1:" + text.length + ")"
-                        });
-                        if (window.ReaderJsBridge && window.ReaderJsBridge.onTextSelected) {
-                            window.ReaderJsBridge.onTextSelected(data);
+                window.epubproApplyContentFilter = function() {
+                    try {
+                        var rules = JSON.parse($filterRulesJson);
+                        var isEnabled = $isFilterEnabled;
+                        if (!isEnabled || !rules || rules.length === 0) return;
+
+                        var activePatterns = [];
+                        for (var i = 0; i < rules.length; i++) {
+                            var r = rules[i];
+                            if (!r.isEnabled || !r.pattern) continue;
+                            if (r.isRegex) {
+                                activePatterns.push('(?:' + r.pattern + ')');
+                            } else {
+                                var escaped = r.pattern.replace(/[.*+?^${'$'}{}()|[\]\\]/g, '\\${'$'}&');
+                                activePatterns.push('(?:' + escaped + ')');
+                            }
                         }
+                        if (activePatterns.length === 0) return;
+                        var combinedRegex = new RegExp(activePatterns.join('|'), 'gi');
+
+                        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+                        var node;
+                        var nodesToProcess = [];
+                        while (node = walker.nextNode()) {
+                            if (combinedRegex.test(node.nodeValue)) {
+                                nodesToProcess.push(node);
+                            }
+                        }
+                        for (var j = 0; j < nodesToProcess.length; j++) {
+                            var n = nodesToProcess[j];
+                            n.nodeValue = n.nodeValue.replace(combinedRegex, '').replace(/\s+/g, ' ');
+                        }
+                        document.body.normalize();
+                    } catch(e) {
+                        dbg('FILTER_ERROR', e ? e.toString() : 'Filter error');
                     }
-                });
+                };
+
+                window.epubproApplyContentFilter();
             })();
         """.trimIndent()
     }
