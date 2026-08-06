@@ -75,13 +75,19 @@ object CssInjector {
 
                 overflow: visible !important;
             }
-            div, section, article, main, header, footer, aside, nav, figure, blockquote, ul, ol, li, form, fieldset, p, h1, h2, h3, h4, h5, h6 {
+            body > * {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
                 padding-left: ${settings.marginLeftDp}px !important;
                 padding-right: ${settings.marginRightDp}px !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
+            }
+            body > * * {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
             }
             """
         } else {

@@ -2,7 +2,7 @@
 
 > Tổng hợp kiến thức về xử lý lại chương EPUB bằng Gemini, bảo toàn cấu trúc và thuật ngữ trong dự án.
 >
-> Cập nhật lần cuối: 2026-08-05
+> Cập nhật lần cuối: 2026-08-06
 
 ## Architecture
 
@@ -46,6 +46,13 @@ Dùng fallbackToDestructiveMigration khi thêm bảng AI có thể xóa thư vi�
 
 Giá trị lấy từ local.properties phải được tạo thành Java string literal hợp lệ trong Gradle Kotlin DSL. Việc ghép dấu nháy sai khiến generated BuildConfig không biên dịch. Cách ổn định là dùng 34.toChar() + value + 34.toChar(), đồng thời kiểm tra giá trị null và chuỗi rỗng.
 
+### Model ID không hợp lệ gây lỗi 404 khi gọi generateContent
+
+- **Vấn đề**: Bấm "Thuần Việt chương này" báo lỗi "Model đã chọn không khả dụng" dù thử API key thành công.
+- **Root cause**: Danh sách `SUPPORTED_GEMINI_MODELS` đặt ID model hư cấu (như `gemini-2.5-flash`), khiến Gemini REST API trả về HTTP 404 khi gọi endpoint `:generateContent`. Đồng thời, nút bấm thực thi không tự lưu cấu hình UI transient trước khi chạy.
+- **Fix**: Sử dụng đúng ID model chính thức của Gemini API (`gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-pro`), đồng thời bổ sung tự động lưu `apiKey` và `selectedModel` pending trước khi bắt đầu xử lý AI.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/AiModels.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/AiVietnameseBottomSheet.kt`, `core/ai/src/main/java/com/epubpro/core/ai/GeminiClient.kt`
+
 ## How-To
 
 ### Thêm model Gemini
@@ -81,3 +88,7 @@ Chỉ retry batch gặp lỗi tạm thời như timeout, mạng hoặc rate limi
 ### Một nguồn nội dung hiển thị
 
 Reader, TTS, tìm kiếm trong chương và các thao tác phụ thuộc nội dung phải dùng cùng một biến thể đã chọn. Một thuộc tính trung tâm như displayedChapterHtml ngăn tình trạng màn hình đọc bản AI nhưng TTS lại phát bản gốc, đồng thời làm cho fallback và kiểm thử đơn giản hơn.
+
+### Tự động lưu cấu hình pending trước khi thực thi tác vụ AI
+
+Trong UI BottomSheet cấu hình, nếu người dùng nhập bối cảnh tạm (như API key mới hoặc chọn Model mới) và bấm trực tiếp nút thực thi thay vì nút Lưu riêng, UI callback nên tự động lưu cấu hình pending vào storage trước khi kích hoạt tác vụ chính. Điều này ngăn lệch trạng thái giữa UI transient state và ViewModel persistent state.

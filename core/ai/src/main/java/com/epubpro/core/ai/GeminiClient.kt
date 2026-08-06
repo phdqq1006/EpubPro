@@ -190,7 +190,9 @@ class GeminiClient @Inject constructor() {
         return when (code) {
             400 -> AiServiceException(serverMessage ?: "Yêu cầu gửi tới Gemini không hợp lệ.")
             401, 403 -> AiServiceException("API key không hợp lệ hoặc không có quyền dùng model.")
-            404 -> AiServiceException("Model đã chọn không khả dụng.")
+            404 -> AiServiceException(
+                serverMessage?.takeIf { it.isNotBlank() } ?: "Model đã chọn không khả dụng."
+            )
             408, 500, 502, 503, 504 -> AiServiceException(
                 "Gemini đang tạm thời không phản hồi. Hãy thử lại.",
                 retryable = true

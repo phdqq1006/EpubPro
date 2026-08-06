@@ -50,10 +50,11 @@ data class AiChapterCache(
     val updatedAt: Long
 )
 
-const val DEFAULT_AI_MODEL_ID = "gemini-2.5-flash"
+const val DEFAULT_AI_MODEL_ID = "gemini-2.0-flash"
 
 val SUPPORTED_GEMINI_MODELS = listOf(
-    AiModelOption(DEFAULT_AI_MODEL_ID, "Gemini 2.5 Flash"),
-    AiModelOption("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite"),
-    AiModelOption("gemini-2.5-pro", "Gemini 2.5 Pro")
+    AiModelOption(DEFAULT_AI_MODEL_ID, "Gemini 2.0 Flash"),
+    AiModelOption("gemini-2.0-flash-lite", "Gemini 2.0 Flash Lite"),
+    AiModelOption("gemini-1.5-flash", "Gemini 1.5 Flash"),
+    AiModelOption("gemini-1.5-pro", "Gemini 1.5 Pro")
 )

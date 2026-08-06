@@ -298,8 +298,14 @@ fun AiVietnameseBottomSheet(
                 }
             } else {
                 Button(
-                    onClick = onStartPolish,
-                    enabled = uiState.aiSettings.hasApiKey,
+                    onClick = {
+                        if (apiKey.isNotBlank() || selectedModel != uiState.aiSettings.modelId) {
+                            onSaveConfiguration(apiKey.ifBlank { null }, selectedModel)
+                            apiKey = ""
+                        }
+                        onStartPolish()
+                    },
+                    enabled = (uiState.aiSettings.hasApiKey || apiKey.isNotBlank()) && !uiState.isAiProcessing,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 14.dp)
