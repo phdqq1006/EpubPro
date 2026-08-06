@@ -103,7 +103,7 @@
     <string name="reader_horizontal_scroll">Lật trang ngang</string>
     <string name="reader_horizontal_scroll_desc">Phân trang theo chiều ngang kiểu sách truyền thống</string>
     <string name="reader_font_family">Kiểu phông</string>
-    <string name="reader_font_size_format">Kích thước chữ: %1$d sp</string>
+    <string name="reader_font_size_format">Kích thước chữ: %1$s sp</string>
     <string name="reader_line_spacing">Khoảng cách dòng</string>
     <string name="reader_page_margin">Căn lề trang (Margin)</string>
     <string name="reader_margin_top_format">Lề trên: %1$d dp</string>

@@ -1,7 +1,7 @@
 # EPUB Reader & Layout Engine
 
 > Tổng hợp kiến thức về hệ thống đọc EPUB, WebView rendering, tối ưu bộ nhớ RAM, Room FTS5 và cài đặt mặc định đọc / chuyển trang trong dự án.
-> Cập nhật lần cuối: 2026-08-05
+> Cập nhật lần cuối: 2026-08-06
 
 ---
 
@@ -68,7 +68,9 @@
 - **Vấn đề**: Khi vuốt lật trang ngang, giao diện bị giật (flicker) liên tục và ở mép trang cuối cùng của chương bị lọt chữ/khoảng trắng lạ ("dính nội dung chương khác"). Cố gắng dùng `window.scrollTo` trong `touchmove` để cập nhật cuộn bị vô hiệu.
 - **Root cause**: Trong Android WebView, khi người dùng đang thực hiện cử chỉ vuốt, engine cuộn native của máy vẫn cố gắng can thiệp (kể cả có gọi `e.preventDefault()`). Nếu ép WebView gọi `window.scrollTo` programmatic trong lúc này, nó có thể bị chặn lại hoặc xử lý trễ tạo ra giật lag. Nếu cuộn sát rìa body, các trang tràn cột sẽ vô tình lộ ra.
 - **Fix**: Áp dụng mô hình **Dual Overlay**: chặn hoàn toàn cảm ứng native (dùng `touch-action: none` và `preventDefault()`), giấu thẻ `body` thực đi (bằng Backdrop overlay) và chuyển mọi hình ảnh hiển thị trong lúc vuốt vào CSS `transform: translateX` trên thẻ ảo (Top/Bottom Overlay). `window.scrollTo` chỉ được gọi sau khi thả tay (`touchend`) và animation đã xong.
+- **Lưu ý Quan Trọng**: Lớp overlay `.epubpro-page-layer` được append vào `html` (không phải con trực tiếp của `body`). Các CSS selector quy định padding lề (`marginLeftDp` / `marginRightDp`) BẮT BUỘC phải nhóm cả `body > *, .epubpro-page-layer > *` và `body > * *, .epubpro-page-layer > * *` để overlay thừa hưởng chính xác 100% lề của `body`, tránh giật/nhảy chữ khi vừa bấm giữ kéo lật trang.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
 
 ### Settings slider reload toàn bộ chương theo từng pixel kéo
 - **Ngày**: 2026-08-05
@@ -273,3 +275,14 @@
   }
   ```
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+### Dual Overlay Layer CSS Padding Inheritance Pattern
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Các lớp overlay động (`.epubpro-page-layer`) của Dual Overlay Page Turn Engine được append trực tiếp vào `html` (không phải con trực tiếp của `body`). Khi viết CSS selector quy định margin/padding lề, BẮT BUỘC phải dùng cặp selector đồng thời `body > *, .epubpro-page-layer > *` và reset tầng sâu `body > * *, .epubpro-page-layer > * *` để nội dung lớp overlay thừa hưởng chính xác 100% lề của `body`, tránh giật/nhảy vị trí chữ khi bắt đầu gesture kéo lật trang.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Fractional Font Size Precision Pattern (0.5 sp Stepping)
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Để hỗ trợ cỡ chữ lẻ (0.5 sp bước nhảy như 17.5, 18.5 sp): (1) String resource dùng format `%1$s sp` thay vì `%1$d sp`; (2) `CssInjector` format chuỗi `fontSizePx` giữ nguyên thập phân `%.1f.format(Locale.US, fontSizeSp)` không gọi `.toInt()`; (3) Slider Compose đặt `steps = 39` cho dải `12f..32f` và làm tròn `round(it * 2f) / 2f` khi kéo slide.
+- **Files liên quan**: `core/designsystem/src/main/res/values/strings.xml`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ReadingDefaultsScreen.kt`
+

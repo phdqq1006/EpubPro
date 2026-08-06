@@ -298,6 +298,11 @@ private fun PreviewTextBox(settings: ReaderSettings, modifier: Modifier = Modifi
     }
     val secondaryTextColor = textColor.copy(alpha = 0.6f)
 
+    val padStart = settings.marginLeftDp.coerceIn(4, 36).dp
+    val padEnd = settings.marginRightDp.coerceIn(4, 36).dp
+    val padTop = settings.marginTopDp.coerceIn(4, 20).dp
+    val padBottom = settings.marginBottomDp.coerceIn(4, 20).dp
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -307,7 +312,12 @@ private fun PreviewTextBox(settings: ReaderSettings, modifier: Modifier = Modifi
         shadowElevation = 2.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(
+                start = padStart,
+                end = padEnd,
+                top = padTop,
+                bottom = padBottom
+            ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top
         ) {
@@ -540,9 +550,10 @@ private fun TextDisplaySectionContent(
         icon = Icons.Default.FormatSize,
         label = "Cỡ chữ",
         value = settings.fontSizeSp,
-        valueFormatter = { it.roundToInt().toString() },
+        valueFormatter = { if (it % 1f == 0f) "${it.toInt()}" else "%.1f".format(java.util.Locale.US, it) },
         range = 12f..32f,
-        onValueChange = onFontSizeChange
+        steps = 39,
+        onValueChange = { onFontSizeChange(kotlin.math.round(it * 2f) / 2f) }
     )
 
     Spacer(Modifier.height(4.dp))
@@ -1187,7 +1198,12 @@ private fun mapFontFamily(fontFamily: String): FontFamily = when (fontFamily.low
 private fun buildFontSubtitle(settings: ReaderSettings): String {
     val preset = FontPreset.values().firstOrNull { it.fontFamily == settings.fontFamily }
     val fontName = preset?.displayName ?: settings.fontFamily
-    return "$fontName · ${settings.fontSizeSp.roundToInt()}"
+    val formattedFontSize = if (settings.fontSizeSp % 1f == 0f) {
+        "${settings.fontSizeSp.toInt()}"
+    } else {
+        "%.1f".format(java.util.Locale.US, settings.fontSizeSp)
+    }
+    return "$fontName · $formattedFontSize"
 }
 
 private fun detectActivePreset(settings: ReaderSettings): ReadingPreset? {

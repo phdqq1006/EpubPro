@@ -737,13 +737,18 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(stringResource(R.string.reader_font_size_format, draftFontSizeSp.toInt()), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        val formattedFontSize = if (draftFontSizeSp % 1f == 0f) {
+            "${draftFontSizeSp.toInt()}"
+        } else {
+            "%.1f".format(java.util.Locale.US, draftFontSizeSp)
+        }
+        Text(stringResource(R.string.reader_font_size_format, formattedFontSize), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         Slider(
             value = draftFontSizeSp,
-            onValueChange = { draftFontSizeSp = it },
+            onValueChange = { draftFontSizeSp = kotlin.math.round(it * 2f) / 2f },
             onValueChangeFinished = { onSettingsChanged(settings.copy(fontSizeSp = draftFontSizeSp)) },
             valueRange = 12f..32f,
-            steps = 10
+            steps = 39
         )
 
         Spacer(modifier = Modifier.height(8.dp))

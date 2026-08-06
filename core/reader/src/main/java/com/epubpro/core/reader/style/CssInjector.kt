@@ -22,7 +22,11 @@ object CssInjector {
             ReaderThemeMode.MIDNIGHT -> "#000000" to "#AAAAAA"
         }
 
-        val fontSizePx = settings.fontSizeSp.toInt()
+        val fontSizePx = if (settings.fontSizeSp % 1f == 0f) {
+            "${settings.fontSizeSp.toInt()}"
+        } else {
+            "%.1f".format(java.util.Locale.US, settings.fontSizeSp)
+        }
         val textAlign = if (settings.textAlignment == TextAlignment.JUSTIFY) "justify" else "left"
         val scrollbarCss = if (settings.showScrollBar) "" else """
             ::-webkit-scrollbar {
@@ -75,7 +79,8 @@ object CssInjector {
 
                 overflow: visible !important;
             }
-            body > * {
+            body > *,
+            .epubpro-page-layer > * {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
                 padding-left: ${settings.marginLeftDp}px !important;
@@ -83,7 +88,8 @@ object CssInjector {
                 max-width: 100% !important;
                 box-sizing: border-box !important;
             }
-            body > * * {
+            body > * *,
+            .epubpro-page-layer > * * {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
                 padding-left: 0 !important;
