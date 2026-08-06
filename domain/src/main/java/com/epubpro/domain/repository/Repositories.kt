@@ -28,3 +28,16 @@ interface SearchRepository {
     suspend fun searchInBook(bookId: String, query: String): List<SearchResultItem>
     suspend fun indexBookContent(bookId: String, chapters: List<Pair<Int, Pair<String, String>>>) // index: (title, textContent)
 }
+interface AiRuleRepository {
+    fun observeRulesForBook(bookId: String): Flow<List<AiRule>>
+    suspend fun getRulesForBook(bookId: String): List<AiRule>
+    suspend fun upsertRule(rule: AiRule)
+    suspend fun deleteRule(ruleId: String)
+}
+
+interface AiChapterRepository {
+    suspend fun getChapterCache(bookId: String, chapterIndex: Int): AiChapterCache?
+    suspend fun upsertChapterCache(cache: AiChapterCache)
+    suspend fun deleteChapterCache(bookId: String, chapterIndex: Int)
+    suspend fun deleteBookCaches(bookId: String)
+}

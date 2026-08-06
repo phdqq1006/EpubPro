@@ -24,8 +24,27 @@ class PiperTtsEngineWrapper @Inject constructor(
     private var speakJob: Job? = null
     private var onChunkDoneCallback: ((Int) -> Unit)? = null
     private var currentChunkId: Int = -1
+    private var isInitializing = false
+    private var onReadyCallback: (() -> Unit)? = null
+    private var onErrorCallback: ((String) -> Unit)? = null
+    private var pendingSpeech: PendingSpeech? = null
+
+    private data class PendingSpeech(
+        val chunk: TtsChunk,
+        val onChunkStart: (Int) -> Unit,
+        val onChunkDone: (Int) -> Unit
+    )
 
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
+        onReadyCallback = onReady
+        onErrorCallback = onError
+        if (isEngineReady) {
+            onReady()
+            playPendingSpeech()
+            return
+        }
+        if (isInitializing) return
+        isInitializing = true
         engineScope.launch {
             try {
                 if (downloader.isModelDownloaded(currentVoiceId)) {
@@ -42,19 +61,31 @@ class PiperTtsEngineWrapper @Inject constructor(
                         dataDirPath = espeakDataDir
                     )
                     isEngineReady = true
-                    onReady()
+                    isInitializing = false
+                    onReadyCallback?.invoke()
+                    playPendingSpeech()
                 } else {
-                    onError("Voice model not downloaded yet: $currentVoiceId")
+                    isInitializing = false
+                    pendingSpeech = null
+                    onErrorCallback?.invoke("Voice model not downloaded yet: $currentVoiceId")
                 }
             } catch (e: Exception) {
-                onError("Failed to initialize Piper TTS: ${e.message}")
+                if (e !is CancellationException) {
+                    isInitializing = false
+                    pendingSpeech = null
+                    onErrorCallback?.invoke("Failed to initialize Piper TTS: ${e.message}")
+                }
             }
         }
     }
 
     override fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit) {
         if (!isEngineReady) {
-            onChunkDone(chunk.id)
+            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
+            initialize(
+                onReady = onReadyCallback ?: {},
+                onError = onErrorCallback ?: {}
+            )
             return
         }
 
@@ -83,7 +114,14 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
     }
 
+    private fun playPendingSpeech() {
+        val speech = pendingSpeech ?: return
+        pendingSpeech = null
+        speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
+    }
+
     override fun pause() {
+        pendingSpeech = null
         speakJob?.cancel()
         speakJob = null
         sherpaTtsEngine.stop()
@@ -94,6 +132,7 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun stop() {
+        pendingSpeech = null
         speakJob?.cancel()
         speakJob = null
         sherpaTtsEngine.stop()
@@ -108,10 +147,14 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun setVoice(voiceId: String) {
+        if (currentVoiceId == voiceId) return
         this.currentVoiceId = voiceId
         if (isEngineReady) {
             isEngineReady = false
-            initialize(onReady = {}, onError = {})
+            initialize(
+                onReady = onReadyCallback ?: {},
+                onError = onErrorCallback ?: {}
+            )
         }
     }
 
@@ -123,6 +166,8 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun shutdown() {
+        pendingSpeech = null
+        isInitializing = false
         speakJob?.cancel()
         speakJob = null
         sherpaTtsEngine.release()

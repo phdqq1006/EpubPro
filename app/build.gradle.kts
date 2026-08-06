@@ -85,6 +85,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:storage"))
     implementation(project(":core:reader"))
+    implementation(project(":core:ai"))
 
     implementation(project(":feature:library"))
     implementation(project(":feature:reader"))

@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-03
+> Cập nhật lần cuối: 2026-08-06
 
 ---
 
@@ -26,6 +26,11 @@
 - **Ngày**: 2026-07-31
 - **Chi tiết**: Tích hợp Sherpa-ONNX qua local `.aar` (`sherpa-onnx-1.13.4.aar`). Tải giọng đọc Tiếng Việt offline (Ngọc Ngạn `ngocngan3701.onnx`, Quang Minh `minhquang.onnx`) và `tokens.txt` trực tiếp từ HuggingFace `doof-ferb/nghitts-copy`. Khởi tạo `OfflineTts` với `assetManager = null` để load trực tiếp file từ bộ nhớ máy (`newFromFile`).
 - **Files liên quan**: `core/tts/build.gradle.kts`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`, `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
+
+### TTS Engine Ownership & Async Readiness
+- **Ngày**: 2026-08-06
+- **Chi tiết**: `TtsService` sở hữu trạng thái phát, index và vòng đời engine của Reader; màn Settings preview phải dùng instance Sherpa riêng để `release()` không phá engine đang đọc. Wrapper của Android TTS và Sherpa giữ yêu cầu phát tạm thời trong lúc khởi tạo, rồi phát sau callback ready để lần bấm Play đầu tiên không bị mất. Native `OfflineTts.generate()` là lời gọi blocking và không hủy giữa chừng, nên mọi lần generate trên cùng engine phải được tuần tự hóa bằng `Mutex`.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/AndroidNativeTtsEngine.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
 ---
 
@@ -82,6 +87,13 @@
   2. Trong `SherpaTtsEngine.speak()`, thực hiện ghi PCM vào `AudioTrack` theo từng khối nhỏ 4KB (`chunkSize = 4096`) và kiểm tra `coroutineContext.isActive` trong mỗi vòng lặp. Nếu bị cancel, vòng lặp dừng ngay lập tức và xả buffer `AudioTrack.pause() + flush()`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
+### Nút Next không chuyển đúng đoạn trong chương EPUB
+- **Ngày**: 2026-08-06
+- **Vấn đề**: Player chỉ hiện một đoạn hoặc Next vẫn tiếp tục âm thanh cũ, đặc biệt với EPUB dùng `div`/`br` thay cho thẻ `p`.
+- **Root cause**: Parser chỉ chọn nhóm thẻ semantic; khi có một heading, fallback rỗng không chạy dù phần lớn body bị bỏ sót. Đoạn quá dài tạo một request synthesize blocking. Callback hoàn tất của request cũ còn có thể tăng index sau khi người dùng đã Next.
+- **Fix**: Fallback sang toàn bộ body khi độ phủ text của selector quá thấp; chia nội dung tối đa 280 ký tự tại biên câu/từ. Trước Next/Previous/Seek phải stop và vô hiệu hóa lượt phát cũ; gắn generation token cùng expected chunk/index để bỏ callback stale. Dùng `Mutex` ngăn hai lần Sherpa generate chạy đồng thời.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
+
 ---
 
 ## How-To
@@ -94,6 +106,15 @@
   3. Ở Android, lưu `visibleIndex` xuống `SharedPreferences` cho từng ID Sách và Chương. (Cũng lưu lại khi TTS tự động đọc sang câu mới).
   4. Lần tới bấm Play TTS, lấy index đã lưu làm `startIndex` thay vì bằng 0, giúp nghe tiếp liền mạch chính xác ngay câu chữ đang nhìn thấy.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
+
+### Chẩn đoán lỗi chuyển đoạn TTS trên thiết bị ADB
+- **Ngày**: 2026-08-06
+- **Bước thực hiện**:
+  1. Xóa logcat, mở đúng chương và phát TTS; đối chiếu tổng số đoạn trên UI với log tag `EpubProTTS`.
+  2. Nếu chương chỉ có tiêu đề hoặc `0/0`, kiểm tra tỷ lệ text do selector Jsoup thu được so với `document.body().text()`.
+  3. Bấm Next khi đang synthesize; xác nhận audio cũ dừng trước khi request đoạn mới bắt đầu và callback cũ không đổi index.
+  4. Chạy unit test parser với HTML dùng `p` và HTML chỉ dùng `div`/`br`, sau đó build APK, cài ADB và smoke-test lại.
+- **Files liên quan**: `core/reader/src/test/java/com/epubpro/core/reader/tts/TtsTextParserTest.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ---
 
@@ -118,3 +139,8 @@
 - **Ngày**: 2026-08-03
 - **Chi tiết**: Khi tải file binary lớn (ONNX model, dict files), luôn tải về file `.tmp` trước. Dùng `renameTo()` và fallback sang `copyTo(overwrite = true) + delete()` để đảm bảo tính nguyên tử, không để lại file hỏng/rác khi gặp ngắt kết nối mạng.
 - **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`
+
+### Playback Generation Token Pattern
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Mỗi lệnh Play/Next/Previous/Seek tạo một generation mới. Callback hoàn tất chỉ được cập nhật state hoặc tự chuyển đoạn khi generation, expected index và chunk ID vẫn khớp lượt phát hiện tại. Lệnh điều hướng phải invalidate generation và stop engine trước khi đổi index. Pattern này tách ý định mới của người dùng khỏi callback bất đồng bộ đến muộn, tránh nhảy hai đoạn, quay lại đoạn cũ hoặc tự phát tiếp sau khi đã dừng.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`

@@ -3,7 +3,14 @@ package com.epubpro.core.database.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Fts4
+import androidx.room.ForeignKey
+import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.epubpro.domain.model.AiChapterCache
+import com.epubpro.domain.model.AiChapterStatus
+import com.epubpro.domain.model.AiRule
+import com.epubpro.domain.model.AiRuleAction
+import com.epubpro.domain.model.AiRuleScope
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.Bookmark
 import com.epubpro.domain.model.Highlight
@@ -84,3 +91,105 @@ data class BookSearchEntity(
     @ColumnInfo(name = "chapterTitle") val chapterTitle: String,
     @ColumnInfo(name = "textContent") val textContent: String
 )
+@Entity(
+    tableName = "ai_rules",
+    foreignKeys = [
+        ForeignKey(
+            entity = BookEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bookId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("bookId")]
+)
+data class AiRuleEntity(
+    @PrimaryKey val id: String,
+    val scope: String,
+    val bookId: String?,
+    val source: String,
+    val action: String,
+    val replacement: String?,
+    val caseSensitive: Boolean,
+    val updatedAt: Long
+) {
+    fun toDomain() = AiRule(
+        id = id,
+        scope = AiRuleScope.valueOf(scope),
+        bookId = bookId,
+        source = source,
+        action = AiRuleAction.valueOf(action),
+        replacement = replacement,
+        caseSensitive = caseSensitive,
+        updatedAt = updatedAt
+    )
+
+    companion object {
+        fun fromDomain(rule: AiRule) = AiRuleEntity(
+            id = rule.id,
+            scope = rule.scope.name,
+            bookId = rule.bookId,
+            source = rule.source,
+            action = rule.action.name,
+            replacement = rule.replacement,
+            caseSensitive = rule.caseSensitive,
+            updatedAt = rule.updatedAt
+        )
+    }
+}
+
+@Entity(
+    tableName = "ai_chapter_cache",
+    foreignKeys = [
+        ForeignKey(
+            entity = BookEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["bookId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["bookId", "chapterIndex"], unique = true)]
+)
+data class AiChapterCacheEntity(
+    @PrimaryKey val id: String,
+    val bookId: String,
+    val chapterIndex: Int,
+    val sourceHash: String,
+    val configHash: String,
+    val status: String,
+    val filePath: String?,
+    val modelId: String,
+    val completedParts: Int,
+    val totalParts: Int,
+    val updatedAt: Long
+) {
+    fun toDomain() = AiChapterCache(
+        id = id,
+        bookId = bookId,
+        chapterIndex = chapterIndex,
+        sourceHash = sourceHash,
+        configHash = configHash,
+        status = AiChapterStatus.valueOf(status),
+        filePath = filePath,
+        modelId = modelId,
+        completedParts = completedParts,
+        totalParts = totalParts,
+        updatedAt = updatedAt
+    )
+
+    companion object {
+        fun fromDomain(cache: AiChapterCache) = AiChapterCacheEntity(
+            id = cache.id,
+            bookId = cache.bookId,
+            chapterIndex = cache.chapterIndex,
+            sourceHash = cache.sourceHash,
+            configHash = cache.configHash,
+            status = cache.status.name,
+            filePath = cache.filePath,
+            modelId = cache.modelId,
+            completedParts = cache.completedParts,
+            totalParts = cache.totalParts,
+            updatedAt = cache.updatedAt
+        )
+    }
+}

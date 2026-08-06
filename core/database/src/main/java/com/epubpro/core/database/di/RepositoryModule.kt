@@ -1,8 +1,12 @@
 package com.epubpro.core.database.di
 
+import com.epubpro.core.database.repository.AiChapterRepositoryImpl
+import com.epubpro.core.database.repository.AiRuleRepositoryImpl
 import com.epubpro.core.database.repository.BookRepositoryImpl
 import com.epubpro.core.database.repository.BookmarkRepositoryImpl
 import com.epubpro.core.database.repository.SearchRepositoryImpl
+import com.epubpro.domain.repository.AiChapterRepository
+import com.epubpro.domain.repository.AiRuleRepository
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.BookmarkRepository
 import com.epubpro.domain.repository.SearchRepository
@@ -33,4 +37,16 @@ abstract class RepositoryModule {
     abstract fun bindSearchRepository(
         impl: SearchRepositoryImpl
     ): SearchRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAiRuleRepository(
+        impl: AiRuleRepositoryImpl
+    ): AiRuleRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAiChapterRepository(
+        impl: AiChapterRepositoryImpl
+    ): AiChapterRepository
 }

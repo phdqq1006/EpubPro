@@ -3,6 +3,9 @@ package com.epubpro.core.database.di
 import android.content.Context
 import androidx.room.Room
 import com.epubpro.core.database.AppDatabase
+import com.epubpro.core.database.MIGRATION_2_3
+import com.epubpro.core.database.dao.AiChapterDao
+import com.epubpro.core.database.dao.AiRuleDao
 import com.epubpro.core.database.dao.BookDao
 import com.epubpro.core.database.dao.BookmarkDao
 import com.epubpro.core.database.dao.SearchDao
@@ -26,7 +29,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "epubpro.db"
-        ).fallbackToDestructiveMigration().build()
+        ).addMigrations(MIGRATION_2_3).build()
     }
 
     @Provides
@@ -37,4 +40,10 @@ object DatabaseModule {
 
     @Provides
     fun provideSearchDao(db: AppDatabase): SearchDao = db.searchDao()
+
+    @Provides
+    fun provideAiRuleDao(db: AppDatabase): AiRuleDao = db.aiRuleDao()
+
+    @Provides
+    fun provideAiChapterDao(db: AppDatabase): AiChapterDao = db.aiChapterDao()
 }

@@ -1,3 +1,13 @@
+import java.util.Properties
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+    }
+}
+val defaultGeminiApiKey = localProperties.getProperty("GEMINI_API_KEY", "")
+val defaultGeminiApiKeyLiteral = 34.toChar() + defaultGeminiApiKey + 34.toChar()
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -11,6 +21,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        buildConfigField("String", "DEFAULT_GEMINI_API_KEY", defaultGeminiApiKeyLiteral)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -21,6 +32,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
@@ -33,6 +45,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
     implementation(project(":core:reader"))
+    implementation(project(":core:ai"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

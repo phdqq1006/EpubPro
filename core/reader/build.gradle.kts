@@ -41,6 +41,8 @@ dependencies {
     // AndroidX Media
     implementation("androidx.media:media:1.7.0")
 
+
+    testImplementation("junit:junit:4.13.2")
     // Jsoup for TTS Text Parsing
     implementation("org.jsoup:jsoup:1.17.2")
 }

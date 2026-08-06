@@ -1,10 +1,14 @@
 package com.epubpro.core.database.repository
 
+import com.epubpro.core.database.dao.AiChapterDao
+import com.epubpro.core.database.dao.AiRuleDao
 import com.epubpro.core.database.dao.BookDao
 import com.epubpro.core.database.dao.BookmarkDao
 import com.epubpro.core.database.dao.SearchDao
 import com.epubpro.core.database.entity.*
 import com.epubpro.domain.model.*
+import com.epubpro.domain.repository.AiChapterRepository
+import com.epubpro.domain.repository.AiRuleRepository
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.BookmarkRepository
 import com.epubpro.domain.repository.SearchRepository
@@ -89,4 +93,35 @@ class SearchRepositoryImpl @Inject constructor(
         }
         searchDao.insertSearchIndex(entities)
     }
+}
+class AiRuleRepositoryImpl @Inject constructor(
+    private val aiRuleDao: AiRuleDao
+) : AiRuleRepository {
+    override fun observeRulesForBook(bookId: String): Flow<List<AiRule>> =
+        aiRuleDao.observeRulesForBook(bookId).map { rules -> rules.map { it.toDomain() } }
+
+    override suspend fun getRulesForBook(bookId: String): List<AiRule> =
+        aiRuleDao.getRulesForBook(bookId).map { it.toDomain() }
+
+    override suspend fun upsertRule(rule: AiRule) =
+        aiRuleDao.upsertRule(AiRuleEntity.fromDomain(rule))
+
+    override suspend fun deleteRule(ruleId: String) =
+        aiRuleDao.deleteRule(ruleId)
+}
+
+class AiChapterRepositoryImpl @Inject constructor(
+    private val aiChapterDao: AiChapterDao
+) : AiChapterRepository {
+    override suspend fun getChapterCache(bookId: String, chapterIndex: Int): AiChapterCache? =
+        aiChapterDao.getChapterCache(bookId, chapterIndex)?.toDomain()
+
+    override suspend fun upsertChapterCache(cache: AiChapterCache) =
+        aiChapterDao.upsertChapterCache(AiChapterCacheEntity.fromDomain(cache))
+
+    override suspend fun deleteChapterCache(bookId: String, chapterIndex: Int) =
+        aiChapterDao.deleteChapterCache(bookId, chapterIndex)
+
+    override suspend fun deleteBookCaches(bookId: String) =
+        aiChapterDao.deleteBookCaches(bookId)
 }

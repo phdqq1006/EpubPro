@@ -61,6 +61,7 @@ class LibraryViewModel @Inject constructor(
     fun deleteBook(book: Book) {
         viewModelScope.launch {
             storageManager.deleteBookFile(book.filePath)
+            storageManager.deleteAiBookCache(book.id)
             bookRepository.deleteBook(book.id)
         }
     }

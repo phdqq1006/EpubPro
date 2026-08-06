@@ -105,12 +105,12 @@ fun ReaderScreen(
         if (uiState.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         } else if (uiState.chapters.isNotEmpty()) {
-            if (uiState.currentChapterHtml.isNotEmpty()) {
+            if (uiState.displayedChapterHtml.isNotEmpty()) {
                 val activeChunkIndex = (uiState.ttsPlayerState as? TtsPlayerState.Playing)?.currentChunk?.paragraphIndex
                     ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
 
                 EpubWebView(
-                    htmlContent = uiState.currentChapterHtml,
+                    htmlContent = uiState.displayedChapterHtml,
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
                     initialPage = uiState.initialPageRequest,
@@ -159,6 +159,20 @@ fun ReaderScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = viewModel::openAiBottomSheet) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "AI thuần Việt",
+                            tint = if (
+                                uiState.contentVersion == ReaderContentVersion.AI ||
+                                uiState.isAiProcessing
+                            ) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                LocalContentColor.current
+                            }
+                        )
+                    }
                     IconButton(onClick = { viewModel.onTtsIconButtonClicked() }) {
                         Icon(
                             imageVector = Icons.Default.Headset,
@@ -323,6 +337,25 @@ fun ReaderScreen(
             }
         }
 
+        if (uiState.showAiBottomSheet) {
+            AiVietnameseBottomSheet(
+                uiState = uiState,
+                chapterTitle = uiState.chapters
+                    .getOrNull(uiState.currentChapterIndex)
+                    ?.title
+                    ?: "Chương " + (uiState.currentChapterIndex + 1),
+                onDismiss = viewModel::dismissAiBottomSheet,
+                onSaveConfiguration = viewModel::saveAiConfiguration,
+                onTestConnection = viewModel::testAiConnection,
+                onClearApiKey = viewModel::clearAiApiKey,
+                onSelectVersion = viewModel::setContentVersion,
+                onStartPolish = viewModel::startAiPolish,
+                onCancelPolish = viewModel::cancelAiPolish,
+                onDeleteChapter = viewModel::deleteCurrentAiChapter,
+                onSaveRule = viewModel::saveAiRule,
+                onDeleteRule = viewModel::deleteAiRule
+            )
+        }
         // Floating Mini Player Bar at bottom
         if (!uiState.showTtsPlayerScreen && uiState.ttsPlayerState !is TtsPlayerState.Idle) {
             Box(

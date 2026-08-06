@@ -31,7 +31,8 @@ class TtsService : Service() {
     lateinit var piperTtsEngineWrapper: PiperTtsEngineWrapper
 
     private val binder = TtsBinder()
-    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val serviceJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
 
     private lateinit var nativeTtsEngine: AndroidNativeTtsEngine
     private lateinit var currentEngine: TtsEngine
@@ -44,6 +45,7 @@ class TtsService : Service() {
 
     private var sleepTimerJob: Job? = null
     private var remainingSleepSeconds: Int = 0
+    private var playbackGeneration: Long = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -60,6 +62,13 @@ class TtsService : Service() {
 
         val settings = preferencesManager.getSettings()
         currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        nativeTtsEngine.setSpeed(settings.speed)
+        nativeTtsEngine.setPitch(settings.pitch)
+        settings.voiceId?.takeUnless { settings.isAiVoice }?.let(nativeTtsEngine::setVoice)
+        piperTtsEngineWrapper.setSpeed(settings.speed)
+        piperTtsEngineWrapper.setPitch(settings.pitch)
+        settings.voiceId?.takeIf { settings.isAiVoice }?.let(piperTtsEngineWrapper::setVoice)
+
 
         nativeTtsEngine.initialize(
             onReady = {
@@ -106,6 +115,8 @@ class TtsService : Service() {
     }
 
     fun loadContent(title: String, bookAuthor: String, parsedChunks: List<TtsChunk>, startIndex: Int = 0) {
+        playbackGeneration++
+        currentEngine.stop()
         this.bookTitle = title
         this.author = bookAuthor
         this.chunks = parsedChunks
@@ -122,6 +133,8 @@ class TtsService : Service() {
         if (chunks.isEmpty() || currentIndex !in chunks.indices) return
         val currentChunk = chunks[currentIndex]
 
+        val expectedIndex = currentIndex
+        val playbackId = ++playbackGeneration
         _playerState.value = TtsPlayerState.Playing(
             currentChunkIndex = currentIndex,
             totalChunks = chunks.size,
@@ -145,13 +158,17 @@ class TtsService : Service() {
         currentEngine.speak(
             chunk = currentChunk,
             onChunkStart = { _ -> },
-            onChunkDone = { _ ->
+            onChunkDone = { completedChunkId ->
                 serviceScope.launch {
+                    if (playbackId != playbackGeneration ||
+                        currentIndex != expectedIndex ||
+                        currentChunk.id != completedChunkId
+                    ) return@launch
+
                     if (currentIndex < chunks.size - 1) {
                         currentIndex++
                         playCurrentChunk()
                     } else {
-                        // Reached end of chapter
                         _playerState.value = TtsPlayerState.Idle
                         mediaSessionManager.updatePlaybackState(isPlaying = false)
                         stopForeground(STOP_FOREGROUND_DETACH)
@@ -162,6 +179,7 @@ class TtsService : Service() {
     }
 
     fun pause() {
+        playbackGeneration++
         currentEngine.pause()
         if (chunks.isNotEmpty() && currentIndex in chunks.indices) {
             val currentChunk = chunks[currentIndex]
@@ -183,6 +201,7 @@ class TtsService : Service() {
     }
 
     fun stop() {
+        playbackGeneration++
         currentEngine.stop()
         _playerState.value = TtsPlayerState.Idle
         mediaSessionManager.updatePlaybackState(isPlaying = false)
@@ -195,26 +214,19 @@ class TtsService : Service() {
         }
     }
 
-    fun nextChunk() {
-        if (currentIndex < chunks.size - 1) {
-            currentIndex++
-            playCurrentChunk()
-        }
+    private fun moveToChunk(index: Int) {
+        if (index !in chunks.indices) return
+        playbackGeneration++
+        currentEngine.stop()
+        currentIndex = index
+        playCurrentChunk()
     }
 
-    fun previousChunk() {
-        if (currentIndex > 0) {
-            currentIndex--
-            playCurrentChunk()
-        }
-    }
+    fun nextChunk() = moveToChunk(currentIndex + 1)
 
-    fun seekToChunk(index: Int) {
-        if (index in chunks.indices) {
-            currentIndex = index
-            playCurrentChunk()
-        }
-    }
+    fun previousChunk() = moveToChunk(currentIndex - 1)
+
+    fun seekToChunk(index: Int) = moveToChunk(index)
 
     fun getAvailableVoices(language: String = "vi"): List<com.epubpro.domain.model.TtsVoice> {
         return currentEngine.getAvailableVoices(language)
@@ -233,11 +245,14 @@ class TtsService : Service() {
     }
 
     fun updateSettings(settings: TtsSettings) {
-        currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        val nextEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        if (currentEngine !== nextEngine) {
+            currentEngine.stop()
+            currentEngine = nextEngine
+        }
         currentEngine.setSpeed(settings.speed)
         currentEngine.setPitch(settings.pitch)
         settings.voiceId?.let { currentEngine.setVoice(it) }
-        preferencesManager.saveSettings(settings)
     }
 
     fun setSleepTimer(option: SleepTimerOption) {
@@ -268,6 +283,7 @@ class TtsService : Service() {
         sleepTimerJob?.cancel()
         nativeTtsEngine.shutdown()
         piperTtsEngineWrapper.shutdown()
+        serviceJob.cancel()
         mediaSessionManager.release()
     }
 

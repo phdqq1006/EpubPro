@@ -1,26 +1,35 @@
 package com.epubpro.feature.reader
 
 import android.util.Log
+import com.epubpro.core.ai.AiVietnameseService
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.core.reader.engine.EpubChapterHeader
 import com.epubpro.core.reader.engine.EpubEngine
+import com.epubpro.core.storage.AiPreferencesManager
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.domain.model.*
 import com.epubpro.domain.repository.BookRepository
+import com.epubpro.domain.repository.AiRuleRepository
 import com.epubpro.domain.repository.BookmarkRepository
 import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsTextParser
 import com.epubpro.core.storage.TtsPreferencesManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+
+enum class ReaderContentVersion {
+    ORIGINAL,
+    AI
+}
 
 data class ReaderUiState(
     val book: Book? = null,
@@ -42,8 +51,27 @@ data class ReaderUiState(
     val showTtsPlayerScreen: Boolean = false,
     val ttsSettings: TtsSettings = TtsSettings(),
     val ttsPlayerState: TtsPlayerState = TtsPlayerState.Idle,
-    val selectedSleepTimer: SleepTimerOption = SleepTimerOption.OFF
-)
+    val selectedSleepTimer: SleepTimerOption = SleepTimerOption.OFF,
+    val showAiBottomSheet: Boolean = false,
+    val aiSettings: AiSettings = AiSettings(),
+    val aiRules: List<AiRule> = emptyList(),
+    val aiChapterHtml: String? = null,
+    val contentVersion: ReaderContentVersion = ReaderContentVersion.ORIGINAL,
+    val aiCreatedWithOldConfiguration: Boolean = false,
+    val isAiProcessing: Boolean = false,
+    val aiCompletedParts: Int = 0,
+    val aiTotalParts: Int = 0,
+    val aiError: String? = null,
+    val isTestingAiConnection: Boolean = false,
+    val aiConnectionMessage: String? = null
+) {
+    val displayedChapterHtml: String
+        get() = if (contentVersion == ReaderContentVersion.AI) {
+            aiChapterHtml ?: currentChapterHtml
+        } else {
+            currentChapterHtml
+        }
+}
 
 private data class ChapterHtmlBundle(
     val current: String,
@@ -59,12 +87,16 @@ class ReaderViewModel @Inject constructor(
     private val epubEngine: EpubEngine,
     private val preferencesManager: ReaderPreferencesManager,
     private val ttsPreferencesManager: TtsPreferencesManager,
+    private val aiPreferencesManager: AiPreferencesManager,
+    private val aiVietnameseService: AiVietnameseService,
+    private val aiRuleRepository: AiRuleRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
     private var bookFile: File? = null
     private var chapterLoadJob: Job? = null
+    private var aiProcessingJob: Job? = null
 
     private val _uiState = MutableStateFlow(ReaderUiState(settings = preferencesManager.getSettings()))
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
@@ -96,6 +128,20 @@ class ReaderViewModel @Inject constructor(
                 }
             }
         }
+
+        viewModelScope.launch {
+            aiPreferencesManager.settingsFlow.collect { settings ->
+                _uiState.update { it.copy(aiSettings = settings) }
+                refreshCurrentAiCache()
+            }
+        }
+
+        viewModelScope.launch {
+            aiRuleRepository.observeRulesForBook(bookId).collect { rules ->
+                _uiState.update { it.copy(aiRules = rules) }
+                refreshCurrentAiCache()
+            }
+        }
         loadBookData()
     }
 
@@ -120,6 +166,11 @@ class ReaderViewModel @Inject constructor(
                 } else {
                     ChapterHtmlBundle("", null, null)
                 }
+                val cachedAi = if (chapterBundle.current.isNotBlank()) {
+                    aiVietnameseService.loadCachedChapter(bookId, initialIndex, chapterBundle.current)
+                } else {
+                    null
+                }
 
                 _uiState.update {
                     it.copy(
@@ -129,6 +180,9 @@ class ReaderViewModel @Inject constructor(
                         currentChapterHtml = chapterBundle.current,
                         previousChapterHtml = chapterBundle.previous,
                         nextChapterHtml = chapterBundle.next,
+                        aiChapterHtml = cachedAi?.html,
+                        contentVersion = ReaderContentVersion.ORIGINAL,
+                        aiCreatedWithOldConfiguration = cachedAi?.createdWithOldConfiguration == true,
                         currentPageInChapter = initialPage,
                         initialPageRequest = initialPage,
                         currentCfi = savedProgress?.currentCfi ?: "",
@@ -145,14 +199,33 @@ class ReaderViewModel @Inject constructor(
         val file = bookFile
         if (file != null && index in 0 until state.chapters.size) {
             chapterLoadJob?.cancel()
+            aiProcessingJob?.cancel()
             chapterLoadJob = viewModelScope.launch {
                 val chapterBundle = loadChapterBundle(file, state.chapters, index)
+                val cachedAi = aiVietnameseService.loadCachedChapter(
+                    bookId,
+                    index,
+                    chapterBundle.current
+                )
                 _uiState.update {
                     it.copy(
                         currentChapterIndex = index,
                         currentChapterHtml = chapterBundle.current,
                         previousChapterHtml = chapterBundle.previous,
                         nextChapterHtml = chapterBundle.next,
+                        aiChapterHtml = cachedAi?.html,
+                        contentVersion = if (
+                            it.contentVersion == ReaderContentVersion.AI && cachedAi != null
+                        ) {
+                            ReaderContentVersion.AI
+                        } else {
+                            ReaderContentVersion.ORIGINAL
+                        },
+                        aiCreatedWithOldConfiguration = cachedAi?.createdWithOldConfiguration == true,
+                        isAiProcessing = false,
+                        aiCompletedParts = 0,
+                        aiTotalParts = 0,
+                        aiError = null,
                         currentPageInChapter = 1,
                         initialPageRequest = if (openAtLastPage) Int.MAX_VALUE else 1,
                         totalPagesInChapter = 1,
@@ -292,6 +365,237 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    fun openAiBottomSheet() {
+        _uiState.update {
+            it.copy(showAiBottomSheet = true, aiError = null, aiConnectionMessage = null)
+        }
+    }
+
+    fun dismissAiBottomSheet() {
+        _uiState.update { it.copy(showAiBottomSheet = false) }
+    }
+
+    fun saveAiConfiguration(apiKey: String?, modelId: String) {
+        runCatching { aiPreferencesManager.saveConfiguration(apiKey, modelId) }
+            .onSuccess {
+                _uiState.update {
+                    it.copy(aiConnectionMessage = "Đã lưu cấu hình AI.", aiError = null)
+                }
+            }
+            .onFailure { error ->
+                _uiState.update { it.copy(aiError = error.message ?: "Không thể lưu cấu hình AI.") }
+            }
+    }
+
+    fun clearAiApiKey() {
+        aiPreferencesManager.clearApiKey()
+        _uiState.update { it.copy(aiConnectionMessage = "Đã xóa API key.", aiError = null) }
+    }
+
+    fun testAiConnection(apiKey: String?, modelId: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(isTestingAiConnection = true, aiConnectionMessage = null, aiError = null)
+            }
+            runCatching { aiVietnameseService.testConnection(apiKey, modelId) }
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isTestingAiConnection = false,
+                            aiConnectionMessage = "Kết nối Gemini thành công."
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isTestingAiConnection = false,
+                            aiError = error.message ?: "Không thể kết nối Gemini."
+                        )
+                    }
+                }
+        }
+    }
+
+    fun setContentVersion(version: ReaderContentVersion) {
+        val state = _uiState.value
+        if (version == ReaderContentVersion.AI && state.aiChapterHtml == null) return
+        _uiState.update {
+            it.copy(
+                contentVersion = version,
+                initialPageRequest = 1,
+                currentPageInChapter = 1,
+                totalPagesInChapter = 1
+            )
+        }
+    }
+
+    fun startAiPolish() {
+        val state = _uiState.value
+        if (!state.aiSettings.hasApiKey) {
+            _uiState.update { it.copy(aiError = "Hãy nhập Gemini API key trước.") }
+            return
+        }
+        if (state.currentChapterHtml.isBlank() || state.isAiProcessing) return
+
+        val chapterIndex = state.currentChapterIndex
+        val sourceHtml = state.currentChapterHtml
+        aiProcessingJob?.cancel()
+        aiProcessingJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isAiProcessing = true,
+                    aiCompletedParts = 0,
+                    aiTotalParts = 0,
+                    aiError = null
+                )
+            }
+            try {
+                val html = aiVietnameseService.polishChapter(
+                    bookId = bookId,
+                    chapterIndex = chapterIndex,
+                    sourceHtml = sourceHtml
+                ) { progress ->
+                    if (_uiState.value.currentChapterIndex == chapterIndex) {
+                        _uiState.update {
+                            it.copy(
+                                aiCompletedParts = progress.completedParts,
+                                aiTotalParts = progress.totalParts
+                            )
+                        }
+                    }
+                }
+                if (_uiState.value.currentChapterIndex == chapterIndex) {
+                    _uiState.update {
+                        it.copy(
+                            aiChapterHtml = html,
+                            contentVersion = ReaderContentVersion.AI,
+                            aiCreatedWithOldConfiguration = false,
+                            isAiProcessing = false,
+                            aiError = null
+                        )
+                    }
+                }
+            } catch (error: CancellationException) {
+                if (_uiState.value.currentChapterIndex == chapterIndex) {
+                    _uiState.update { it.copy(isAiProcessing = false) }
+                }
+                throw error
+            } catch (error: Exception) {
+                if (_uiState.value.currentChapterIndex == chapterIndex) {
+                    _uiState.update {
+                        it.copy(
+                            isAiProcessing = false,
+                            aiError = error.message ?: "Không thể thuần Việt chương này."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelAiPolish() {
+        aiProcessingJob?.cancel()
+        _uiState.update { it.copy(isAiProcessing = false) }
+    }
+
+    fun deleteCurrentAiChapter() {
+        val chapterIndex = _uiState.value.currentChapterIndex
+        viewModelScope.launch {
+            aiVietnameseService.deleteChapter(bookId, chapterIndex)
+            if (_uiState.value.currentChapterIndex == chapterIndex) {
+                _uiState.update {
+                    it.copy(
+                        aiChapterHtml = null,
+                        contentVersion = ReaderContentVersion.ORIGINAL,
+                        aiCreatedWithOldConfiguration = false,
+                        aiCompletedParts = 0,
+                        aiTotalParts = 0,
+                        aiError = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun saveAiRule(
+        ruleId: String?,
+        scope: AiRuleScope,
+        source: String,
+        action: AiRuleAction,
+        replacement: String?,
+        caseSensitive: Boolean
+    ) {
+        val normalizedSource = source.trim()
+        val normalizedReplacement = replacement?.trim()
+        if (normalizedSource.isBlank()) {
+            _uiState.update { it.copy(aiError = "Thuật ngữ không được để trống.") }
+            return
+        }
+        if (action == AiRuleAction.REPLACE && normalizedReplacement.isNullOrBlank()) {
+            _uiState.update { it.copy(aiError = "Hãy nhập nội dung thay thế.") }
+            return
+        }
+
+        val duplicate = _uiState.value.aiRules.any { existing ->
+            existing.id != ruleId &&
+                existing.scope == scope &&
+                existing.source.equals(normalizedSource, ignoreCase = !caseSensitive)
+        }
+        if (duplicate) {
+            _uiState.update { it.copy(aiError = "Đã có quy tắc cùng phạm vi cho thuật ngữ này.") }
+            return
+        }
+
+        viewModelScope.launch {
+            aiRuleRepository.upsertRule(
+                AiRule(
+                    id = ruleId ?: UUID.randomUUID().toString(),
+                    scope = scope,
+                    bookId = if (scope == AiRuleScope.BOOK) bookId else null,
+                    source = normalizedSource,
+                    action = action,
+                    replacement = normalizedReplacement.takeIf { action == AiRuleAction.REPLACE },
+                    caseSensitive = caseSensitive,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            _uiState.update { it.copy(aiError = null) }
+        }
+    }
+
+    fun deleteAiRule(ruleId: String) {
+        viewModelScope.launch {
+            aiRuleRepository.deleteRule(ruleId)
+            _uiState.update { it.copy(aiError = null) }
+        }
+    }
+
+    private suspend fun refreshCurrentAiCache() {
+        val state = _uiState.value
+        if (state.currentChapterHtml.isBlank() || state.isLoading || state.isAiProcessing) return
+        val cached = aiVietnameseService.loadCachedChapter(
+            bookId,
+            state.currentChapterIndex,
+            state.currentChapterHtml
+        )
+        if (_uiState.value.currentChapterIndex == state.currentChapterIndex) {
+            _uiState.update {
+                it.copy(
+                    aiChapterHtml = cached?.html,
+                    contentVersion = if (
+                        it.contentVersion == ReaderContentVersion.AI && cached != null
+                    ) {
+                        ReaderContentVersion.AI
+                    } else {
+                        ReaderContentVersion.ORIGINAL
+                    },
+                    aiCreatedWithOldConfiguration = cached?.createdWithOldConfiguration == true
+                )
+            }
+        }
+    }
+
     fun onTtsIconButtonClicked() {
         val ttsSettings = ttsPreferencesManager.getSettings()
         if (!ttsSettings.isConfigured) {
@@ -337,7 +641,7 @@ class ReaderViewModel @Inject constructor(
 
     fun startTtsServicePlayback(ttsService: TtsService?) {
         val state = _uiState.value
-        val html = state.currentChapterHtml
+        val html = state.displayedChapterHtml
         val chunks = TtsTextParser.parseHtmlToChunks(html)
         val title = state.book?.title ?: "EpubPro Book"
         val author = state.book?.author ?: "Tác giả"

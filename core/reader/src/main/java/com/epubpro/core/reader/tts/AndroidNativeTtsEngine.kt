@@ -24,6 +24,13 @@ class AndroidNativeTtsEngine(
     private var pendingSpeed: Float = 1.0f
     private var pendingPitch: Float = 1.0f
     private var pendingVoiceId: String? = null
+    private var pendingSpeech: PendingSpeech? = null
+
+    private data class PendingSpeech(
+        val chunk: TtsChunk,
+        val onChunkStart: (Int) -> Unit,
+        val onChunkDone: (Int) -> Unit
+    )
 
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
         this.onReadyCallback = onReady
@@ -66,6 +73,10 @@ class AndroidNativeTtsEngine(
             pendingVoiceId?.let { setVoice(it) }
 
             onReadyCallback?.invoke()
+            pendingSpeech?.also { speech ->
+                pendingSpeech = null
+                speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
+            }
         } else {
             isInitialized = false
             onErrorCallback?.invoke("Không thể khởi tạo Android TextToSpeech Engine (mã lỗi: $status).")
@@ -73,7 +84,10 @@ class AndroidNativeTtsEngine(
     }
 
     override fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit) {
-        if (!isInitialized || tts == null) return
+        if (!isInitialized || tts == null) {
+            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
+            return
+        }
         this.currentOnChunkStart = onChunkStart
         this.currentOnChunkDone = onChunkDone
 
@@ -85,6 +99,7 @@ class AndroidNativeTtsEngine(
 
     override fun pause() {
         tts?.stop()
+        pendingSpeech = null
     }
 
     override fun resume() {
@@ -93,6 +108,7 @@ class AndroidNativeTtsEngine(
 
     override fun stop() {
         tts?.stop()
+        pendingSpeech = null
     }
 
     override fun setSpeed(speed: Float) {
@@ -138,6 +154,7 @@ class AndroidNativeTtsEngine(
 
     override fun shutdown() {
         tts?.stop()
+        pendingSpeech = null
         tts?.shutdown()
         tts = null
         isInitialized = false

@@ -72,3 +72,40 @@ interface SearchDao {
     @Query("DELETE FROM book_search_fts WHERE bookId = :bookId")
     suspend fun clearIndexForBook(bookId: String)
 }
+@Dao
+interface AiRuleDao {
+    @Query("""
+        SELECT * FROM ai_rules
+        WHERE scope = 'GLOBAL' OR (scope = 'BOOK' AND bookId = :bookId)
+        ORDER BY scope ASC, source COLLATE NOCASE
+    """)
+    fun observeRulesForBook(bookId: String): Flow<List<AiRuleEntity>>
+
+    @Query("""
+        SELECT * FROM ai_rules
+        WHERE scope = 'GLOBAL' OR (scope = 'BOOK' AND bookId = :bookId)
+        ORDER BY scope ASC, source COLLATE NOCASE
+    """)
+    suspend fun getRulesForBook(bookId: String): List<AiRuleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRule(rule: AiRuleEntity)
+
+    @Query("DELETE FROM ai_rules WHERE id = :ruleId")
+    suspend fun deleteRule(ruleId: String)
+}
+
+@Dao
+interface AiChapterDao {
+    @Query("SELECT * FROM ai_chapter_cache WHERE bookId = :bookId AND chapterIndex = :chapterIndex")
+    suspend fun getChapterCache(bookId: String, chapterIndex: Int): AiChapterCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertChapterCache(cache: AiChapterCacheEntity)
+
+    @Query("DELETE FROM ai_chapter_cache WHERE bookId = :bookId AND chapterIndex = :chapterIndex")
+    suspend fun deleteChapterCache(bookId: String, chapterIndex: Int)
+
+    @Query("DELETE FROM ai_chapter_cache WHERE bookId = :bookId")
+    suspend fun deleteBookCaches(bookId: String)
+}

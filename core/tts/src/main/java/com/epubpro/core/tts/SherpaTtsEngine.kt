@@ -15,19 +15,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.io.FileNotFoundException
 import javax.inject.Inject
-import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 
-@Singleton
 class SherpaTtsEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private var tts: OfflineTts? = null
     private var audioTrack: AudioTrack? = null
     private var currentSampleRate: Int = 22050
+    private val synthesisMutex = Mutex()
 
     companion object {
         private const val TAG = "EpubProTTS"
@@ -130,7 +131,9 @@ class SherpaTtsEngine @Inject constructor(
         Log.d(TAG, "speak() text='$text' speed=$speed")
 
         val audio = try {
-            currentTts.generate(text, sid = 0, speed = speed)
+            synthesisMutex.withLock {
+                currentTts.generate(text, sid = 0, speed = speed)
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "OfflineTts.generate() threw", t); null
         }
