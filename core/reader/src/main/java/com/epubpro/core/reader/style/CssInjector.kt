@@ -58,8 +58,8 @@ object CssInjector {
                 margin: 0 !important;
                 padding-top: ${settings.marginTopDp}px !important;
                 padding-bottom: ${settings.marginBottomDp}px !important;
-                padding-left: 0 !important;
-                padding-right: 0 !important;
+                padding-left: ${settings.marginLeftDp}px !important;
+                padding-right: ${settings.marginRightDp}px !important;
                 box-sizing: border-box !important;
                 word-wrap: break-word !important;
                 overflow-wrap: break-word !important;
@@ -67,13 +67,13 @@ object CssInjector {
                 width: 100vw !important;
                 height: 100vh !important;
 
-                -webkit-column-width: 100vw !important;
-                -moz-column-width: 100vw !important;
-                column-width: 100vw !important;
+                -webkit-column-width: calc(100vw - ${settings.marginLeftDp + settings.marginRightDp}px) !important;
+                -moz-column-width: calc(100vw - ${settings.marginLeftDp + settings.marginRightDp}px) !important;
+                column-width: calc(100vw - ${settings.marginLeftDp + settings.marginRightDp}px) !important;
 
-                -webkit-column-gap: 0px !important;
-                -moz-column-gap: 0px !important;
-                column-gap: 0px !important;
+                -webkit-column-gap: ${settings.marginLeftDp + settings.marginRightDp}px !important;
+                -moz-column-gap: ${settings.marginLeftDp + settings.marginRightDp}px !important;
+                column-gap: ${settings.marginLeftDp + settings.marginRightDp}px !important;
 
                 -webkit-column-fill: auto !important;
                 -moz-column-fill: auto !important;
@@ -85,17 +85,19 @@ object CssInjector {
             .epubpro-page-layer > * {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
-                padding-left: ${settings.marginLeftDp}px !important;
-                padding-right: ${settings.marginRightDp}px !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
                 max-width: 100% !important;
                 box-sizing: border-box !important;
             }
-            body > * *,
-            .epubpro-page-layer > * * {
+            body > div, body > section, body div, body section, body p, body span,
+            .epubpro-page-layer > div, .epubpro-page-layer > section, .epubpro-page-layer div, .epubpro-page-layer section, .epubpro-page-layer p, .epubpro-page-layer span {
                 margin-left: 0 !important;
                 margin-right: 0 !important;
                 padding-left: 0 !important;
                 padding-right: 0 !important;
+                width: auto !important;
+                max-width: 100% !important;
             }
             """
         } else {
@@ -124,6 +126,15 @@ object CssInjector {
                 overflow-x: hidden !important;
                 overflow-y: auto !important;
                 height: auto !important;
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            body > div, body > section, body div, body section, body p, body span {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                width: auto !important;
                 max-width: 100% !important;
             }
             """
@@ -264,19 +275,22 @@ object CssInjector {
                     html.style.setProperty('padding', '0', 'important');
                     html.style.setProperty('overflow', 'hidden', 'important');
 
+                    var colWidth = vw - marginLeft - marginRight;
+                    var colGap = marginLeft + marginRight;
+
                     // Force body dimensions via inline !important
                     body.style.setProperty('height', vh + 'px', 'important');
                     body.style.setProperty('width', vw + 'px', 'important');
                     body.style.setProperty('margin', '0', 'important');
                     body.style.setProperty('padding-top', marginTop + 'px', 'important');
                     body.style.setProperty('padding-bottom', marginBottom + 'px', 'important');
-                    body.style.setProperty('padding-left', '0px', 'important');
-                    body.style.setProperty('padding-right', '0px', 'important');
+                    body.style.setProperty('padding-left', marginLeft + 'px', 'important');
+                    body.style.setProperty('padding-right', marginRight + 'px', 'important');
                     body.style.setProperty('box-sizing', 'border-box', 'important');
-                    body.style.setProperty('column-width', vw + 'px', 'important');
-                    body.style.setProperty('-webkit-column-width', vw + 'px', 'important');
-                    body.style.setProperty('column-gap', '0px', 'important');
-                    body.style.setProperty('-webkit-column-gap', '0px', 'important');
+                    body.style.setProperty('column-width', colWidth + 'px', 'important');
+                    body.style.setProperty('-webkit-column-width', colWidth + 'px', 'important');
+                    body.style.setProperty('column-gap', colGap + 'px', 'important');
+                    body.style.setProperty('-webkit-column-gap', colGap + 'px', 'important');
                     body.style.setProperty('column-fill', 'auto', 'important');
                     body.style.setProperty('-webkit-column-fill', 'auto', 'important');
                     body.style.setProperty('overflow', 'visible', 'important');
@@ -592,13 +606,16 @@ object CssInjector {
                     layer.style.setProperty('margin', '0px', 'important');
                     layer.style.setProperty('padding-top', marginTop + 'px', 'important');
                     layer.style.setProperty('padding-bottom', marginBottom + 'px', 'important');
-                    layer.style.setProperty('padding-left', '0px', 'important');
-                    layer.style.setProperty('padding-right', '0px', 'important');
+                    var colWidth = pw - marginLeft - marginRight;
+                    var colGap = marginLeft + marginRight;
+
+                    layer.style.setProperty('padding-left', marginLeft + 'px', 'important');
+                    layer.style.setProperty('padding-right', marginRight + 'px', 'important');
                     layer.style.setProperty('box-sizing', 'border-box', 'important');
-                    layer.style.setProperty('column-width', pw + 'px', 'important');
-                    layer.style.setProperty('-webkit-column-width', pw + 'px', 'important');
-                    layer.style.setProperty('column-gap', '0px', 'important');
-                    layer.style.setProperty('-webkit-column-gap', '0px', 'important');
+                    layer.style.setProperty('column-width', colWidth + 'px', 'important');
+                    layer.style.setProperty('-webkit-column-width', colWidth + 'px', 'important');
+                    layer.style.setProperty('column-gap', colGap + 'px', 'important');
+                    layer.style.setProperty('-webkit-column-gap', colGap + 'px', 'important');
                     layer.style.setProperty('column-fill', 'auto', 'important');
                     layer.style.setProperty('-webkit-column-fill', 'auto', 'important');
                     layer.style.setProperty('overflow', 'visible', 'important');
@@ -848,7 +865,7 @@ object CssInjector {
                     var duration = Math.max(1, Date.now() - startTouchTime);
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
                     var velocity = Math.abs(currentDeltaX) / duration;
-                    var threshold = pw * 0.50; // Yêu cầu kéo qua 50% màn hình mới chuyển trang
+                    var threshold = pw * 0.30; // Yêu cầu kéo qua 30% màn hình mới chuyển trang
                     var completingGestureToken = gestureToken;
                     var isNextBoundary = dragDirection < 0 && currentPage >= totalPages;
                     var isPreviousBoundary = dragDirection > 0 && currentPage <= 1;
@@ -858,8 +875,8 @@ object CssInjector {
                             ? !!(nextChapterHtml && nextChapterHtml.trim())
                             : !!(previousChapterHtml && previousChapterHtml.trim());
                         var crossedBoundaryThreshold = isNextBoundary
-                            ? (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.35 && velocity > 0.45))
-                            : (currentDeltaX >= threshold || (currentDeltaX > pw * 0.35 && velocity > 0.45));
+                            ? (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.20 && velocity > 0.35))
+                            : (currentDeltaX >= threshold || (currentDeltaX > pw * 0.20 && velocity > 0.35));
                         var boundaryTriggered = hasAdjacentPreview && crossedBoundaryThreshold;
                         var boundaryOverlay = activeTopOverlay;
                         var boundaryDone = false;
@@ -910,7 +927,7 @@ object CssInjector {
                     if (isCoverOverlayActive && activeTopOverlay) {
                         var speedSec = (transitionSpeedMs / 1000).toFixed(2);
                         if (dragDirection < 0) { // Dragging left to go next
-                            if (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.35 && velocity > 0.45)) {
+                            if (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.20 && velocity > 0.35)) {
                                 // COMMIT: slide overlay out, scroll native body, then cleanup
                                 var commitOverlay = activeTopOverlay;
                                 var commitDone = false;
@@ -956,7 +973,7 @@ object CssInjector {
                                 dbg('SNAP_BACK', 'left: anim start');
                             }
                         } else if (dragDirection > 0) { // Dragging right to go prev
-                            if (currentDeltaX >= threshold || (currentDeltaX > pw * 0.35 && velocity > 0.45)) {
+                            if (currentDeltaX >= threshold || (currentDeltaX > pw * 0.20 && velocity > 0.35)) {
                                 // COMMIT: slide overlay out, scroll native body, then cleanup
                                 var commitOverlay = activeTopOverlay;
                                 var commitDone = false;

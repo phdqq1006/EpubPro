@@ -28,7 +28,7 @@ import com.epubpro.domain.model.TtsVoice
 @Composable
 fun TtsSetupBottomSheet(
     currentSettings: TtsSettings,
-    availableVoices: List<TtsVoice> = emptyList(),
+    onGetAvailableVoices: (isAiVoice: Boolean, language: String) -> List<TtsVoice>,
     onDismiss: () -> Unit,
     onPreviewVoice: (settings: TtsSettings) -> Unit,
     onStartListening: (newSettings: TtsSettings) -> Unit
@@ -41,6 +41,22 @@ fun TtsSetupBottomSheet(
 
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
+
+    val availableVoices = remember(isAiVoice, language) {
+        onGetAvailableVoices(isAiVoice, language)
+    }
+
+    LaunchedEffect(isAiVoice, language, availableVoices) {
+        if (isAiVoice) {
+            if (selectedVoiceId == null || availableVoices.none { it.id == selectedVoiceId }) {
+                selectedVoiceId = availableVoices.firstOrNull()?.id
+            }
+        } else {
+            if (selectedVoiceId != null && availableVoices.none { it.id == selectedVoiceId }) {
+                selectedVoiceId = null
+            }
+        }
+    }
 
     val currentSettingsDraft = TtsSettings(
         isConfigured = true,
@@ -252,7 +268,8 @@ fun TtsSetupBottomSheet(
 
                 // Voice Selection Dropdown
                 Box(modifier = Modifier.weight(1f)) {
-                    val selectedVoiceName = availableVoices.find { it.id == selectedVoiceId }?.name ?: "Mặc định hệ thống"
+                    val fallbackName = if (isAiVoice) "Chọn giọng đọc" else "Mặc định hệ thống"
+                    val selectedVoiceName = availableVoices.find { it.id == selectedVoiceId }?.name ?: fallbackName
                     OutlinedCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -273,13 +290,20 @@ fun TtsSetupBottomSheet(
                         expanded = showVoiceMenu,
                         onDismissRequest = { showVoiceMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Mặc định hệ thống") },
-                            onClick = {
-                                selectedVoiceId = null
-                                showVoiceMenu = false
-                            }
-                        )
+                        if (!isAiVoice) {
+                            DropdownMenuItem(
+                                text = { Text("Mặc định hệ thống") },
+                                onClick = {
+                                    selectedVoiceId = null
+                                    showVoiceMenu = false
+                                }
+                            )
+                        } else if (availableVoices.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Chưa có giọng AI. Vào Cài đặt để tải.") },
+                                onClick = { showVoiceMenu = false }
+                            )
+                        }
                         availableVoices.forEach { voice ->
                             DropdownMenuItem(
                                 text = { Text(voice.name) },
@@ -360,9 +384,12 @@ fun TtsSetupBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            val isActionEnabled = !isAiVoice || selectedVoiceId != null
+
             // Preview Button
             OutlinedButton(
                 onClick = { onPreviewVoice(currentSettingsDraft) },
+                enabled = isActionEnabled,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
@@ -377,6 +404,7 @@ fun TtsSetupBottomSheet(
             // Start Button
             Button(
                 onClick = { onStartListening(currentSettingsDraft) },
+                enabled = isActionEnabled,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),

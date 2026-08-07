@@ -46,8 +46,8 @@
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 
 ### Real-time Page Turn Drag Transition Engine Architecture (Hiệu ứng lật trang kéo phủ bóng)
-- **Ngày**: 2026-08-03
-- **Chi tiết**: Trong chế độ cuộn trang ngang CSS Multi-Column, nâng cấp cơ chế lật trang từ `scrollToPage` cố định thành engine theo dõi ngón tay real-time qua `touchstart`, `touchmove`, `touchend`. Khi vuốt ngón tay, `window.scrollTo(startScrollX - deltaX)` dịch chuyển trang sách bám sát theo tay với tần số 60fps, đồng thời một phần tử overlay gradient (`#epubpro-shadow-overlay`) hiển thị ở mép trang bị kéo. Thả tay sẽ kiểm tra ngưỡng kéo (>22% screen width) hoặc gia tốc vuốt để lật trang mượt với cubic-bezier curve hoặc nảy đàn hồi (snap back) về trang cũ.
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Trong chế độ cuộn trang ngang CSS Multi-Column, nâng cấp cơ chế lật trang từ `scrollToPage` cố định thành engine theo dõi ngón tay real-time qua `touchstart`, `touchmove`, `touchend`. Khi vuốt ngón tay, `window.scrollTo(startScrollX - deltaX)` dịch chuyển trang sách bám sát theo tay với tần số 60fps, đồng thời một phần tử overlay gradient (`#epubpro-shadow-overlay`) hiển thị ở mép trang bị kéo. Thả tay sẽ kiểm tra ngưỡng kéo (>30% screen width hoặc gia tốc vuốt `velocity > 0.35` với 20% width) để lật trang mượt với cubic-bezier curve hoặc nảy đàn hồi (snap back) về trang cũ.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
 ### Dual Overlay Page Turn Engine Architecture (Chống giật và hở nội dung khi vuốt)
@@ -67,7 +67,12 @@
 
 ### Fullscreen System Bars & Reader Theme Background Synchronization
 - **Ngày**: 2026-08-06
-- **Chi tiết**: Để màn hình đọc sách phủ tràn 100% màu nền của theme (tránh vệt trắng ở đỉnh và đáy): (1) Đặt `Modifier.background(readerBgColor)` lên root `Box` của `ReaderScreen`; (2) Sử dụng `DisposableEffect(readerBgColor, isDarkTheme)` cập nhật `window.statusBarColor` và `window.navigationBarColor` bằng `readerBgColor.toArgb()`, kết hợp `WindowCompat.getInsetsController().isAppearanceLightStatusBars = !isDarkTheme` để tự động điều chỉnh màu icon hệ thống (tối trên nền Sepia/Light, sáng trên nền Dark/Midnight); (3) Khôi phục màu gốc trong `onDispose`.
+- **Chi tiết**: Để màn hình đọc sách phủ tràn 100% màu nền của theme (tránh vệt trắng ở đỉnh và đáy): (1) Đặt `Modifier.background(readerBgColor)` lên root `Box` của `ReaderScreen`; (2) Sử dụng `DisposableEffect(currentStatusBarColor, readerBgColor, isDarkTheme)` cập nhật `window.statusBarColor` và `window.navigationBarColor` bằng `readerBgColor.toArgb()`, kết hợp `WindowCompat.getInsetsController().isAppearanceLightStatusBars = !isDarkTheme` để tự động điều chỉnh màu icon hệ thống (tối trên nền Sepia/Light, sáng trên nền Dark/Midnight); (3) Khôi phục màu gốc trong `onDispose`.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+### Distinct Elevated Reader Bar Palette Architecture
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Để TopAppBar và BottomBar phân biệt rõ ràng với văn bản khi hiển thị nhưng vẫn giữ thẩm mỹ cao cấp: Định nghĩa cặp màu `(readerBgColor, readerBarBgColor, readerContentColor)` cho từng theme mode (ví dụ Sepia: nền đọc `#FBF0D9`, nền bar `#EFE0C2` đậm hơn, chữ `#3B2F23`). Gắn `shadowElevation = 4.dp` và chuyển `statusBarColor` sang `readerBarBgColor` khi `showControls` bật.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 ---
 
@@ -108,6 +113,11 @@
 - **Root cause**: `extractChapters()` đọc toàn bộ `readText()` của tất cả các entry XHTML trong file EPUB Zip và giữ đồng thời trong một List duy nhất trong bộ nhớ Heap 256MB.
 - **Fix**: Chuyển sang mô hình Lazy Header `extractChapterHeaders()` + nạp `loadChapterHtml()` theo yêu cầu + phân batch 5 chương khi index FTS + bật `android:largeHeap="true"`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`, `app/src/main/AndroidManifest.xml`
+
+### Deep Reset Margin/Padding & Width trên các thẻ con EPUB
+- **Ngày**: 2026-08-06
+- **Chi tiết**: Nhiều file EPUB chứa thẻ wrapper (`div.content`, `section`, `p`) có CSS cứng như `width: 80%`, `margin-left: 30px` hoặc `padding: 20px`. Để cài đặt căn lề trái/phải (`marginLeftDp`, `marginRightDp`) của app hoạt động 100% trên mọi bộ truyện (cả Lật trang ngang lẫn Cuộn dọc): Inject CSS `body > *, body > * * { margin-left: 0 !important; margin-right: 0 !important; padding-left: 0 !important; padding-right: 0 !important; width: auto !important; max-width: 100% !important; }` để triệt tiêu mọi lề cứng nội bộ, nhường quyền kiểm soát lề duy nhất cho container của app.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
 ### Lỗi lệch lề văn bản khi cuộn sang trang mới trong CSS Multi-Column Pagination
 - **Ngày**: 2026-07-31

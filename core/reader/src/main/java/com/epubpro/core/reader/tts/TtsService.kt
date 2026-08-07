@@ -45,6 +45,7 @@ class TtsService : Service() {
 
     private var chunks: List<TtsChunk> = emptyList()
     private var currentIndex: Int = 0
+    private var bookId: String = ""
     private var bookTitle: String = ""
     private var author: String = "EpubPro Reader"
 
@@ -84,7 +85,10 @@ class TtsService : Service() {
                 }
             },
             onError = { error ->
-                if (!settings.isAiVoice) _playerState.value = TtsPlayerState.Error(error)
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    android.widget.Toast.makeText(applicationContext, "Lỗi giọng đọc: $error", android.widget.Toast.LENGTH_LONG).show()
+                }
+                if (currentEngine == nativeTtsEngine) stop()
             }
         )
         
@@ -97,7 +101,15 @@ class TtsService : Service() {
                 }
             },
             onError = { error ->
-                if (settings.isAiVoice) _playerState.value = TtsPlayerState.Error(error)
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    val msg = if (error.contains("not downloaded")) {
+                        "Giọng AI này chưa được tải. Vui lòng vào Cài đặt âm thanh để tải về!"
+                    } else {
+                        "Lỗi giọng đọc: $error"
+                    }
+                    android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_LONG).show()
+                }
+                if (currentEngine == piperTtsEngineWrapper) stop()
             }
         )
         
@@ -119,9 +131,10 @@ class TtsService : Service() {
         return START_NOT_STICKY
     }
 
-    fun loadContent(title: String, bookAuthor: String, parsedChunks: List<TtsChunk>, startIndex: Int = 0) {
+    fun loadContent(id: String, title: String, bookAuthor: String, parsedChunks: List<TtsChunk>, startIndex: Int = 0) {
         playbackGeneration++
         currentEngine.stop()
+        this.bookId = id
         this.bookTitle = title
         this.author = bookAuthor
         this.chunks = parsedChunks
@@ -148,7 +161,7 @@ class TtsService : Service() {
                     currentIndex++
                     playCurrentChunk()
                 } else {
-                    _playerState.value = TtsPlayerState.Idle
+                    _playerState.value = TtsPlayerState.Completed(bookId)
                     mediaSessionManager.updatePlaybackState(isPlaying = false)
                     stopForeground(STOP_FOREGROUND_DETACH)
                 }
@@ -162,6 +175,7 @@ class TtsService : Service() {
         val expectedIndex = currentIndex
         val playbackId = ++playbackGeneration
         _playerState.value = TtsPlayerState.Playing(
+            bookId = bookId,
             currentChunkIndex = currentIndex,
             totalChunks = chunks.size,
             currentChunk = chunkToSpeak
@@ -195,7 +209,7 @@ class TtsService : Service() {
                         currentIndex++
                         playCurrentChunk()
                     } else {
-                        _playerState.value = TtsPlayerState.Idle
+                        _playerState.value = TtsPlayerState.Completed(bookId)
                         mediaSessionManager.updatePlaybackState(isPlaying = false)
                         stopForeground(STOP_FOREGROUND_DETACH)
                     }
@@ -210,6 +224,7 @@ class TtsService : Service() {
         if (chunks.isNotEmpty() && currentIndex in chunks.indices) {
             val currentChunk = chunks[currentIndex]
             _playerState.value = TtsPlayerState.Paused(
+                bookId = bookId,
                 currentChunkIndex = currentIndex,
                 totalChunks = chunks.size,
                 currentChunk = currentChunk
@@ -241,6 +256,13 @@ class TtsService : Service() {
     }
 
     private fun moveToChunk(index: Int) {
+        if (index >= chunks.size) {
+            _playerState.value = TtsPlayerState.Completed(bookId)
+            currentEngine.stop()
+            mediaSessionManager.updatePlaybackState(isPlaying = false)
+            stopForeground(STOP_FOREGROUND_DETACH)
+            return
+        }
         if (index !in chunks.indices) return
         playbackGeneration++
         currentEngine.stop()
@@ -254,8 +276,13 @@ class TtsService : Service() {
 
     fun seekToChunk(index: Int) = moveToChunk(index)
 
-    fun getAvailableVoices(language: String = "vi"): List<com.epubpro.domain.model.TtsVoice> {
-        return currentEngine.getAvailableVoices(language)
+    fun getAvailableVoices(isAiVoice: Boolean? = null, language: String = "vi"): List<com.epubpro.domain.model.TtsVoice> {
+        val engine = if (isAiVoice != null) {
+            if (isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        } else {
+            currentEngine
+        }
+        return engine.getAvailableVoices(language)
     }
 
     fun speakPreview(sampleText: String = "Xin chào, đây là giọng đọc thử nghiệm của ứng dụng EpubPro.", settings: TtsSettings) {
@@ -304,6 +331,12 @@ class TtsService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stop()
+        stopSelf()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         sleepTimerJob?.cancel()
@@ -311,6 +344,7 @@ class TtsService : Service() {
         piperTtsEngineWrapper.shutdown()
         serviceJob.cancel()
         mediaSessionManager.release()
+        _playerState.value = TtsPlayerState.Idle
     }
 
     inner class TtsBinder : Binder() {

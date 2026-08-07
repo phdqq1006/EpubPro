@@ -26,6 +26,7 @@ sealed class TtsPlayerState {
     object Idle : TtsPlayerState()
     object Loading : TtsPlayerState()
     data class Playing(
+        val bookId: String = "",
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk,
@@ -33,10 +34,12 @@ sealed class TtsPlayerState {
         val totalMs: Long = 0L
     ) : TtsPlayerState()
     data class Paused(
+        val bookId: String = "",
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk
     ) : TtsPlayerState()
+    data class Completed(val bookId: String = "") : TtsPlayerState()
     data class Error(val message: String) : TtsPlayerState()
 }
 

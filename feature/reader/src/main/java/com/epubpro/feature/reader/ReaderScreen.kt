@@ -71,11 +71,19 @@ fun ReaderScreen(
     val context = LocalContext.current
     val hostView = LocalView.current
     var ttsService by remember { mutableStateOf<TtsService?>(null) }
+    val window = (context as? android.app.Activity)?.window
 
-    DisposableEffect(hostView, uiState.settings.keepScreenOn) {
-        val previousKeepScreenOn = hostView.keepScreenOn
-        hostView.keepScreenOn = uiState.settings.keepScreenOn
-        onDispose { hostView.keepScreenOn = previousKeepScreenOn }
+    DisposableEffect(window, uiState.settings.keepScreenOn) {
+        if (window != null) {
+            if (uiState.settings.keepScreenOn) {
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     DisposableEffect(context) {
@@ -100,16 +108,44 @@ fun ReaderScreen(
         }
     }
 
-    val readerBgColor = when (uiState.settings.themeMode) {
-        ReaderThemeMode.LIGHT -> Color(0xFFFFFFFF)
-        ReaderThemeMode.DARK -> Color(0xFF0F172A)
-        ReaderThemeMode.SEPIA -> Color(0xFFFBF0D9)
-        ReaderThemeMode.PAPER -> Color(0xFFF5F0E8)
-        ReaderThemeMode.MIDNIGHT -> Color(0xFF000000)
+    LaunchedEffect(uiState.ttsPlayerState, uiState.isLoading, uiState.displayedChapterHtml) {
+        if (uiState.ttsPlayerState == TtsPlayerState.Loading && !uiState.isLoading && uiState.displayedChapterHtml.isNotEmpty()) {
+            ttsService?.let { viewModel.startTtsServicePlayback(it) }
+        }
+    }
+
+    val (readerBgColor, readerBarBgColor, readerContentColor) = when (uiState.settings.themeMode) {
+        ReaderThemeMode.LIGHT -> Triple(
+            Color(0xFFFFFFFF),
+            Color(0xFFF1F5F9),
+            Color(0xFF0F172A)
+        )
+        ReaderThemeMode.DARK -> Triple(
+            Color(0xFF0F172A),
+            Color(0xFF1E293B),
+            Color(0xFFF8FAFC)
+        )
+        ReaderThemeMode.SEPIA -> Triple(
+            Color(0xFFFBF0D9),
+            Color(0xFFEFE0C2),
+            Color(0xFF3B2F23)
+        )
+        ReaderThemeMode.PAPER -> Triple(
+            Color(0xFFF5F0E8),
+            Color(0xFFE5DDD0),
+            Color(0xFF2C2825)
+        )
+        ReaderThemeMode.MIDNIGHT -> Triple(
+            Color(0xFF000000),
+            Color(0xFF18181B),
+            Color(0xFFE2E8F0)
+        )
     }
     val isDarkTheme = uiState.settings.themeMode in listOf(ReaderThemeMode.DARK, ReaderThemeMode.MIDNIGHT)
 
-    DisposableEffect(readerBgColor, isDarkTheme) {
+    val currentStatusBarColor = if (uiState.showControls) readerBarBgColor else readerBgColor
+
+    DisposableEffect(currentStatusBarColor, readerBgColor, isDarkTheme) {
         val window = (context as? android.app.Activity)?.window
         val originalStatusBarColor = window?.statusBarColor
         val originalNavBarColor = window?.navigationBarColor
@@ -118,7 +154,7 @@ fun ReaderScreen(
         val originalLightNav = controller?.isAppearanceLightNavigationBars ?: true
 
         if (window != null) {
-            window.statusBarColor = readerBgColor.toArgb()
+            window.statusBarColor = currentStatusBarColor.toArgb()
             window.navigationBarColor = readerBgColor.toArgb()
             controller?.isAppearanceLightStatusBars = !isDarkTheme
             controller?.isAppearanceLightNavigationBars = !isDarkTheme
@@ -184,6 +220,7 @@ fun ReaderScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             TopAppBar(
+                windowInsets = WindowInsets.statusBars,
                 title = {
                     Text(
                         text = uiState.book?.title ?: stringResource(R.string.reader_loading),
@@ -208,7 +245,7 @@ fun ReaderScreen(
                             ) {
                                 MaterialTheme.colorScheme.primary
                             } else {
-                                LocalContentColor.current
+                                readerContentColor
                             }
                         )
                     }
@@ -216,7 +253,7 @@ fun ReaderScreen(
                         Icon(
                             imageVector = Icons.Default.Headset,
                             contentDescription = stringResource(R.string.reader_tts),
-                            tint = if (uiState.isTtsSpeaking) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                            tint = if (uiState.isTtsSpeaking) MaterialTheme.colorScheme.primary else readerContentColor
                         )
                     }
                     IconButton(onClick = { viewModel.addBookmark() }) {
@@ -230,7 +267,10 @@ fun ReaderScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                    containerColor = readerBarBgColor.copy(alpha = 0.98f),
+                    titleContentColor = readerContentColor,
+                    actionIconContentColor = readerContentColor,
+                    navigationIconContentColor = readerContentColor
                 )
             )
         }
@@ -243,8 +283,11 @@ fun ReaderScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-                tonalElevation = 8.dp
+                color = readerBarBgColor.copy(alpha = 0.98f),
+                contentColor = readerContentColor,
+                tonalElevation = 8.dp,
+                shadowElevation = 4.dp,
+                modifier = Modifier.navigationBarsPadding()
             ) {
                 Row(
                     modifier = Modifier
@@ -292,8 +335,11 @@ fun ReaderScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
+                color = readerBarBgColor.copy(alpha = 0.92f),
+                contentColor = readerContentColor,
+                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp),
+                shadowElevation = 2.dp,
+                modifier = Modifier.navigationBarsPadding()
             ) {
                 val progressText = if (uiState.settings.isHorizontalPagination) {
                     "Trang ${uiState.currentPageInChapter} / ${uiState.totalPagesInChapter}"
@@ -413,12 +459,11 @@ fun ReaderScreen(
 
         // Tts Setup Bottom Sheet
         if (uiState.showTtsSetupBottomSheet) {
-            val availableVoices = remember(ttsService, uiState.ttsSettings.language) {
-                ttsService?.getAvailableVoices(uiState.ttsSettings.language) ?: emptyList()
-            }
             TtsSetupBottomSheet(
                 currentSettings = uiState.ttsSettings,
-                availableVoices = availableVoices,
+                onGetAvailableVoices = { isAiVoice, language ->
+                    ttsService?.getAvailableVoices(isAiVoice, language) ?: emptyList()
+                },
                 onDismiss = viewModel::dismissTtsSetupBottomSheet,
                 onPreviewVoice = { draftSettings ->
                     ttsService?.speakPreview(

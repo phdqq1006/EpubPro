@@ -128,15 +128,35 @@ class ReaderViewModel @Inject constructor(
 
         viewModelScope.launch {
             TtsService.playerState.collect { state ->
-                if (state is TtsPlayerState.Playing) {
-                    val chunkIndex = state.currentChunk.paragraphIndex
-                    ttsPreferencesManager.saveLastTtsChunkIndex(bookId, _uiState.value.currentChapterIndex, chunkIndex)
+                val stateToEmit = when (state) {
+                    is TtsPlayerState.Playing -> if (state.bookId == bookId) state else TtsPlayerState.Idle
+                    is TtsPlayerState.Paused -> if (state.bookId == bookId) state else TtsPlayerState.Idle
+                    is TtsPlayerState.Completed -> if (state.bookId == bookId) state else TtsPlayerState.Idle
+                    else -> state
                 }
-                _uiState.update {
-                    it.copy(
-                        ttsPlayerState = state,
-                        isTtsSpeaking = state is TtsPlayerState.Playing
-                    )
+
+                if (stateToEmit is TtsPlayerState.Completed) {
+                    val uiState = _uiState.value
+                    if (uiState.selectedSleepTimer == SleepTimerOption.END_OF_CHAPTER) {
+                        _uiState.update { it.copy(ttsPlayerState = TtsPlayerState.Idle, isTtsSpeaking = false) }
+                        ttsPreferencesManager.saveLastTtsChunkIndex(bookId, uiState.currentChapterIndex, 0)
+                    } else if (uiState.currentChapterIndex < uiState.chapters.size - 1) {
+                        onChapterSelected(uiState.currentChapterIndex + 1, autoStartTts = true)
+                    } else {
+                        _uiState.update { it.copy(ttsPlayerState = TtsPlayerState.Idle, isTtsSpeaking = false) }
+                    }
+                } else {
+                    if (stateToEmit is TtsPlayerState.Playing) {
+                        val chunkIndex = stateToEmit.currentChunk.paragraphIndex
+                        ttsPreferencesManager.saveLastTtsChunkIndex(bookId, _uiState.value.currentChapterIndex, chunkIndex)
+                    }
+                    
+                    _uiState.update {
+                        it.copy(
+                            ttsPlayerState = stateToEmit,
+                            isTtsSpeaking = stateToEmit is TtsPlayerState.Playing
+                        )
+                    }
                 }
             }
         }
@@ -206,7 +226,7 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    fun onChapterSelected(index: Int, openAtLastPage: Boolean = false) {
+    fun onChapterSelected(index: Int, openAtLastPage: Boolean = false, autoStartTts: Boolean = false, ttsService: TtsService? = null) {
         val state = _uiState.value
         val file = bookFile
         if (file != null && index in 0 until state.chapters.size) {
@@ -241,8 +261,15 @@ class ReaderViewModel @Inject constructor(
                         currentPageInChapter = 1,
                         initialPageRequest = if (openAtLastPage) Int.MAX_VALUE else 1,
                         totalPagesInChapter = 1,
-                        firstVisibleParagraphIndex = 0
+                        firstVisibleParagraphIndex = 0,
+                        isLoading = false,
+                        ttsPlayerState = if (autoStartTts) TtsPlayerState.Loading else it.ttsPlayerState
                     )
+                }
+                
+                if (autoStartTts) {
+                    ttsPreferencesManager.saveLastTtsChunkIndex(bookId, index, 0)
+                    startTtsServicePlayback(ttsService)
                 }
             }
         }
@@ -663,8 +690,9 @@ class ReaderViewModel @Inject constructor(
         val validIndex = savedChunkIndex.coerceIn(0, (chunks.size - 1).coerceAtLeast(0))
 
         ttsService?.loadContent(
-            title = title,
-            bookAuthor = author,
+            id = bookId,
+            title = _uiState.value.book?.title ?: "EpubPro",
+            bookAuthor = _uiState.value.book?.author ?: "Unknown",
             parsedChunks = chunks,
             startIndex = validIndex
         )

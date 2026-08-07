@@ -32,7 +32,7 @@ fun TtsMiniPlayerBar(
     onPlayPause: () -> Unit,
     onClose: () -> Unit
 ) {
-    if (playerState is TtsPlayerState.Idle) return
+    if (playerState is TtsPlayerState.Idle || playerState is TtsPlayerState.Error) return
 
     val primaryColor = Color(0xFFD97757)
 

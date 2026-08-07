@@ -159,10 +159,16 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun getAvailableVoices(language: String): List<TtsVoice> {
-        return listOf(
+        val allVoices = listOf(
+            TtsVoice(id = "quang_minh", name = "Quang Minh", language = "vi", isNetworkRequired = false),
+            TtsVoice(id = "ngoc_huyen", name = "Ngọc Huyền", language = "vi", isNetworkRequired = false),
             TtsVoice(id = "ngoc_ngan", name = "Ngọc Ngạn", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "quang_minh", name = "Quang Minh", language = "vi", isNetworkRequired = false)
+            TtsVoice(id = "phuong_mai", name = "Phương Mai", language = "vi", isNetworkRequired = false),
+            TtsVoice(id = "lac_phi", name = "Lạc Phi", language = "vi", isNetworkRequired = false),
+            TtsVoice(id = "duy", name = "Duy", language = "vi", isNetworkRequired = false),
+            TtsVoice(id = "vais1000", name = "Vais1000", language = "vi", isNetworkRequired = false)
         )
+        return allVoices.filter { downloader.isModelDownloaded(it.id) }
     }
 
     override fun shutdown() {
