@@ -259,6 +259,59 @@ object CssInjector {
                     } catch(e) {}
                 }
 
+                function getEpubproTtsParagraphs() {
+                    try {
+                        var blockTags = ['body', 'section', 'article', 'main', 'center', 'td', 'th', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'div'];
+                        var isBlock = function(el) {
+                            return el && el.tagName && blockTags.indexOf(el.tagName.toLowerCase()) !== -1;
+                        };
+                        var getClosestBlock = function(node) {
+                            var p = node.parentNode;
+                            while (p && !isBlock(p)) {
+                                p = p.parentNode;
+                            }
+                            return p;
+                        };
+
+                        var paragraphs = [];
+                        var currentBlock = null;
+                        var currentText = '';
+
+                        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+                        var node;
+                        while (node = walker.nextNode()) {
+                            var txt = node.nodeValue;
+                            if (txt.trim().length > 0) {
+                                var block = getClosestBlock(node);
+                                if (block) {
+                                    if (block !== currentBlock) {
+                                        if (currentBlock && currentText.trim().length > 1) {
+                                            paragraphs.push(currentBlock);
+                                        }
+                                        currentBlock = block;
+                                        currentText = '';
+                                    }
+                                    currentText += txt;
+                                }
+                            } else {
+                                // If it's pure whitespace, but we are inside a block, we still append it to preserve spaces between words!
+                                // Wait, in Kotlin we only checked `isNotBlank()` before processing.
+                                // If Kotlin skips blank nodes entirely, we MUST skip them here too!
+                                // Wait, if Kotlin skips blank nodes, then spaces between words separated by a blank TextNode are LOST in Kotlin!
+                                // Ah! Let's check Kotlin code: `if (txt.isNotBlank()) { ... currentText.append(node.wholeText) }`
+                                // So Kotlin IGNORES blank text nodes! JS MUST DO THE SAME to match perfectly!
+                            }
+                        }
+                        if (currentBlock && currentText.trim().length > 1) {
+                            paragraphs.push(currentBlock);
+                        }
+                        
+                        return paragraphs;
+                    } catch (e) {
+                        return [];
+                    }
+                }
+
                 function forceBodyDimensions() {
                     if (!window.epubproIsHorizontal) return;
                     var html = document.documentElement;
@@ -296,6 +349,7 @@ object CssInjector {
                     body.style.setProperty('overflow', 'visible', 'important');
                     body.style.setProperty('word-wrap', 'break-word', 'important');
                     body.style.setProperty('overflow-wrap', 'break-word', 'important');
+                    measureTotalPages();
 
                     dbg('FORCE', 'vh=' + vh + ' vw=' + vw + ' bodyH=' + body.clientHeight);
                 }
@@ -328,7 +382,7 @@ object CssInjector {
 
                 function getFirstVisibleParagraphIndex() {
                     try {
-                        var paragraphs = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+                        var paragraphs = getEpubproTtsParagraphs();
                         var screenWidth = window.innerWidth || document.documentElement.clientWidth || 1;
                         var screenHeight = window.innerHeight || document.documentElement.clientHeight || 1;
 
@@ -361,8 +415,20 @@ object CssInjector {
 
                 function measureTotalPages() {
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
-                    var sw = document.body ? document.body.scrollWidth : pw;
+                    if (!window.epubproIsHorizontal) {
+                        totalPages = 1;
+                        return pw;
+                    }
+                    var body = document.body;
+                    if (!body) return pw;
+
+                    body.style.removeProperty('min-width');
+                    var sw = body.scrollWidth;
                     totalPages = Math.max(1, Math.ceil((sw - 1) / pw));
+
+                    var paddedWidth = totalPages * pw;
+                    body.style.setProperty('min-width', paddedWidth + 'px', 'important');
+
                     return pw;
                 }
 
@@ -494,7 +560,7 @@ object CssInjector {
                     window.requestAnimationFrame(function() {
                         window.requestAnimationFrame(function() {
                             measureTotalPages();
-                            var paragraphs = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
+                            var paragraphs = getEpubproTtsParagraphs();
                             var anchor = paragraphs[Math.min(paragraphs.length - 1, Math.max(0, targetInitParagraph))];
                             if (anchor && targetInitParagraph > 0) {
                                 if (window.epubproIsHorizontal) {
@@ -1033,17 +1099,36 @@ object CssInjector {
 
                 window.epubproHighlightTtsParagraph = function(index) {
                     try {
+                        var paragraphs = getEpubproTtsParagraphs();
+                        dbg('TTS_HL', 'index=' + index + ' paragraphs=' + paragraphs.length);
+                        
                         var oldElements = document.querySelectorAll('.tts-active-paragraph');
                         for (var i = 0; i < oldElements.length; i++) {
                             oldElements[i].classList.remove('tts-active-paragraph');
                         }
-                        var paragraphs = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote');
                         if (index >= 0 && index < paragraphs.length) {
                             var target = paragraphs[index];
                             target.classList.add('tts-active-paragraph');
-                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            
+                            if (window.epubproIsHorizontal) {
+                                var pw = window.innerWidth || document.documentElement.clientWidth || 1;
+                                var rect = target.getBoundingClientRect();
+                                var targetX = rect.left + (window.scrollX || window.pageXOffset || 0);
+                                var targetPage = Math.floor(targetX / pw) + 1;
+                                targetPage = Math.min(totalPages, Math.max(1, targetPage));
+                                
+                                if (targetPage !== currentPage) {
+                                    scrollToPage(targetPage, true);
+                                }
+                            } else {
+                                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        } else {
+                            dbg('TTS_HL_WARN', 'Index out of bounds or negative');
                         }
-                    } catch(e) {}
+                    } catch(e) {
+                        dbg('TTS_HL_ERR', e.message);
+                    }
                 };
 
                 window.epubproApplyContentFilter = function() {

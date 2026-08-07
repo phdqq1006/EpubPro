@@ -43,15 +43,48 @@ object TtsTextParser {
         
         try {
             val document = Jsoup.parse(htmlContent)
-            // Use the exact same selector as JS querySelectorAll in CssInjector.kt
-            // to ensure paragraphIndex matches 1:1 with JS elements
-            val elements = document.select("p, h1, h2, h3, h4, h5, h6, li, blockquote")
+            val blockTagsSet = setOf("body", "section", "article", "main", "center", "td", "th", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div")
+            val paragraphs = mutableListOf<Pair<org.jsoup.nodes.Element, String>>()
+            var currentBlock: org.jsoup.nodes.Element? = null
+            var currentText = java.lang.StringBuilder()
+
+            document.body().traverse(object : org.jsoup.select.NodeVisitor {
+                override fun head(node: org.jsoup.nodes.Node, depth: Int) {
+                    if (node is org.jsoup.nodes.TextNode) {
+                        var block: org.jsoup.nodes.Element? = node.parent() as? org.jsoup.nodes.Element
+                        while (block != null && !blockTagsSet.contains(block.tagName().lowercase())) {
+                            block = block.parent() as? org.jsoup.nodes.Element
+                        }
+                        if (block != null) {
+                            if (block != currentBlock) {
+                                if (currentBlock != null && currentText.toString().trim().length > 1) {
+                                    paragraphs.add(Pair(currentBlock!!, currentText.toString()))
+                                }
+                                currentBlock = block
+                                currentText = java.lang.StringBuilder()
+                            }
+                            currentText.append(node.wholeText)
+                        }
+                    } else if (node is org.jsoup.nodes.Element && node.tagName().lowercase() == "br") {
+                        if (currentBlock != null) {
+                            currentText.append(" ")
+                        }
+                    }
+                }
+                override fun tail(node: org.jsoup.nodes.Node, depth: Int) {}
+            })
+
+            if (currentBlock != null && currentText.toString().trim().length > 1) {
+                paragraphs.add(Pair(currentBlock!!, currentText.toString()))
+            }
             
+            println("TTS_DEBUG: found paragraphs=${paragraphs.size}")
+
             var chunkId = 0
             var paragraphIndex = 0
 
-            for (element in elements) {
-                val plainText = element.text().trim()
+            for (pair in paragraphs) {
+                val plainText = pair.second.replace(Regex("\\s+"), " ").trim()
                 if (plainText.isNotBlank() && plainText.length > 1) {
                     splitTextForSpeech(plainText).forEach { speechText ->
                         chunks.add(
@@ -65,43 +98,7 @@ object TtsTextParser {
                 }
                 paragraphIndex++
             }
-
-            val bodyText = document.body().text().trim()
-            val selectedTextLength = elements.sumOf { it.text().trim().length }
-            if (bodyText.length > selectedTextLength + 20) {
-                chunks.clear()
-                chunkId = 0
-                splitTextForSpeech(bodyText).forEach { speechText ->
-                    chunks.add(
-                        TtsChunk(
-                            id = chunkId++,
-                            paragraphIndex = 0,
-                            text = speechText
-                        )
-                    )
-                }
-            }
             
-            if (chunks.isEmpty() && elements.isEmpty()) {
-                // Fallback for raw text without tags
-                val rawText = document.text()
-                val lines = rawText.split("\n")
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.isNotBlank() && trimmed.length > 1) {
-                        splitTextForSpeech(trimmed).forEach { speechText ->
-                            chunks.add(
-                                TtsChunk(
-                                    id = chunkId++,
-                                    paragraphIndex = paragraphIndex,
-                                    text = speechText
-                                )
-                            )
-                        }
-                        paragraphIndex++
-                    }
-                }
-            }
         } catch (e: Exception) {
             e.printStackTrace()
         }

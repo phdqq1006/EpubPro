@@ -114,7 +114,8 @@ class EpubEngine @Inject constructor(
             ZipFile(file).use { zip ->
                 val entry = zip.getEntry(entryName)
                 if (entry != null) {
-                    return@withContext zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                    val rawHtml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                    return@withContext HtmlNormalizer.normalize(rawHtml)
                 }
             }
         } catch (e: Exception) {

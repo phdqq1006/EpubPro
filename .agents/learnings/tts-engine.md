@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-06
+> Cập nhật lần cuối: 2026-08-07
 
 ---
 
@@ -31,6 +31,11 @@
 - **Ngày**: 2026-08-06
 - **Chi tiết**: `TtsService` sở hữu trạng thái phát, index và vòng đời engine của Reader; màn Settings preview phải dùng instance Sherpa riêng để `release()` không phá engine đang đọc. Wrapper của Android TTS và Sherpa giữ yêu cầu phát tạm thời trong lúc khởi tạo, rồi phát sau callback ready để lần bấm Play đầu tiên không bị mất. Native `OfflineTts.generate()` là lời gọi blocking và không hủy giữa chừng, nên mọi lần generate trên cùng engine phải được tuần tự hóa bằng `Mutex`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/AndroidNativeTtsEngine.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
+
+### HtmlNormalizer Auto-Wrapping Raw Text into <p> Tags
+- **Ngày**: 2026-08-07
+- **Chi tiết**: Khi nạp chương EPUB thiếu thẻ đoạn văn (sách convert từ web/TXT qua `GetTextFromHtml` không có `<p>`), `HtmlNormalizer` tự động phân tách văn bản nối bởi `<br>` hoặc dấu xuống dòng thành các thẻ `<p>` riêng biệt. Giúp cả WebView hiển thị đẹp, TTS chia đoạn mượt và Highlight tô sáng đúng từng dòng thay vì tô sáng cả trang `<body>`.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/HtmlNormalizer.kt`, `core/reader/src/main/java/com/epubpro/core/reader/engine/EpubEngine.kt`
 
 ---
 
@@ -94,6 +99,13 @@
 - **Fix**: Fallback sang toàn bộ body khi độ phủ text của selector quá thấp; chia nội dung tối đa 280 ký tự tại biên câu/từ. Trước Next/Previous/Seek phải stop và vô hiệu hóa lượt phát cũ; gắn generation token cùng expected chunk/index để bỏ callback stale. Dùng `Mutex` ngăn hai lần Sherpa generate chạy đồng thời.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
+### Highlight tô sáng cả trang thay vì từng đoạn văn đang đọc
+- **Ngày**: 2026-08-07
+- **Vấn đề**: Khi phát TTS trên sách EPUB convert (như tool `GetTextFromHtml`), toàn bộ màn hình (`<body>`) bị bôi màu đỏ highlight cùng lúc.
+- **Root cause**: Chương sách không có thẻ `<p>`, toàn bộ văn bản nằm trực tiếp trong `<body>` phân tách bằng `<br>`. `<body>` bị nhận diện là Block Element duy nhất, nên khi highlight `index=0`, thẻ `<body>` bị tô đỏ toàn bộ.
+- **Fix**: Thêm `HtmlNormalizer` tự động phân tách văn bản thô bọc thành các thẻ `<p>` chuẩn khi nạp chương trong `EpubEngine.loadChapterHtml()`. Sử dụng thuật toán `TreeWalker` đồng bộ 100% giữa Kotlin (`TtsTextParser.kt`) và JavaScript (`CssInjector.kt`) để bắt đúng index từng đoạn văn.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/engine/HtmlNormalizer.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
 ---
 
 ## How-To
@@ -124,6 +136,11 @@
 - **Ngày**: 2026-07-31
 - **Chi tiết**: Kết hợp `Jsoup` ở phía Kotlin và `document.elementsFromPoint` / `querySelectorAll` ở phía WebView JS. Mỗi khi người dùng cuộn trang, JS phát `onPageChanged(page, totalPages, firstVisibleChunkIndex)` về `ReaderViewModel` để tự động lưu `lastTtsChunkIndex`. Khi bật phát Audio, TTS tự động bắt đầu ngay tại đoạn văn bản đang hiển thị trên màn hình.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`
+
+### Synchronized DOM TreeWalker Extraction for Kotlin & JS
+- **Ngày**: 2026-08-07
+- **Chi tiết**: Sử dụng thuật toán `TreeWalker` (JS) và `NodeVisitor` (Jsoup) để duyệt các TextNode theo đúng thứ tự hiển thị DOM thực tế rồi gom nhóm theo Block Element gần nhất. Cách này đảm bảo số lượng và chỉ số đoạn văn (`paragraphIndex`) khớp 100% tuyệt đối giữa Kotlin TTS Engine và JavaScript Highlight Bridge trong WebView.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
 ### Single Source of Truth via Service StateFlow
 - **Ngày**: 2026-07-27
