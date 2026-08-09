@@ -40,7 +40,6 @@ import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
 import com.epubpro.domain.model.ReaderThemeMode
-import com.epubpro.domain.model.TtsSettings
 import org.json.JSONObject
 
 import android.content.ComponentName
@@ -409,15 +408,7 @@ fun ReaderScreen(
             ModalBottomSheet(onDismissRequest = { showSettingsSheet = false }) {
                 ReaderSettingsContent(
                     settings = uiState.settings,
-                    ttsSettings = uiState.ttsSettings,
-                    onSettingsChanged = viewModel::updateSettings,
-                    onTtsSettingsChanged = { newTts: TtsSettings ->
-                        viewModel.updateTtsSettings(newTts, ttsService)
-                    },
-                    onOpenTtsSetup = {
-                        showSettingsSheet = false
-                        viewModel.openTtsSetupBottomSheet()
-                    }
+                    onSettingsChanged = viewModel::updateSettings
                 )
             }
         }
@@ -698,10 +689,7 @@ fun EpubWebView(
 @Composable
 fun ReaderSettingsContent(
     settings: ReaderSettings,
-    ttsSettings: TtsSettings = TtsSettings(),
-    onSettingsChanged: (ReaderSettings) -> Unit,
-    onTtsSettingsChanged: (TtsSettings) -> Unit = {},
-    onOpenTtsSetup: () -> Unit = {}
+    onSettingsChanged: (ReaderSettings) -> Unit
 ) {
     var draftPageTurnSpeedMs by remember(settings.pageTurnSpeedMs) { mutableIntStateOf(settings.pageTurnSpeedMs) }
     var draftFontSizeSp by remember(settings.fontSizeSp) { mutableFloatStateOf(settings.fontSizeSp) }
@@ -937,65 +925,6 @@ fun ReaderSettingsContent(
                     valueRange = 0f..64f
                 )
             }
-        }
-
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 16.dp),
-            thickness = DividerDefaults.Thickness,
-            color = Color(0xFFE2E8F0)
-        )
-
-        // --- SECTION 4: Cấu hình Audio / TTS ---
-        SettingSectionHeader(title = stringResource(R.string.profile_audio_settings_title), icon = Icons.Default.VolumeUp)
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_use_ai_voice), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    stringResource(R.string.reader_use_ai_voice_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = ttsSettings.isAiVoice,
-                onCheckedChange = { onTtsSettingsChanged(ttsSettings.copy(isAiVoice = it)) }
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Text(stringResource(R.string.audio_speech_rate), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(0.8f, 1.0f, 1.2f, 1.5f, 2.0f).forEach { sp ->
-                FilterChip(
-                    selected = ttsSettings.speed == sp,
-                    onClick = { onTtsSettingsChanged(ttsSettings.copy(speed = sp)) },
-                    label = { Text("${sp}x", fontSize = 11.sp) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedButton(
-            onClick = onOpenTtsSetup,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.reader_config_voice_detail))
         }
 
         Spacer(modifier = Modifier.height(24.dp))
