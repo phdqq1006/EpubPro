@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.speech.tts.Voice
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsVoice
 import java.util.Locale
@@ -21,6 +20,7 @@ class AndroidNativeTtsEngine(
     private var currentOnChunkStart: ((Int) -> Unit)? = null
     private var currentOnChunkDone: ((Int) -> Unit)? = null
 
+    private var pendingLanguage: String = "vi"
     private var pendingSpeed: Float = 1.0f
     private var pendingPitch: Float = 1.0f
     private var pendingVoiceId: String? = null
@@ -33,8 +33,8 @@ class AndroidNativeTtsEngine(
     )
 
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
-        this.onReadyCallback = onReady
-        this.onErrorCallback = onError
+        onReadyCallback = onReady
+        onErrorCallback = onError
         if (tts == null) {
             tts = TextToSpeech(context.applicationContext, this)
         } else if (isInitialized) {
@@ -43,43 +43,40 @@ class AndroidNativeTtsEngine(
     }
 
     override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale("vi", "VN"))
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                // Fallback to English or default locale
-                tts?.language = Locale.getDefault()
-            }
-            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {
-                    val chunkId = utteranceId?.toIntOrNull() ?: return
-                    currentOnChunkStart?.invoke(chunkId)
-                }
-
-                override fun onDone(utteranceId: String?) {
-                    val chunkId = utteranceId?.toIntOrNull() ?: return
-                    currentOnChunkDone?.invoke(chunkId)
-                }
-
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) {
-                    val chunkId = utteranceId?.toIntOrNull() ?: return
-                    currentOnChunkDone?.invoke(chunkId)
-                }
-            })
-
-            isInitialized = true
-            setSpeed(pendingSpeed)
-            setPitch(pendingPitch)
-            pendingVoiceId?.let { setVoice(it) }
-
-            onReadyCallback?.invoke()
-            pendingSpeech?.also { speech ->
-                pendingSpeech = null
-                speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
-            }
-        } else {
+        if (status != TextToSpeech.SUCCESS) {
             isInitialized = false
             onErrorCallback?.invoke("Không thể khởi tạo Android TextToSpeech Engine (mã lỗi: $status).")
+            return
+        }
+
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                val chunkId = utteranceId?.toIntOrNull() ?: return
+                currentOnChunkStart?.invoke(chunkId)
+            }
+
+            override fun onDone(utteranceId: String?) {
+                val chunkId = utteranceId?.toIntOrNull() ?: return
+                currentOnChunkDone?.invoke(chunkId)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                val chunkId = utteranceId?.toIntOrNull() ?: return
+                currentOnChunkDone?.invoke(chunkId)
+            }
+        })
+
+        isInitialized = true
+        setLanguage(pendingLanguage)
+        setSpeed(pendingSpeed)
+        setPitch(pendingPitch)
+        setVoice(pendingVoiceId)
+
+        onReadyCallback?.invoke()
+        pendingSpeech?.also { speech ->
+            pendingSpeech = null
+            speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
         }
     }
 
@@ -88,8 +85,8 @@ class AndroidNativeTtsEngine(
             pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
             return
         }
-        this.currentOnChunkStart = onChunkStart
-        this.currentOnChunkDone = onChunkDone
+        currentOnChunkStart = onChunkStart
+        currentOnChunkDone = onChunkDone
 
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, chunk.id.toString())
@@ -102,51 +99,61 @@ class AndroidNativeTtsEngine(
         pendingSpeech = null
     }
 
-    override fun resume() {
-        // Resume handled at service level by re-submitting current chunk
-    }
+    override fun resume() = Unit
 
     override fun stop() {
         tts?.stop()
         pendingSpeech = null
     }
 
+    override fun setLanguage(language: String) {
+        pendingLanguage = language.lowercase(Locale.ROOT).takeIf { it == "en" } ?: "vi"
+        if (!isInitialized) return
+
+        val result = tts?.setLanguage(localeFor(pendingLanguage))
+        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+            tts?.language = Locale.getDefault()
+        }
+    }
+
     override fun setSpeed(speed: Float) {
         pendingSpeed = speed
-        if (isInitialized) {
-            tts?.setSpeechRate(speed)
-        }
+        if (isInitialized) tts?.setSpeechRate(speed)
     }
 
     override fun setPitch(pitch: Float) {
         pendingPitch = pitch
-        if (isInitialized) {
-            tts?.setPitch(pitch)
-        }
+        if (isInitialized) tts?.setPitch(pitch)
     }
 
-    override fun setVoice(voiceId: String) {
-        pendingVoiceId = voiceId
-        if (isInitialized && tts != null) {
-            val voice = tts?.voices?.find { it.name == voiceId }
-            if (voice != null) {
-                tts?.voice = voice
-            }
+    override fun setVoice(voiceId: String?) {
+        pendingVoiceId = voiceId?.takeIf { it.isNotBlank() }
+        if (!isInitialized) return
+
+        val selectedVoice = pendingVoiceId?.let { id -> tts?.voices?.firstOrNull { it.name == id } }
+        if (selectedVoice != null) {
+            tts?.voice = selectedVoice
+        } else {
+            setLanguage(pendingLanguage)
         }
     }
 
     override fun getAvailableVoices(language: String): List<TtsVoice> {
         if (!isInitialized || tts == null) return emptyList()
-        val targetLocale = if (language.equals("vi", ignoreCase = true)) Locale("vi", "VN") else Locale.ENGLISH
-        val voices = tts?.voices ?: return emptyList()
-        
-        return voices
-            .filter { it.locale.language == targetLocale.language }
+        val targetLanguage = localeFor(language).language
+        return tts?.voices.orEmpty()
+            .filter { it.locale.language == targetLanguage }
+            .distinctBy { it.name }
+            .sortedBy { it.name }
             .map { voice ->
                 TtsVoice(
                     id = voice.name,
-                    name = voice.name.replace(voice.locale.language, "").replace("-", " ").trim().ifEmpty { voice.name },
-                    language = voice.locale.displayLanguage,
+                    name = voice.name
+                        .replace(voice.locale.language, "")
+                        .replace("-", " ")
+                        .trim()
+                        .ifEmpty { voice.name },
+                    language = voice.locale.language,
                     isNetworkRequired = voice.isNetworkConnectionRequired
                 )
             }
@@ -159,4 +166,7 @@ class AndroidNativeTtsEngine(
         tts = null
         isInitialized = false
     }
+
+    private fun localeFor(language: String): Locale =
+        if (language.equals("en", ignoreCase = true)) Locale.ENGLISH else Locale("vi", "VN")
 }

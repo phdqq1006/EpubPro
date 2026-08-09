@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-07
+> Cập nhật lần cuối: 2026-08-09
 
 ---
 
@@ -39,6 +39,22 @@
 
 ---
 
+### Centralized Offline Voice Catalog
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Metadata giọng AI offline phải có một nguồn duy nhất gồm voiceId, tên hiển thị, ngôn ngữ, dung lượng, tên file ONNX và URL tải. TtsVoiceCatalog được dùng chung bởi màn Cài đặt, Reader, downloader và Piper wrapper để không còn danh sách hoặc mapping riêng bị lệch nhau. Trạng thái đã tải không thuộc catalog tĩnh mà được tính tại runtime.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt
+
+### Capability-Aware Dual Engine Configuration
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Android Native và AI Offline có khả năng khác nhau. Native hỗ trợ locale, system voice, tốc độ và cao độ; Piper/Sherpa hiện chỉ hỗ trợ giọng Việt trong catalog và tốc độ, không hỗ trợ cao độ. Domain normalization, engine API và UI phải dùng cùng ma trận khả năng: AI ép ngôn ngữ vi, cao độ 1.0, ẩn điều khiển không có tác dụng; Native lấy danh sách voice theo locale thật của thiết bị.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt
+
+### Persisted Settings Must Represent a Playable Configuration
+- **Ngày**: 2026-08-09
+- **Chi tiết**: voiceId = null là trạng thái hợp lệ khi người dùng chưa cấu hình AI, nhưng isAiVoice = true chỉ được lưu khi voiceId tồn tại trong catalog. Việc bật tab AI rồi chưa chọn model là draft cục bộ của màn hình, không phải cấu hình playback. Khi đọc dữ liệu cũ không đầy đủ, tự phục hồi về Native với voiceId = null để lần mở sau luôn có cấu hình dùng được.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPreferencesManager.kt
+
+---
 ## Bugs & Solutions
 
 ### Highlight TTS bị lệch đoạn văn so với âm thanh đang đọc
@@ -108,6 +124,35 @@
 
 ---
 
+### AI Offline tự chọn cứng giọng ngoc_ngan
+- **Ngày**: 2026-08-09
+- **Vấn đề**: Mở chế độ AI hoặc tải model khi chưa chọn giọng vẫn ngầm dùng Ngọc Ngạn, trái với yêu cầu mặc định để trống.
+- **Root cause**: Giá trị fallback xuất hiện ở nhiều tầng như settings.voiceId ?: ngoc_ngan và currentVoiceId = ngoc_ngan.
+- **Fix**: Giữ voiceId nullable xuyên suốt từ preferences, ViewModel, service đến engine; không download, preview hoặc playback nếu chưa chọn model. Không gán model đầu tiên trong catalog làm mặc định.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt
+
+### Quay lại màn cài đặt liên tục xuất hiện chưa chọn giọng ở AI Offline
+- **Ngày**: 2026-08-09
+- **Vấn đề**: Người dùng chỉ chuyển sang AI rồi back; lần mở sau ứng dụng khôi phục isAiVoice = true nhưng voiceId = null và hiển thị cấu hình lỗi.
+- **Root cause**: Handler đổi engine tự động lưu ngay một tổ hợp chưa hoàn chỉnh trước khi người dùng chọn model.
+- **Fix**: Không persist draft AI thiếu model. Chỉ lưu khi model hợp lệ; nếu preferences cũ chứa tổ hợp không hợp lệ thì migrate về Native. Nhãn trống dùng lời kêu gọi hành động “Chọn giọng AI” thay vì mô tả lỗi “Chưa chọn giọng”.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt
+
+### UI cho phép chỉnh cao độ và ngôn ngữ mà AI engine không hỗ trợ
+- **Ngày**: 2026-08-09
+- **Vấn đề**: Thanh cao độ và lựa chọn tiếng Anh vẫn xuất hiện trong AI Offline nhưng thay đổi không có tác dụng hoặc dẫn đến cấu hình không thể đọc.
+- **Root cause**: UI dùng chung controls của Native mà không xét capability của engine.
+- **Fix**: Ẩn cao độ ở AI, khóa ngôn ngữ theo catalog hiện có, đồng thời normalize AI pitch về 1.0 và language về vi. Ràng buộc phải tồn tại ở domain/engine, không chỉ ở giao diện.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, feature/reader/src/main/java/com/epubpro/feature/reader/components/TtsSetupBottomSheet.kt
+
+### Danh sách và URL model AI bị lệch giữa các màn hình
+- **Ngày**: 2026-08-09
+- **Vấn đề**: Profile, Reader, downloader và Piper khai báo giọng riêng, gây thiếu model, URL sai hoặc tên hiển thị không đồng nhất.
+- **Root cause**: Metadata model bị sao chép ở nhiều module.
+- **Fix**: Chuyển toàn bộ metadata tĩnh vào TtsVoiceCatalog; các consumer chỉ truy vấn catalog và ghép thêm trạng thái tải runtime. Thêm unit test kiểm tra ID, file ONNX và URL duy nhất/hợp lệ.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/test/java/com/epubpro/core/tts/TtsVoiceCatalogTest.kt
+
+---
 ## How-To
 
 ### Đồng bộ vị trí bắt đầu nghe TTS với đoạn đang đọc dở trên màn hình
@@ -130,6 +175,26 @@
 
 ---
 
+### Thêm một giọng AI Offline mới
+- **Ngày**: 2026-08-09
+- **Bước thực hiện**:
+  1. Thêm đúng một entry vào TtsVoiceCatalog với ID ổn định, ngôn ngữ, tên file và URL.
+  2. Không thêm mapping riêng vào Profile, Reader hay Piper; các lớp này phải tự nhận model từ catalog.
+  3. Bổ sung test uniqueness và mapping URL/file.
+  4. Kiểm tra trạng thái chưa tải, tải model, preview, chọn làm cấu hình và playback trong Reader.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/test/java/com/epubpro/core/tts/TtsVoiceCatalogTest.kt
+
+### Kiểm thử thay đổi cấu hình TTS
+- **Ngày**: 2026-08-09
+- **Bước thực hiện**:
+  1. Chạy unit test domain normalization, catalog và reader parser.
+  2. Compile feature:profile, feature:reader và cuối cùng app để bắt lỗi wiring giữa module.
+  3. Smoke-test Native theo locale/voice thật của máy.
+  4. Với AI, thử cả chưa chọn, chưa tải, đã tải và đổi model.
+  5. Lặp chuỗi mở Settings → chọn tab AI → back → mở lại để chắc chắn draft không bị persist.
+- **Lệnh gợi ý**: ./gradlew :domain:testDebugUnitTest :core:tts:testDebugUnitTest :core:reader:testDebugUnitTest :feature:profile:compileDebugKotlin :feature:reader:compileDebugKotlin :app:compileDebugKotlin
+
+---
 ## Patterns
 
 ### DOM-Aligned Jsoup Parsing & Auto-Save Last TTS Paragraph Position
@@ -161,3 +226,22 @@
 - **Ngày**: 2026-08-06
 - **Chi tiết**: Mỗi lệnh Play/Next/Previous/Seek tạo một generation mới. Callback hoàn tất chỉ được cập nhật state hoặc tự chuyển đoạn khi generation, expected index và chunk ID vẫn khớp lượt phát hiện tại. Lệnh điều hướng phải invalidate generation và stop engine trước khi đổi index. Pattern này tách ý định mới của người dùng khỏi callback bất đồng bộ đến muộn, tránh nhảy hai đoạn, quay lại đoạn cũ hoặc tự phát tiếp sau khi đã dừng.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
+### Normalize at Persistence and Playback Boundaries
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Cấu hình đọc từ storage và cấu hình trước khi áp dụng vào engine đều phải đi qua cùng hàm normalization. Giới hạn tốc độ/cao độ, language và capability của AI được đặt ở domain để dữ liệu cũ, UI khác hoặc lời gọi trực tiếp không thể tạo trạng thái ngoài miền hợp lệ. Giữ nguyên key/type SharedPreferences để tương thích dữ liệu đã cài đặt.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPreferencesManager.kt
+
+### Nullable Voice Selection End-to-End
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Nếu sản phẩm cho phép mặc định “trống”, nullable phải được bảo toàn qua model, persistence, ViewModel, service và engine. Chỉ một fallback ở tầng thấp cũng tái tạo hành vi tự chọn model. Mỗi action cần kiểm tra điều kiện riêng: có thể xem catalog khi null, nhưng download/preview/playback phải yêu cầu một ID hợp lệ.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt
+
+### Transactional Draft for Dependent Settings
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Với các field phụ thuộc nhau như engine AI và model AI, không autosave từng thay đổi trung gian nếu tổ hợp đó chưa dùng được. Giữ draft trong UI, commit khi đạt invariant, và rollback/khôi phục cấu hình hợp lệ khi màn hình bị đóng. Pattern này tránh lỗi back/reopen và phù hợp cho mọi form có lựa chọn cha-con.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt
+
+### Static Catalog Metadata + Runtime Availability
+- **Ngày**: 2026-08-09
+- **Chi tiết**: Catalog chỉ chứa sự thật tĩnh của model; isDownloaded được tính từ filesystem/downloader tại thời điểm hiển thị. Nhờ tách hai lớp, cùng một catalog dùng được ở Settings và Reader nhưng UI vẫn phản ánh model bị xóa, tải dở hoặc vừa tải xong mà không làm biến đổi metadata dùng chung.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt

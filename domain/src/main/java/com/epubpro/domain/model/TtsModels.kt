@@ -1,5 +1,7 @@
 package com.epubpro.domain.model
 
+import java.util.Locale
+
 data class TtsChunk(
     val id: Int,
     val paragraphIndex: Int,
@@ -10,7 +12,8 @@ data class TtsVoice(
     val id: String,
     val name: String,
     val language: String,
-    val isNetworkRequired: Boolean = false
+    val isNetworkRequired: Boolean = false,
+    val isDownloaded: Boolean = true
 )
 
 data class TtsSettings(
@@ -21,6 +24,20 @@ data class TtsSettings(
     val speed: Float = 1.0f,
     val pitch: Float = 1.0f
 )
+
+fun TtsSettings.normalizedForPlayback(): TtsSettings {
+    val normalizedLanguage = if (isAiVoice) {
+        "vi"
+    } else {
+        language.lowercase(Locale.ROOT).takeIf { it == "vi" || it == "en" } ?: "vi"
+    }
+    return copy(
+        language = normalizedLanguage,
+        voiceId = voiceId?.trim()?.takeIf { it.isNotEmpty() },
+        speed = speed.coerceIn(0.5f, 2.0f),
+        pitch = if (isAiVoice) 1.0f else pitch.coerceIn(0.5f, 1.5f)
+    )
+}
 
 sealed class TtsPlayerState {
     object Idle : TtsPlayerState()

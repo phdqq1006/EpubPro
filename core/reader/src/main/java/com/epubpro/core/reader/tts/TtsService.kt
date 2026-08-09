@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
+import android.os.SystemClock
 import com.epubpro.core.reader.filter.ContentSanitizer
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsPreferencesManager
@@ -51,7 +52,14 @@ class TtsService : Service() {
 
     private var sleepTimerJob: Job? = null
     private var remainingSleepSeconds: Int = 0
+    private var notificationProgressJob: Job? = null
     private var playbackGeneration: Long = 0
+    private var estimatedChunkDurationsMs: LongArray = LongArray(0)
+    private var estimatedChunkStartPositionsMs: LongArray = LongArray(0)
+    private var estimatedTotalDurationMs: Long = 0L
+    private var estimatedTimelineSpeed: Float = Float.NaN
+    private var currentChunkStartPositionMs: Long = 0L
+    private var playbackStartedAtElapsedRealtimeMs: Long? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -68,20 +76,23 @@ class TtsService : Service() {
 
         val settings = preferencesManager.getSettings()
         currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        nativeTtsEngine.setLanguage(settings.language)
         nativeTtsEngine.setSpeed(settings.speed)
         nativeTtsEngine.setPitch(settings.pitch)
-        settings.voiceId?.takeUnless { settings.isAiVoice }?.let(nativeTtsEngine::setVoice)
+        nativeTtsEngine.setVoice(settings.voiceId.takeUnless { settings.isAiVoice })
+        piperTtsEngineWrapper.setLanguage(settings.language)
         piperTtsEngineWrapper.setSpeed(settings.speed)
-        piperTtsEngineWrapper.setPitch(settings.pitch)
-        settings.voiceId?.takeIf { settings.isAiVoice }?.let(piperTtsEngineWrapper::setVoice)
+        piperTtsEngineWrapper.setPitch(1.0f)
+        piperTtsEngineWrapper.setVoice(settings.voiceId.takeIf { settings.isAiVoice })
 
 
         nativeTtsEngine.initialize(
             onReady = {
                 if (!settings.isAiVoice) {
+                    nativeTtsEngine.setLanguage(settings.language)
                     nativeTtsEngine.setSpeed(settings.speed)
                     nativeTtsEngine.setPitch(settings.pitch)
-                    settings.voiceId?.let { nativeTtsEngine.setVoice(it) }
+                    nativeTtsEngine.setVoice(settings.voiceId)
                 }
             },
             onError = { error ->
@@ -95,9 +106,10 @@ class TtsService : Service() {
         piperTtsEngineWrapper.initialize(
             onReady = {
                 if (settings.isAiVoice) {
+                    piperTtsEngineWrapper.setLanguage(settings.language)
                     piperTtsEngineWrapper.setSpeed(settings.speed)
-                    piperTtsEngineWrapper.setPitch(settings.pitch)
-                    settings.voiceId?.let { piperTtsEngineWrapper.setVoice(it) }
+                    piperTtsEngineWrapper.setPitch(1.0f)
+                    piperTtsEngineWrapper.setVoice(settings.voiceId)
                 }
             },
             onError = { error ->
@@ -139,6 +151,7 @@ class TtsService : Service() {
         this.author = bookAuthor
         this.chunks = parsedChunks
         this.currentIndex = startIndex.coerceIn(0, (parsedChunks.size - 1).coerceAtLeast(0))
+        rebuildEstimatedTimeline(preferencesManager.getSettings().speed)
 
         if (chunks.isEmpty()) {
             _playerState.value = TtsPlayerState.Idle
@@ -162,7 +175,10 @@ class TtsService : Service() {
                     playCurrentChunk()
                 } else {
                     _playerState.value = TtsPlayerState.Completed(bookId)
-                    mediaSessionManager.updatePlaybackState(isPlaying = false)
+                    mediaSessionManager.updatePlaybackState(
+                        isPlaying = false,
+                        positionMs = currentPlaybackPositionMs()
+                    )
                     stopForeground(STOP_FOREGROUND_DETACH)
                 }
                 return
@@ -181,8 +197,24 @@ class TtsService : Service() {
             currentChunk = chunkToSpeak
         )
 
-        mediaSessionManager.updateMetadata(bookTitle, author, chunkToSpeak.text)
-        mediaSessionManager.updatePlaybackState(isPlaying = true)
+        val settings = preferencesManager.getSettings()
+        ensureEstimatedTimeline(settings.speed)
+        currentChunkStartPositionMs =
+            estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
+        playbackStartedAtElapsedRealtimeMs = null
+        notificationProgressJob?.cancel()
+
+        mediaSessionManager.updateMetadata(
+            bookTitle = bookTitle,
+            author = author,
+            currentSnippet = chunkToSpeak.text,
+            durationMs = estimatedTotalDurationMs
+        )
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = true,
+            positionMs = currentChunkStartPositionMs,
+            playbackSpeed = 0.0f
+        )
 
         val notification = mediaSessionManager.buildNotification(
             bookTitle = bookTitle,
@@ -192,12 +224,26 @@ class TtsService : Service() {
         )
         startForeground(TtsMediaSessionManager.NOTIFICATION_ID, notification)
 
-        val settings = preferencesManager.getSettings()
         currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
 
         currentEngine.speak(
             chunk = chunkToSpeak,
-            onChunkStart = { _ -> },
+            onChunkStart = { startedChunkId ->
+                serviceScope.launch {
+                    if (playbackId != playbackGeneration ||
+                        currentIndex != expectedIndex ||
+                        chunkToSpeak.id != startedChunkId
+                    ) return@launch
+
+                    playbackStartedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                    mediaSessionManager.updatePlaybackState(
+                        isPlaying = true,
+                        positionMs = currentChunkStartPositionMs,
+                        playbackSpeed = 1.0f
+                    )
+                    startNotificationProgressUpdates(playbackId, expectedIndex)
+                }
+            },
             onChunkDone = { completedChunkId ->
                 serviceScope.launch {
                     if (playbackId != playbackGeneration ||
@@ -210,7 +256,10 @@ class TtsService : Service() {
                         playCurrentChunk()
                     } else {
                         _playerState.value = TtsPlayerState.Completed(bookId)
-                        mediaSessionManager.updatePlaybackState(isPlaying = false)
+                        mediaSessionManager.updatePlaybackState(
+                        isPlaying = false,
+                        positionMs = currentPlaybackPositionMs()
+                    )
                         stopForeground(STOP_FOREGROUND_DETACH)
                     }
                 }
@@ -219,7 +268,10 @@ class TtsService : Service() {
     }
 
     fun pause() {
+        val pausedPositionMs = currentPlaybackPositionMs()
         playbackGeneration++
+        notificationProgressJob?.cancel()
+        playbackStartedAtElapsedRealtimeMs = null
         currentEngine.pause()
         if (chunks.isNotEmpty() && currentIndex in chunks.indices) {
             val currentChunk = chunks[currentIndex]
@@ -229,7 +281,10 @@ class TtsService : Service() {
                 totalChunks = chunks.size,
                 currentChunk = currentChunk
             )
-            mediaSessionManager.updatePlaybackState(isPlaying = false)
+            mediaSessionManager.updatePlaybackState(
+                isPlaying = false,
+                positionMs = pausedPositionMs
+            )
 
             val notification = mediaSessionManager.buildNotification(
                 bookTitle = bookTitle,
@@ -242,10 +297,16 @@ class TtsService : Service() {
     }
 
     fun stop() {
+        val stoppedPositionMs = currentPlaybackPositionMs()
         playbackGeneration++
+        notificationProgressJob?.cancel()
+        playbackStartedAtElapsedRealtimeMs = null
         currentEngine.stop()
         _playerState.value = TtsPlayerState.Idle
-        mediaSessionManager.updatePlaybackState(isPlaying = false)
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = false,
+            positionMs = stoppedPositionMs
+        )
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
@@ -259,7 +320,10 @@ class TtsService : Service() {
         if (index >= chunks.size) {
             _playerState.value = TtsPlayerState.Completed(bookId)
             currentEngine.stop()
-            mediaSessionManager.updatePlaybackState(isPlaying = false)
+            mediaSessionManager.updatePlaybackState(
+                isPlaying = false,
+                positionMs = currentPlaybackPositionMs()
+            )
             stopForeground(STOP_FOREGROUND_DETACH)
             return
         }
@@ -287,9 +351,10 @@ class TtsService : Service() {
 
     fun speakPreview(sampleText: String = "Xin chào, đây là giọng đọc thử nghiệm của ứng dụng EpubPro.", settings: TtsSettings) {
         val testEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+        testEngine.setLanguage(settings.language)
         testEngine.setSpeed(settings.speed)
-        testEngine.setPitch(settings.pitch)
-        settings.voiceId?.let { testEngine.setVoice(it) }
+        testEngine.setPitch(if (settings.isAiVoice) 1.0f else settings.pitch)
+        testEngine.setVoice(settings.voiceId)
         testEngine.speak(
             chunk = TtsChunk(id = 9999, paragraphIndex = 0, text = sampleText),
             onChunkStart = {},
@@ -303,9 +368,74 @@ class TtsService : Service() {
             currentEngine.stop()
             currentEngine = nextEngine
         }
+        currentEngine.setLanguage(settings.language)
         currentEngine.setSpeed(settings.speed)
-        currentEngine.setPitch(settings.pitch)
-        settings.voiceId?.let { currentEngine.setVoice(it) }
+        currentEngine.setPitch(if (settings.isAiVoice) 1.0f else settings.pitch)
+        currentEngine.setVoice(settings.voiceId)
+    }
+
+    private fun ensureEstimatedTimeline(speed: Float) {
+        val normalizedSpeed = speed.coerceAtLeast(MIN_TIMELINE_SPEED)
+        if (estimatedChunkDurationsMs.size != chunks.size ||
+            estimatedTimelineSpeed != normalizedSpeed
+        ) {
+            rebuildEstimatedTimeline(normalizedSpeed)
+        }
+    }
+
+    private fun rebuildEstimatedTimeline(speed: Float) {
+        val normalizedSpeed = speed.coerceAtLeast(MIN_TIMELINE_SPEED)
+        var accumulatedMs = 0L
+        estimatedChunkStartPositionsMs = LongArray(chunks.size)
+        estimatedChunkDurationsMs = LongArray(chunks.size) { index ->
+            estimatedChunkStartPositionsMs[index] = accumulatedMs
+            estimateChunkDurationMs(chunks[index].text, normalizedSpeed).also {
+                accumulatedMs += it
+            }
+        }
+        estimatedTotalDurationMs = accumulatedMs
+        estimatedTimelineSpeed = normalizedSpeed
+    }
+
+    private fun estimateChunkDurationMs(text: String, speed: Float): Long =
+        ((text.length / ESTIMATED_CHARACTERS_PER_SECOND / speed) * 1000f)
+            .toLong()
+            .coerceAtLeast(MIN_CHUNK_DURATION_MS)
+
+    private fun currentPlaybackPositionMs(): Long {
+        val elapsedInChunkMs = playbackStartedAtElapsedRealtimeMs
+            ?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) }
+            ?: 0L
+        val currentChunkDurationMs =
+            estimatedChunkDurationsMs.getOrElse(currentIndex) { 0L }
+        return (currentChunkStartPositionMs +
+            elapsedInChunkMs.coerceAtMost(currentChunkDurationMs))
+            .coerceIn(0L, estimatedTotalDurationMs.coerceAtLeast(0L))
+    }
+
+    private fun startNotificationProgressUpdates(
+        playbackId: Long,
+        expectedIndex: Int
+    ) {
+        notificationProgressJob?.cancel()
+        notificationProgressJob = serviceScope.launch {
+            while (playbackId == playbackGeneration &&
+                currentIndex == expectedIndex &&
+                _playerState.value is TtsPlayerState.Playing
+            ) {
+                delay(NOTIFICATION_PROGRESS_UPDATE_INTERVAL_MS)
+                if (playbackId != playbackGeneration ||
+                    currentIndex != expectedIndex ||
+                    _playerState.value !is TtsPlayerState.Playing
+                ) break
+
+                mediaSessionManager.updatePlaybackState(
+                    isPlaying = true,
+                    positionMs = currentPlaybackPositionMs(),
+                    playbackSpeed = 1.0f
+                )
+            }
+        }
     }
 
     fun setSleepTimer(option: SleepTimerOption) {
@@ -352,6 +482,10 @@ class TtsService : Service() {
     }
 
     companion object {
+        private const val ESTIMATED_CHARACTERS_PER_SECOND = 15f
+        private const val MIN_TIMELINE_SPEED = 0.5f
+        private const val MIN_CHUNK_DURATION_MS = 2_000L
+        private const val NOTIFICATION_PROGRESS_UPDATE_INTERVAL_MS = 1_000L
         private val _playerState = MutableStateFlow<TtsPlayerState>(TtsPlayerState.Idle)
         val playerState: StateFlow<TtsPlayerState> = _playerState.asStateFlow()
     }

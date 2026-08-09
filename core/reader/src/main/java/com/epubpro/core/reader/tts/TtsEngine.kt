@@ -9,9 +9,10 @@ interface TtsEngine {
     fun pause()
     fun resume()
     fun stop()
+    fun setLanguage(language: String)
     fun setSpeed(speed: Float)
     fun setPitch(pitch: Float)
-    fun setVoice(voiceId: String)
+    fun setVoice(voiceId: String?)
     fun getAvailableVoices(language: String): List<TtsVoice>
     fun shutdown()
 }

@@ -1,6 +1,7 @@
 package com.epubpro.core.reader.tts
 
 import com.epubpro.core.tts.SherpaTtsEngine
+import com.epubpro.core.tts.TtsVoiceCatalog
 import com.epubpro.core.tts.VoiceModelDownloader
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsVoice
@@ -8,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -16,14 +19,14 @@ class PiperTtsEngineWrapper @Inject constructor(
     private val downloader: VoiceModelDownloader
 ) : TtsEngine {
 
-    private val engineScope = CoroutineScope(Dispatchers.IO + Job())
+    private val engineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isEngineReady = false
-    private var currentVoiceId = "ngoc_ngan"
+    private var currentVoiceId: String? = null
+    private var currentLanguage = "vi"
     private var currentSpeed = 1.0f
 
     private var speakJob: Job? = null
-    private var onChunkDoneCallback: ((Int) -> Unit)? = null
-    private var currentChunkId: Int = -1
+    private var initializeJob: Job? = null
     private var isInitializing = false
     private var onReadyCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
@@ -44,37 +47,44 @@ class PiperTtsEngineWrapper @Inject constructor(
             return
         }
         if (isInitializing) return
+
+        val voiceId = currentVoiceId
+        if (voiceId == null) {
+            pendingSpeech = null
+            return
+        }
+        if (TtsVoiceCatalog.find(voiceId)?.language != currentLanguage) {
+            pendingSpeech = null
+            return
+        }
+
         isInitializing = true
-        engineScope.launch {
+        initializeJob = engineScope.launch {
             try {
-                if (downloader.isModelDownloaded(currentVoiceId)) {
-                    // Tải espeak-ng-data nếu chưa có
-                    if (!downloader.isEspeakDataReady()) {
-                        downloader.downloadEspeakNgDataIfNeeded()
-                    }
-                    val onnxPath = downloader.getModelPath(currentVoiceId)
-                    val tokensPath = downloader.getTokensPath(currentVoiceId)
-                    val espeakDataDir = downloader.getEspeakDataDir()
-                    sherpaTtsEngine.initialize(
-                        onnxPath = onnxPath,
-                        tokensPath = tokensPath,
-                        dataDirPath = espeakDataDir
-                    )
-                    isEngineReady = true
-                    isInitializing = false
-                    onReadyCallback?.invoke()
-                    playPendingSpeech()
-                } else {
-                    isInitializing = false
+                if (!downloader.isModelDownloaded(voiceId)) {
                     pendingSpeech = null
-                    onErrorCallback?.invoke("Voice model not downloaded yet: $currentVoiceId")
+                    onErrorCallback?.invoke("Voice model not downloaded yet: $voiceId")
+                    return@launch
                 }
-            } catch (e: Exception) {
-                if (e !is CancellationException) {
-                    isInitializing = false
+                if (!downloader.isEspeakDataReady()) {
+                    downloader.downloadEspeakNgDataIfNeeded()
+                }
+                sherpaTtsEngine.initialize(
+                    onnxPath = downloader.getModelPath(voiceId),
+                    tokensPath = downloader.getTokensPath(voiceId),
+                    dataDirPath = downloader.getEspeakDataDir()
+                )
+                isEngineReady = true
+                onReadyCallback?.invoke()
+                playPendingSpeech()
+            } catch (error: Exception) {
+                if (error !is CancellationException) {
                     pendingSpeech = null
-                    onErrorCallback?.invoke("Failed to initialize Piper TTS: ${e.message}")
+                    onErrorCallback?.invoke("Failed to initialize Piper TTS: ${error.message}")
                 }
+            } finally {
+                isInitializing = false
+                initializeJob = null
             }
         }
     }
@@ -82,34 +92,21 @@ class PiperTtsEngineWrapper @Inject constructor(
     override fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit) {
         if (!isEngineReady) {
             pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
-            initialize(
-                onReady = onReadyCallback ?: {},
-                onError = onErrorCallback ?: {}
-            )
+            initialize(onReadyCallback ?: {}, onErrorCallback ?: {})
             return
         }
 
-        // Hủy job speak đang chạy trước đó để không bị phát đè/trùng luồng
         speakJob?.cancel()
-
-        currentChunkId = chunk.id
-        onChunkDoneCallback = onChunkDone
-
         speakJob = engineScope.launch {
             onChunkStart(chunk.id)
             var completedNormally = false
             try {
                 sherpaTtsEngine.speak(chunk.text, speed = currentSpeed)
                 completedNormally = true
-            } catch (e: Exception) {
-                if (e !is CancellationException) {
-                    e.printStackTrace()
-                }
+            } catch (error: Exception) {
+                if (error !is CancellationException) error.printStackTrace()
             } finally {
-                // Chỉ gọi onChunkDone nếu job hoàn thành bình thường, không bị cancel do pause/stop
-                if (completedNormally) {
-                    onChunkDoneCallback?.invoke(currentChunkId)
-                }
+                if (completedNormally) onChunkDone(chunk.id)
             }
         }
     }
@@ -120,63 +117,68 @@ class PiperTtsEngineWrapper @Inject constructor(
         speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
     }
 
-    override fun pause() {
+    override fun pause() = stopPlayback()
+
+    override fun resume() = Unit
+
+    override fun stop() = stopPlayback()
+
+    private fun stopPlayback() {
         pendingSpeech = null
         speakJob?.cancel()
         speakJob = null
+        initializeJob?.cancel()
+        initializeJob = null
+        isInitializing = false
         sherpaTtsEngine.stop()
     }
 
-    override fun resume() {
-        // TtsService sẽ gọi playCurrentChunk() -> speak()
-    }
-
-    override fun stop() {
-        pendingSpeech = null
-        speakJob?.cancel()
-        speakJob = null
-        sherpaTtsEngine.stop()
+    override fun setLanguage(language: String) {
+        currentLanguage = if (language.equals("vi", ignoreCase = true)) "vi" else language.lowercase()
+        if (currentLanguage != "vi") setVoice(null)
     }
 
     override fun setSpeed(speed: Float) {
-        this.currentSpeed = speed
+        currentSpeed = speed
     }
 
-    override fun setPitch(pitch: Float) {
-        // Sherpa-onnx không hỗ trợ setPitch trực tiếp qua API Android hiện tại.
+    override fun setPitch(pitch: Float) = Unit
+
+    override fun setVoice(voiceId: String?) {
+        val supportedVoiceId = TtsVoiceCatalog.find(voiceId)
+            ?.takeIf { it.language == currentLanguage }
+            ?.id
+        if (currentVoiceId == supportedVoiceId) return
+
+        currentVoiceId = supportedVoiceId
+        pendingSpeech = null
+        speakJob?.cancel()
+        speakJob = null
+        initializeJob?.cancel()
+        initializeJob = null
+        isInitializing = false
+        if (isEngineReady) sherpaTtsEngine.release()
+        isEngineReady = false
     }
 
-    override fun setVoice(voiceId: String) {
-        if (currentVoiceId == voiceId) return
-        this.currentVoiceId = voiceId
-        if (isEngineReady) {
-            isEngineReady = false
-            initialize(
-                onReady = onReadyCallback ?: {},
-                onError = onErrorCallback ?: {}
+    override fun getAvailableVoices(language: String): List<TtsVoice> =
+        TtsVoiceCatalog.forLanguage(language).map { model ->
+            TtsVoice(
+                id = model.id,
+                name = model.displayName,
+                language = model.language,
+                isNetworkRequired = false,
+                isDownloaded = downloader.isModelDownloaded(model.id)
             )
         }
-    }
-
-    override fun getAvailableVoices(language: String): List<TtsVoice> {
-        val allVoices = listOf(
-            TtsVoice(id = "quang_minh", name = "Quang Minh", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "ngoc_huyen", name = "Ngọc Huyền", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "ngoc_ngan", name = "Ngọc Ngạn", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "phuong_mai", name = "Phương Mai", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "lac_phi", name = "Lạc Phi", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "duy", name = "Duy", language = "vi", isNetworkRequired = false),
-            TtsVoice(id = "vais1000", name = "Vais1000", language = "vi", isNetworkRequired = false)
-        )
-        return allVoices.filter { downloader.isModelDownloaded(it.id) }
-    }
 
     override fun shutdown() {
         pendingSpeech = null
         isInitializing = false
         speakJob?.cancel()
-        speakJob = null
+        initializeJob?.cancel()
         sherpaTtsEngine.release()
         isEngineReady = false
+        engineScope.cancel()
     }
 }

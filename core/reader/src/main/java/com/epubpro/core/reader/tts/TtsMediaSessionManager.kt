@@ -44,28 +44,36 @@ class TtsMediaSessionManager(
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                context.getString(R.string.tts_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = context.getString(R.string.tts_channel_desc)
-            }
-            notificationManager.createNotificationChannel(channel)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            context.getString(R.string.tts_channel_name),
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = context.getString(R.string.tts_channel_desc)
         }
+        notificationManager.createNotificationChannel(channel)
     }
 
-    fun updateMetadata(bookTitle: String, author: String, currentSnippet: String) {
+    fun updateMetadata(
+        bookTitle: String,
+        author: String,
+        currentSnippet: String,
+        durationMs: Long
+    ) {
         val metadata = MediaMetadata.Builder()
             .putString(MediaMetadata.METADATA_KEY_TITLE, bookTitle)
             .putString(MediaMetadata.METADATA_KEY_ARTIST, author)
             .putString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST, currentSnippet)
+            .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs.coerceAtLeast(0L))
             .build()
         mediaSession.setMetadata(metadata)
     }
 
-    fun updatePlaybackState(isPlaying: Boolean) {
+    fun updatePlaybackState(
+        isPlaying: Boolean,
+        positionMs: Long = 0L,
+        playbackSpeed: Float = if (isPlaying) 1.0f else 0.0f
+    ) {
         val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         val actions = PlaybackState.ACTION_PLAY or
                 PlaybackState.ACTION_PAUSE or
@@ -76,7 +84,7 @@ class TtsMediaSessionManager(
 
         val playbackState = PlaybackState.Builder()
             .setActions(actions)
-            .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .setState(state, positionMs.coerceAtLeast(0L), playbackSpeed)
             .build()
 
         mediaSession.setPlaybackState(playbackState)

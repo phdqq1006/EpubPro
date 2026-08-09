@@ -458,7 +458,7 @@ fun ReaderScreen(
                 onDismiss = viewModel::dismissTtsSetupBottomSheet,
                 onPreviewVoice = { draftSettings ->
                     ttsService?.speakPreview(
-                        sampleText = "Xin chào, đây là giọng đọc thử nghiệm của ứng dụng EpubPro.",
+                        sampleText = if (draftSettings.language == "en") "Hello, this is the selected EpubPro voice." else "Xin ch\u00e0o, \u0111\u00e2y l\u00e0 gi\u1ecdng \u0111\u1ecdc th\u1eed nghi\u1ec7m c\u1ee7a \u1ee9ng d\u1ee5ng EpubPro.",
                         settings = draftSettings
                     )
                 },
