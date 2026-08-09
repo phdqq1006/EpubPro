@@ -117,18 +117,18 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    suspend fun speak(text: String, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
-        val currentTts = tts ?: run {
-            Log.e(TAG, "speak(): tts is null!")
-            return@withContext
-        }
-        val track = audioTrack ?: run {
-            Log.e(TAG, "speak(): audioTrack is null!")
-            return@withContext
-        }
+    suspend fun speak(
+        text: String,
+        speed: Float = 1.0f,
+        onAudioStarted: () -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val currentTts = tts
+            ?: throw IllegalStateException("Sherpa TTS chưa được khởi tạo")
+        val track = audioTrack
+            ?: throw IllegalStateException("AudioTrack chưa được khởi tạo")
 
         coroutineContext.ensureActive()
-        Log.d(TAG, "speak() text='$text' speed=$speed")
+        Log.d(TAG, "speak() characters=${text.length} speed=$speed")
 
         val audio = try {
             synthesisMutex.withLock {
@@ -142,8 +142,7 @@ class SherpaTtsEngine @Inject constructor(
 
         val samples = audio?.samples
         if (samples == null || samples.isEmpty()) {
-            Log.w(TAG, "No audio samples generated")
-            return@withContext
+            throw IllegalStateException("Sherpa không tạo được dữ liệu âm thanh")
         }
         Log.d(TAG, "Generated ${samples.size} samples, converting to PCM16...")
 
@@ -161,7 +160,11 @@ class SherpaTtsEngine @Inject constructor(
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Error playing AudioTrack", t)
+            throw IllegalStateException("Không thể bắt đầu AudioTrack", t)
         }
+
+        coroutineContext.ensureActive()
+        onAudioStarted()
 
         // Ghi dữ liệu PCM theo từng chunk 4KB để có thể hủy (cancel) ngay lập tức khi tạm dừng
         val chunkSize = 4096
@@ -170,8 +173,7 @@ class SherpaTtsEngine @Inject constructor(
             val length = (pcm.size - offset).coerceAtMost(chunkSize)
             val written = track.write(pcm, offset, length)
             if (written <= 0) {
-                Log.e(TAG, "AudioTrack write error or stopped: $written")
-                break
+                throw IllegalStateException("AudioTrack không thể ghi PCM: $written")
             }
             offset += written
         }

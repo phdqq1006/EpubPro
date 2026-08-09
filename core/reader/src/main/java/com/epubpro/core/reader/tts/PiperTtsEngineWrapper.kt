@@ -35,7 +35,8 @@ class PiperTtsEngineWrapper @Inject constructor(
     private data class PendingSpeech(
         val chunk: TtsChunk,
         val onChunkStart: (Int) -> Unit,
-        val onChunkDone: (Int) -> Unit
+        val onChunkDone: (Int) -> Unit,
+        val onError: (String) -> Unit
     )
 
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
@@ -89,22 +90,36 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
     }
 
-    override fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit) {
+    override fun speak(
+        chunk: TtsChunk,
+        onChunkStart: (Int) -> Unit,
+        onChunkDone: (Int) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (currentVoiceId == null) {
+            onError("Chưa chọn giọng AI Offline")
+            return
+        }
         if (!isEngineReady) {
-            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
+            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone, onError)
             initialize(onReadyCallback ?: {}, onErrorCallback ?: {})
             return
         }
 
         speakJob?.cancel()
         speakJob = engineScope.launch {
-            onChunkStart(chunk.id)
             var completedNormally = false
             try {
-                sherpaTtsEngine.speak(chunk.text, speed = currentSpeed)
+                sherpaTtsEngine.speak(
+                    text = chunk.text,
+                    speed = currentSpeed,
+                    onAudioStarted = { onChunkStart(chunk.id) }
+                )
                 completedNormally = true
             } catch (error: Exception) {
-                if (error !is CancellationException) error.printStackTrace()
+                if (error !is CancellationException) {
+                    onError(error.message ?: "Không thể phát giọng AI Offline")
+                }
             } finally {
                 if (completedNormally) onChunkDone(chunk.id)
             }
@@ -114,7 +129,7 @@ class PiperTtsEngineWrapper @Inject constructor(
     private fun playPendingSpeech() {
         val speech = pendingSpeech ?: return
         pendingSpeech = null
-        speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
+        speak(speech.chunk, speech.onChunkStart, speech.onChunkDone, speech.onError)
     }
 
     override fun pause() = stopPlayback()

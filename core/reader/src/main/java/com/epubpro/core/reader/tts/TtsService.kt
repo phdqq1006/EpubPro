@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.filter.ContentSanitizer
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsPreferencesManager
@@ -12,11 +14,13 @@ import com.epubpro.domain.model.SleepTimerOption
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.domain.model.TtsSettings
-import com.epubpro.core.designsystem.R
+import com.epubpro.domain.model.normalizedForPlayback
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +40,9 @@ class TtsService : Service() {
     @Inject
     lateinit var piperTtsEngineWrapper: PiperTtsEngineWrapper
 
+    @Inject
+    lateinit var chapterPlaybackCoordinator: TtsChapterPlaybackCoordinator
+
     private val binder = TtsBinder()
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
@@ -43,118 +50,132 @@ class TtsService : Service() {
     private lateinit var nativeTtsEngine: AndroidNativeTtsEngine
     private lateinit var currentEngine: TtsEngine
     private lateinit var mediaSessionManager: TtsMediaSessionManager
+    private lateinit var audioFocusController: TtsAudioFocusController
 
     private var chunks: List<TtsChunk> = emptyList()
     private var currentIndex: Int = 0
+    private var currentChapterIndex: Int = 0
     private var bookId: String = ""
     private var bookTitle: String = ""
     private var author: String = "EpubPro Reader"
+    private var preferAiContent: Boolean = false
 
+    private var activeSettings: TtsSettings = TtsSettings()
+    private var sleepTimerOption: SleepTimerOption = SleepTimerOption.OFF
     private var sleepTimerJob: Job? = null
-    private var remainingSleepSeconds: Int = 0
     private var notificationProgressJob: Job? = null
+    private var chapterPreparation: Deferred<Result<Unit>>? = null
+    private var remainingSleepSeconds: Int = 0
     private var playbackGeneration: Long = 0
+    private var pausedBySystem: Boolean = false
+    private var startedSession: Boolean = false
+
     private var estimatedChunkDurationsMs: LongArray = LongArray(0)
     private var estimatedChunkStartPositionsMs: LongArray = LongArray(0)
     private var estimatedTotalDurationMs: Long = 0L
     private var estimatedTimelineSpeed: Float = Float.NaN
     private var currentChunkStartPositionMs: Long = 0L
+    private var currentTimelinePositionMs: Long = 0L
     private var playbackStartedAtElapsedRealtimeMs: Long? = null
 
     override fun onCreate() {
         super.onCreate()
         bookTitle = getString(R.string.tts_default_book_title)
         nativeTtsEngine = AndroidNativeTtsEngine(applicationContext)
+
         mediaSessionManager = TtsMediaSessionManager(
             context = applicationContext,
             onPlay = { resume() },
             onPause = { pause() },
             onSkipNext = { nextChunk() },
             onSkipPrevious = { previousChunk() },
-            onStop = { stopSelf() }
+            onStop = { stopSession() }
+        )
+        audioFocusController = TtsAudioFocusController(
+            context = applicationContext,
+            onFocusLost = { shouldAutoResume ->
+                pauseFromSystem(autoResumeOnFocusGain = shouldAutoResume)
+            },
+            onFocusGained = {
+                if (pausedBySystem) {
+                    pausedBySystem = false
+                    resume()
+                }
+            },
+            onBecomingNoisy = {
+                pauseFromSystem(autoResumeOnFocusGain = false)
+                audioFocusController.abandonFocus()
+            }
         )
 
-        val settings = preferencesManager.getSettings()
-        currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
-        nativeTtsEngine.setLanguage(settings.language)
-        nativeTtsEngine.setSpeed(settings.speed)
-        nativeTtsEngine.setPitch(settings.pitch)
-        nativeTtsEngine.setVoice(settings.voiceId.takeUnless { settings.isAiVoice })
-        piperTtsEngineWrapper.setLanguage(settings.language)
-        piperTtsEngineWrapper.setSpeed(settings.speed)
-        piperTtsEngineWrapper.setPitch(1.0f)
-        piperTtsEngineWrapper.setVoice(settings.voiceId.takeIf { settings.isAiVoice })
-
+        activeSettings = preferencesManager.getSettings().normalizedForPlayback()
+        currentEngine = engineFor(activeSettings)
+        applySettingsToEngines(activeSettings)
 
         nativeTtsEngine.initialize(
-            onReady = {
-                if (!settings.isAiVoice) {
-                    nativeTtsEngine.setLanguage(settings.language)
-                    nativeTtsEngine.setSpeed(settings.speed)
-                    nativeTtsEngine.setPitch(settings.pitch)
-                    nativeTtsEngine.setVoice(settings.voiceId)
-                }
-            },
-            onError = { error ->
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    android.widget.Toast.makeText(applicationContext, "Lỗi giọng đọc: $error", android.widget.Toast.LENGTH_LONG).show()
-                }
-                if (currentEngine == nativeTtsEngine) stop()
-            }
+            onReady = { applySettingsToEngines(activeSettings) },
+            onError = ::handleEngineInitializationError
         )
-        
         piperTtsEngineWrapper.initialize(
-            onReady = {
-                if (settings.isAiVoice) {
-                    piperTtsEngineWrapper.setLanguage(settings.language)
-                    piperTtsEngineWrapper.setSpeed(settings.speed)
-                    piperTtsEngineWrapper.setPitch(1.0f)
-                    piperTtsEngineWrapper.setVoice(settings.voiceId)
-                }
-            },
-            onError = { error ->
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    val msg = if (error.contains("not downloaded")) {
-                        "Giọng AI này chưa được tải. Vui lòng vào Cài đặt âm thanh để tải về!"
-                    } else {
-                        "Lỗi giọng đọc: $error"
-                    }
-                    android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_LONG).show()
-                }
-                if (currentEngine == piperTtsEngineWrapper) stop()
-            }
+            onReady = { applySettingsToEngines(activeSettings) },
+            onError = ::handleEngineInitializationError
         )
-        
+
         serviceScope.launch {
-            preferencesManager.settingsFlow.collect { newSettings ->
-                updateSettings(newSettings)
+            preferencesManager.settingsFlow.collect { settings ->
+                updateSettings(settings)
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_START_SESSION -> Unit
             TtsMediaSessionManager.ACTION_PLAY -> resume()
             TtsMediaSessionManager.ACTION_PAUSE -> pause()
             TtsMediaSessionManager.ACTION_NEXT -> nextChunk()
             TtsMediaSessionManager.ACTION_PREV -> previousChunk()
-            TtsMediaSessionManager.ACTION_STOP -> stopSelf()
+            TtsMediaSessionManager.ACTION_STOP -> stopSession()
         }
         return START_NOT_STICKY
     }
 
-    fun loadContent(id: String, title: String, bookAuthor: String, parsedChunks: List<TtsChunk>, startIndex: Int = 0) {
-        playbackGeneration++
+    fun loadContent(
+        id: String,
+        title: String,
+        bookAuthor: String,
+        parsedChunks: List<TtsChunk>,
+        startIndex: Int = 0,
+        chapterIndex: Int = 0,
+        preferAiContent: Boolean = false
+    ) {
+        ensureStartedSession()
+        invalidatePlayback()
         currentEngine.stop()
-        this.bookId = id
-        this.bookTitle = title
-        this.author = bookAuthor
-        this.chunks = parsedChunks
-        this.currentIndex = startIndex.coerceIn(0, (parsedChunks.size - 1).coerceAtLeast(0))
-        rebuildEstimatedTimeline(preferencesManager.getSettings().speed)
+
+        bookId = id
+        bookTitle = title
+        author = bookAuthor
+        currentChapterIndex = chapterIndex
+        this.preferAiContent = preferAiContent
+        activeSettings = preferencesManager.getSettings().normalizedForPlayback()
+        applySettingsToEngines(activeSettings)
+
+        chunks = TtsSentenceSegmenter.segment(parsedChunks, activeSettings.language)
+        currentIndex = chunks.indexOfFirst { it.paragraphIndex >= startIndex }
+            .takeIf { it >= 0 }
+            ?: 0
+        rebuildEstimatedTimeline(activeSettings.speed)
+
+        chapterPreparation?.cancel()
+        chapterPreparation = serviceScope.async {
+            runCatching {
+                chapterPlaybackCoordinator.prepare(bookId, preferAiContent)
+            }
+        }
 
         if (chunks.isEmpty()) {
-            _playerState.value = TtsPlayerState.Idle
+            showPlaybackError("Chương hiện tại không có nội dung để đọc")
             return
         }
         playCurrentChunk()
@@ -162,105 +183,123 @@ class TtsService : Service() {
 
     fun playCurrentChunk() {
         if (chunks.isEmpty() || currentIndex !in chunks.indices) return
-        val currentChunk = chunks[currentIndex]
+        ensureStartedSession()
 
-        var chunkToSpeak = currentChunk
+        val originalChunk = chunks[currentIndex]
+        preferencesManager.saveLastTtsChunkIndex(
+            bookId,
+            currentChapterIndex,
+            originalChunk.paragraphIndex
+        )
         val filterPrefs = readerPreferencesManager.getFilterPreferences()
-        if (filterPrefs.isFilterEnabled) {
-            val sanitized = ContentSanitizer.sanitize(currentChunk.text, filterPrefs)
-            if (sanitized.isBlank()) {
-                // Tự động skip đoạn rỗng nếu toàn bộ từ trong đoạn đều bị lọc
-                if (currentIndex < chunks.size - 1) {
-                    currentIndex++
-                    playCurrentChunk()
-                } else {
-                    _playerState.value = TtsPlayerState.Completed(bookId)
-                    mediaSessionManager.updatePlaybackState(
-                        isPlaying = false,
-                        positionMs = currentPlaybackPositionMs()
-                    )
-                    stopForeground(STOP_FOREGROUND_DETACH)
-                }
-                return
-            }
-            if (sanitized != currentChunk.text) {
-                chunkToSpeak = currentChunk.copy(text = sanitized)
-            }
+        val text = if (filterPrefs.isFilterEnabled) {
+            ContentSanitizer.sanitize(originalChunk.text, filterPrefs)
+        } else {
+            originalChunk.text
+        }
+        if (text.isBlank()) {
+            serviceScope.launch { advancePastCurrentSentence() }
+            return
+        }
+        val chunkToSpeak = originalChunk.copy(text = text)
+
+        if (!audioFocusController.requestFocus()) {
+            showPlaybackError(getString(R.string.tts_audio_focus_error))
+            return
         }
 
+        currentEngine = engineFor(activeSettings)
+        ensureEstimatedTimeline(activeSettings.speed)
+        currentChunkStartPositionMs =
+            estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
+        currentTimelinePositionMs = currentChunkStartPositionMs
+        playbackStartedAtElapsedRealtimeMs = null
+        notificationProgressJob?.cancel()
+
         val expectedIndex = currentIndex
+        val expectedChapterIndex = currentChapterIndex
         val playbackId = ++playbackGeneration
-        _playerState.value = TtsPlayerState.Playing(
+
+        _playerState.value = TtsPlayerState.Preparing(
             bookId = bookId,
+            chapterIndex = currentChapterIndex,
             currentChunkIndex = currentIndex,
             totalChunks = chunks.size,
             currentChunk = chunkToSpeak
         )
-
-        val settings = preferencesManager.getSettings()
-        ensureEstimatedTimeline(settings.speed)
-        currentChunkStartPositionMs =
-            estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
-        playbackStartedAtElapsedRealtimeMs = null
-        notificationProgressJob?.cancel()
-
         mediaSessionManager.updateMetadata(
             bookTitle = bookTitle,
             author = author,
             currentSnippet = chunkToSpeak.text,
             durationMs = estimatedTotalDurationMs
         )
-        mediaSessionManager.updatePlaybackState(
-            isPlaying = true,
-            positionMs = currentChunkStartPositionMs,
-            playbackSpeed = 0.0f
+        mediaSessionManager.updatePreparingState(currentChunkStartPositionMs)
+        showForegroundNotification(
+            text = getString(R.string.tts_preparing_voice),
+            isPlaying = true
         )
-
-        val notification = mediaSessionManager.buildNotification(
-            bookTitle = bookTitle,
-            currentSnippet = chunkToSpeak.text,
-            isPlaying = true,
-            openIntent = null
-        )
-        startForeground(TtsMediaSessionManager.NOTIFICATION_ID, notification)
-
-        currentEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
 
         currentEngine.speak(
             chunk = chunkToSpeak,
             onChunkStart = { startedChunkId ->
                 serviceScope.launch {
-                    if (playbackId != playbackGeneration ||
-                        currentIndex != expectedIndex ||
-                        chunkToSpeak.id != startedChunkId
-                    ) return@launch
+                    if (!isCurrentPlayback(
+                            playbackId,
+                            expectedChapterIndex,
+                            expectedIndex,
+                            startedChunkId,
+                            chunkToSpeak.id
+                        )
+                    ) {
+                        return@launch
+                    }
 
                     playbackStartedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                    _playerState.value = TtsPlayerState.Playing(
+                        bookId = bookId,
+                        chapterIndex = currentChapterIndex,
+                        currentChunkIndex = currentIndex,
+                        totalChunks = chunks.size,
+                        currentChunk = chunkToSpeak
+                    )
                     mediaSessionManager.updatePlaybackState(
                         isPlaying = true,
                         positionMs = currentChunkStartPositionMs,
                         playbackSpeed = 1.0f
                     )
-                    startNotificationProgressUpdates(playbackId, expectedIndex)
+                    showForegroundNotification(
+                        text = chunkToSpeak.text,
+                        isPlaying = true
+                    )
+                    startNotificationProgressUpdates(
+                        playbackId = playbackId,
+                        expectedChapterIndex = expectedChapterIndex,
+                        expectedIndex = expectedIndex
+                    )
                 }
             },
             onChunkDone = { completedChunkId ->
                 serviceScope.launch {
-                    if (playbackId != playbackGeneration ||
-                        currentIndex != expectedIndex ||
-                        chunkToSpeak.id != completedChunkId
-                    ) return@launch
-
-                    if (currentIndex < chunks.size - 1) {
-                        currentIndex++
-                        playCurrentChunk()
-                    } else {
-                        _playerState.value = TtsPlayerState.Completed(bookId)
-                        mediaSessionManager.updatePlaybackState(
-                        isPlaying = false,
-                        positionMs = currentPlaybackPositionMs()
-                    )
-                        stopForeground(STOP_FOREGROUND_DETACH)
+                    if (!isCurrentPlayback(
+                            playbackId,
+                            expectedChapterIndex,
+                            expectedIndex,
+                            completedChunkId,
+                            chunkToSpeak.id
+                        )
+                    ) {
+                        return@launch
+                    }
+                    currentTimelinePositionMs =
+                        estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L } +
+                            estimatedChunkDurationsMs.getOrElse(currentIndex) { 0L }
+                    advancePastCurrentSentence()
+                }
+            },
+            onError = { message ->
+                serviceScope.launch {
+                    if (playbackId == playbackGeneration) {
+                        showPlaybackError(message)
                     }
                 }
             }
@@ -268,67 +307,92 @@ class TtsService : Service() {
     }
 
     fun pause() {
-        val pausedPositionMs = currentPlaybackPositionMs()
-        playbackGeneration++
-        notificationProgressJob?.cancel()
-        playbackStartedAtElapsedRealtimeMs = null
-        currentEngine.pause()
-        if (chunks.isNotEmpty() && currentIndex in chunks.indices) {
-            val currentChunk = chunks[currentIndex]
-            _playerState.value = TtsPlayerState.Paused(
-                bookId = bookId,
-                currentChunkIndex = currentIndex,
-                totalChunks = chunks.size,
-                currentChunk = currentChunk
-            )
-            mediaSessionManager.updatePlaybackState(
-                isPlaying = false,
-                positionMs = pausedPositionMs
-            )
-
-            val notification = mediaSessionManager.buildNotification(
-                bookTitle = bookTitle,
-                currentSnippet = currentChunk.text,
-                isPlaying = false,
-                openIntent = null
-            )
-            startForeground(TtsMediaSessionManager.NOTIFICATION_ID, notification)
-        }
+        pauseInternal(autoResumeOnFocusGain = false, abandonAudioFocus = true)
     }
 
-    fun stop() {
-        val stoppedPositionMs = currentPlaybackPositionMs()
-        playbackGeneration++
-        notificationProgressJob?.cancel()
+    private fun pauseFromSystem(autoResumeOnFocusGain: Boolean) {
+        pauseInternal(
+            autoResumeOnFocusGain = autoResumeOnFocusGain,
+            abandonAudioFocus = false
+        )
+    }
+
+    private fun pauseInternal(
+        autoResumeOnFocusGain: Boolean,
+        abandonAudioFocus: Boolean
+    ) {
+        val state = _playerState.value
+        if (state !is TtsPlayerState.Playing && state !is TtsPlayerState.Preparing) return
+
+        currentTimelinePositionMs = currentPlaybackPositionMs()
+        pausedBySystem = autoResumeOnFocusGain
+        invalidatePlayback()
+        currentEngine.pause()
         playbackStartedAtElapsedRealtimeMs = null
-        currentEngine.stop()
-        _playerState.value = TtsPlayerState.Idle
+        if (abandonAudioFocus) audioFocusController.abandonFocus()
+
+        val currentChunk = chunks.getOrNull(currentIndex) ?: return
+        _playerState.value = TtsPlayerState.Paused(
+            bookId = bookId,
+            chapterIndex = currentChapterIndex,
+            currentChunkIndex = currentIndex,
+            totalChunks = chunks.size,
+            currentChunk = currentChunk
+        )
         mediaSessionManager.updatePlaybackState(
             isPlaying = false,
-            positionMs = stoppedPositionMs
+            positionMs = currentTimelinePositionMs
         )
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        showForegroundNotification(
+            text = currentChunk.text,
+            isPlaying = false
+        )
     }
 
     fun resume() {
-        if (_playerState.value is TtsPlayerState.Paused || _playerState.value is TtsPlayerState.Idle) {
-            playCurrentChunk()
-        }
+        val state = _playerState.value
+        if (state !is TtsPlayerState.Paused && state !is TtsPlayerState.Error) return
+        if (pausedBySystem) return
+        pausedBySystem = false
+        playCurrentChunk()
+    }
+
+    fun stop() {
+        stopSession()
+    }
+
+    private fun stopSession() {
+        invalidatePlayback()
+        sleepTimerJob?.cancel()
+        chapterPreparation?.cancel()
+        currentEngine.stop()
+        audioFocusController.abandonFocus()
+        chapterPlaybackCoordinator.clear()
+
+        chunks = emptyList()
+        currentIndex = 0
+        currentChapterIndex = 0
+        currentTimelinePositionMs = 0L
+        playbackStartedAtElapsedRealtimeMs = null
+        pausedBySystem = false
+        sleepTimerOption = SleepTimerOption.OFF
+
+        _playerState.value = TtsPlayerState.Idle
+        mediaSessionManager.updateStoppedState()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        startedSession = false
+        stopSelf()
     }
 
     private fun moveToChunk(index: Int) {
-        if (index >= chunks.size) {
-            _playerState.value = TtsPlayerState.Completed(bookId)
-            currentEngine.stop()
-            mediaSessionManager.updatePlaybackState(
-                isPlaying = false,
-                positionMs = currentPlaybackPositionMs()
-            )
-            stopForeground(STOP_FOREGROUND_DETACH)
+        if (index !in chunks.indices) {
+            if (index >= chunks.size) {
+                val expectedGeneration = playbackGeneration
+                serviceScope.launch { advanceToNextChapter(expectedGeneration) }
+            }
             return
         }
-        if (index !in chunks.indices) return
-        playbackGeneration++
+        invalidatePlayback()
         currentEngine.stop()
         currentIndex = index
         playCurrentChunk()
@@ -340,38 +404,268 @@ class TtsService : Service() {
 
     fun seekToChunk(index: Int) = moveToChunk(index)
 
-    fun getAvailableVoices(isAiVoice: Boolean? = null, language: String = "vi"): List<com.epubpro.domain.model.TtsVoice> {
-        val engine = if (isAiVoice != null) {
-            if (isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
-        } else {
-            currentEngine
+    fun getAvailableVoices(
+        isAiVoice: Boolean? = null,
+        language: String = "vi"
+    ): List<com.epubpro.domain.model.TtsVoice> {
+        val engine = when (isAiVoice) {
+            true -> piperTtsEngineWrapper
+            false -> nativeTtsEngine
+            null -> currentEngine
         }
         return engine.getAvailableVoices(language)
     }
 
-    fun speakPreview(sampleText: String = "Xin chào, đây là giọng đọc thử nghiệm của ứng dụng EpubPro.", settings: TtsSettings) {
-        val testEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
-        testEngine.setLanguage(settings.language)
-        testEngine.setSpeed(settings.speed)
-        testEngine.setPitch(if (settings.isAiVoice) 1.0f else settings.pitch)
-        testEngine.setVoice(settings.voiceId)
+    fun speakPreview(
+        sampleText: String = "Xin chào, đây là giọng đọc thử nghiệm của ứng dụng EpubPro.",
+        settings: TtsSettings
+    ) {
+        val normalized = settings.normalizedForPlayback()
+        val testEngine = engineFor(normalized)
+        testEngine.setLanguage(normalized.language)
+        testEngine.setSpeed(normalized.speed)
+        testEngine.setPitch(normalized.pitch)
+        testEngine.setVoice(normalized.voiceId)
         testEngine.speak(
-            chunk = TtsChunk(id = 9999, paragraphIndex = 0, text = sampleText),
+            chunk = TtsChunk(id = PREVIEW_CHUNK_ID, paragraphIndex = 0, text = sampleText),
             onChunkStart = {},
-            onChunkDone = {}
+            onChunkDone = {},
+            onError = {}
         )
     }
 
     fun updateSettings(settings: TtsSettings) {
-        val nextEngine = if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
-        if (currentEngine !== nextEngine) {
-            currentEngine.stop()
-            currentEngine = nextEngine
+        val normalized = settings.normalizedForPlayback()
+        if (normalized == activeSettings) return
+
+        val previousState = _playerState.value
+        val shouldRestart =
+            previousState is TtsPlayerState.Playing ||
+                previousState is TtsPlayerState.Preparing
+
+        invalidatePlayback()
+        currentEngine.stop()
+        activeSettings = normalized
+        applySettingsToEngines(normalized)
+        currentEngine = engineFor(normalized)
+        rebuildEstimatedTimeline(normalized.speed)
+
+        if (shouldRestart && chunks.isNotEmpty()) {
+            playCurrentChunk()
+        } else if (previousState is TtsPlayerState.Paused && chunks.isNotEmpty()) {
+            currentChunkStartPositionMs =
+                estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
+            currentTimelinePositionMs = currentChunkStartPositionMs
+            val currentChunk = chunks[currentIndex]
+            _playerState.value = previousState.copy(
+                currentChunk = currentChunk,
+                totalChunks = chunks.size
+            )
+            mediaSessionManager.updateMetadata(
+                bookTitle = bookTitle,
+                author = author,
+                currentSnippet = currentChunk.text,
+                durationMs = estimatedTotalDurationMs
+            )
+            mediaSessionManager.updatePlaybackState(
+                isPlaying = false,
+                positionMs = currentTimelinePositionMs
+            )
         }
-        currentEngine.setLanguage(settings.language)
-        currentEngine.setSpeed(settings.speed)
-        currentEngine.setPitch(if (settings.isAiVoice) 1.0f else settings.pitch)
-        currentEngine.setVoice(settings.voiceId)
+    }
+
+    fun setSleepTimer(option: SleepTimerOption) {
+        sleepTimerOption = option
+        sleepTimerJob?.cancel()
+        if (option == SleepTimerOption.OFF || option == SleepTimerOption.END_OF_CHAPTER) {
+            remainingSleepSeconds = 0
+            return
+        }
+
+        remainingSleepSeconds = option.minutes.coerceAtLeast(0) * 60
+        if (remainingSleepSeconds > 0) {
+            sleepTimerJob = serviceScope.launch {
+                while (remainingSleepSeconds > 0) {
+                    delay(1_000)
+                    remainingSleepSeconds--
+                }
+                stopSession()
+            }
+        }
+    }
+
+    private fun advancePastCurrentSentence() {
+        if (currentIndex < chunks.lastIndex) {
+            currentIndex++
+            playCurrentChunk()
+        } else {
+            val expectedGeneration = playbackGeneration
+            serviceScope.launch { advanceToNextChapter(expectedGeneration) }
+        }
+    }
+
+    private suspend fun advanceToNextChapter(expectedGeneration: Long) {
+        if (expectedGeneration != playbackGeneration) return
+        invalidatePlayback()
+        val navigationGeneration = playbackGeneration
+        currentEngine.stop()
+        playbackStartedAtElapsedRealtimeMs = null
+
+        if (sleepTimerOption == SleepTimerOption.END_OF_CHAPTER) {
+            finishPlayback()
+            return
+        }
+
+        val preparationResult = chapterPreparation?.await()
+            ?: runCatching {
+                chapterPlaybackCoordinator.prepare(bookId, preferAiContent)
+            }
+        if (navigationGeneration != playbackGeneration) return
+        if (preparationResult.isFailure) {
+            showPlaybackError(
+                preparationResult.exceptionOrNull()?.message
+                    ?: "Không thể chuẩn bị chương kế tiếp"
+            )
+            return
+        }
+
+        var nextChapterIndex = currentChapterIndex + 1
+        while (true) {
+            val nextChapterResult = runCatching {
+                chapterPlaybackCoordinator.loadChapter(nextChapterIndex)
+            }
+            if (navigationGeneration != playbackGeneration) return
+            val nextChapter = nextChapterResult.getOrElse { error ->
+                showPlaybackError(error.message ?: "Không thể tải chương kế tiếp")
+                return
+            }
+
+            if (nextChapter == null) {
+                finishPlayback()
+                return
+            }
+
+            val nextChunks = TtsSentenceSegmenter.segment(
+                nextChapter.chunks,
+                activeSettings.language
+            )
+            if (nextChunks.isNotEmpty()) {
+                chapterPlaybackCoordinator.saveChapterProgress(nextChapter.chapterIndex)
+                if (navigationGeneration != playbackGeneration) return
+                currentChapterIndex = nextChapter.chapterIndex
+                chunks = nextChunks
+                currentIndex = 0
+                rebuildEstimatedTimeline(activeSettings.speed)
+                preferencesManager.saveLastTtsChunkIndex(
+                    bookId,
+                    currentChapterIndex,
+                    0
+                )
+                playCurrentChunk()
+                return
+            }
+            nextChapterIndex++
+        }
+    }
+
+    private fun finishPlayback() {
+        invalidatePlayback()
+        currentEngine.stop()
+        audioFocusController.abandonFocus()
+        playbackStartedAtElapsedRealtimeMs = null
+        currentTimelinePositionMs = estimatedTotalDurationMs
+
+        _playerState.value = TtsPlayerState.Completed(
+            bookId = bookId,
+            chapterIndex = currentChapterIndex
+        )
+        mediaSessionManager.updateStoppedState(estimatedTotalDurationMs)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        startedSession = false
+        stopSelf()
+    }
+
+    private fun showPlaybackError(message: String) {
+        invalidatePlayback()
+        currentEngine.stop()
+        audioFocusController.abandonFocus()
+        pausedBySystem = false
+        playbackStartedAtElapsedRealtimeMs = null
+
+        _playerState.value = TtsPlayerState.Error(message)
+        mediaSessionManager.updateErrorState(
+            positionMs = currentPlaybackPositionMs(),
+            message = message
+        )
+        if (startedSession) {
+            showForegroundNotification(
+                text = message,
+                isPlaying = false
+            )
+        }
+    }
+
+    private fun handleEngineInitializationError(message: String) {
+        serviceScope.launch {
+            val state = _playerState.value
+            if (state is TtsPlayerState.Preparing || state is TtsPlayerState.Playing) {
+                showPlaybackError(message)
+            }
+        }
+    }
+
+    private fun applySettingsToEngines(settings: TtsSettings) {
+        nativeTtsEngine.setLanguage(settings.language)
+        nativeTtsEngine.setSpeed(settings.speed)
+        nativeTtsEngine.setPitch(settings.pitch)
+        nativeTtsEngine.setVoice(settings.voiceId.takeUnless { settings.isAiVoice })
+
+        piperTtsEngineWrapper.setLanguage(settings.language)
+        piperTtsEngineWrapper.setSpeed(settings.speed)
+        piperTtsEngineWrapper.setPitch(1.0f)
+        piperTtsEngineWrapper.setVoice(settings.voiceId.takeIf { settings.isAiVoice })
+    }
+
+    private fun engineFor(settings: TtsSettings): TtsEngine =
+        if (settings.isAiVoice) piperTtsEngineWrapper else nativeTtsEngine
+
+    private fun ensureStartedSession() {
+        if (startedSession) return
+        startedSession = true
+        ContextCompat.startForegroundService(
+            applicationContext,
+            Intent(applicationContext, TtsService::class.java).apply {
+                action = ACTION_START_SESSION
+            }
+        )
+    }
+
+    private fun showForegroundNotification(text: String, isPlaying: Boolean) {
+        val notification = mediaSessionManager.buildNotification(
+            bookTitle = bookTitle,
+            currentSnippet = text,
+            isPlaying = isPlaying,
+            openIntent = null
+        )
+        startForeground(TtsMediaSessionManager.NOTIFICATION_ID, notification)
+    }
+
+    private fun isCurrentPlayback(
+        playbackId: Long,
+        expectedChapterIndex: Int,
+        expectedIndex: Int,
+        callbackChunkId: Int,
+        expectedChunkId: Int
+    ): Boolean =
+        playbackId == playbackGeneration &&
+            currentChapterIndex == expectedChapterIndex &&
+            currentIndex == expectedIndex &&
+            callbackChunkId == expectedChunkId
+
+    private fun invalidatePlayback() {
+        playbackGeneration++
+        notificationProgressJob?.cancel()
+        notificationProgressJob = null
     }
 
     private fun ensureEstimatedTimeline(speed: Float) {
@@ -395,17 +689,24 @@ class TtsService : Service() {
         }
         estimatedTotalDurationMs = accumulatedMs
         estimatedTimelineSpeed = normalizedSpeed
+        currentChunkStartPositionMs =
+            estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
+        currentTimelinePositionMs = currentChunkStartPositionMs
     }
 
     private fun estimateChunkDurationMs(text: String, speed: Float): Long =
-        ((text.length / ESTIMATED_CHARACTERS_PER_SECOND / speed) * 1000f)
+        ((text.length / ESTIMATED_CHARACTERS_PER_SECOND / speed) * 1_000f)
             .toLong()
             .coerceAtLeast(MIN_CHUNK_DURATION_MS)
 
     private fun currentPlaybackPositionMs(): Long {
-        val elapsedInChunkMs = playbackStartedAtElapsedRealtimeMs
-            ?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) }
-            ?: 0L
+        val startedAt = playbackStartedAtElapsedRealtimeMs
+            ?: return currentTimelinePositionMs.coerceIn(
+                0L,
+                estimatedTotalDurationMs.coerceAtLeast(0L)
+            )
+        val elapsedInChunkMs =
+            (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
         val currentChunkDurationMs =
             estimatedChunkDurationsMs.getOrElse(currentIndex) { 0L }
         return (currentChunkStartPositionMs +
@@ -415,46 +716,31 @@ class TtsService : Service() {
 
     private fun startNotificationProgressUpdates(
         playbackId: Long,
+        expectedChapterIndex: Int,
         expectedIndex: Int
     ) {
         notificationProgressJob?.cancel()
         notificationProgressJob = serviceScope.launch {
             while (playbackId == playbackGeneration &&
+                currentChapterIndex == expectedChapterIndex &&
                 currentIndex == expectedIndex &&
                 _playerState.value is TtsPlayerState.Playing
             ) {
                 delay(NOTIFICATION_PROGRESS_UPDATE_INTERVAL_MS)
                 if (playbackId != playbackGeneration ||
+                    currentChapterIndex != expectedChapterIndex ||
                     currentIndex != expectedIndex ||
                     _playerState.value !is TtsPlayerState.Playing
-                ) break
+                ) {
+                    break
+                }
 
+                currentTimelinePositionMs = currentPlaybackPositionMs()
                 mediaSessionManager.updatePlaybackState(
                     isPlaying = true,
-                    positionMs = currentPlaybackPositionMs(),
+                    positionMs = currentTimelinePositionMs,
                     playbackSpeed = 1.0f
                 )
-            }
-        }
-    }
-
-    fun setSleepTimer(option: SleepTimerOption) {
-        sleepTimerJob?.cancel()
-        if (option == SleepTimerOption.OFF) {
-            remainingSleepSeconds = 0
-            return
-        }
-        val minutes = option.minutes
-        if (minutes > 0) {
-            remainingSleepSeconds = minutes * 60
-            sleepTimerJob = serviceScope.launch {
-                while (remainingSleepSeconds > 0) {
-                    delay(1000)
-                    remainingSleepSeconds--
-                }
-                // Stop service on timer expiry
-                pause()
-                stopForeground(STOP_FOREGROUND_REMOVE)
             }
         }
     }
@@ -463,18 +749,18 @@ class TtsService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        stop()
-        stopSelf()
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         sleepTimerJob?.cancel()
+        chapterPreparation?.cancel()
+        audioFocusController.abandonFocus()
         nativeTtsEngine.shutdown()
         piperTtsEngineWrapper.shutdown()
         serviceJob.cancel()
         mediaSessionManager.release()
         _playerState.value = TtsPlayerState.Idle
+        super.onDestroy()
     }
 
     inner class TtsBinder : Binder() {
@@ -482,10 +768,13 @@ class TtsService : Service() {
     }
 
     companion object {
+        private const val ACTION_START_SESSION = "com.epubpro.tts.ACTION_START_SESSION"
+        private const val PREVIEW_CHUNK_ID = 9999
         private const val ESTIMATED_CHARACTERS_PER_SECOND = 15f
         private const val MIN_TIMELINE_SPEED = 0.5f
         private const val MIN_CHUNK_DURATION_MS = 2_000L
         private const val NOTIFICATION_PROGRESS_UPDATE_INTERVAL_MS = 1_000L
+
         private val _playerState = MutableStateFlow<TtsPlayerState>(TtsPlayerState.Idle)
         val playerState: StateFlow<TtsPlayerState> = _playerState.asStateFlow()
     }

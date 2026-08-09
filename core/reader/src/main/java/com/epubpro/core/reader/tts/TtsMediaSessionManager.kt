@@ -74,7 +74,44 @@ class TtsMediaSessionManager(
         positionMs: Long = 0L,
         playbackSpeed: Float = if (isPlaying) 1.0f else 0.0f
     ) {
-        val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+        setPlaybackState(
+            state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
+            positionMs = positionMs,
+            playbackSpeed = playbackSpeed
+        )
+    }
+
+    fun updatePreparingState(positionMs: Long) {
+        setPlaybackState(
+            state = PlaybackState.STATE_BUFFERING,
+            positionMs = positionMs,
+            playbackSpeed = 0.0f
+        )
+    }
+
+    fun updateErrorState(positionMs: Long, message: String) {
+        setPlaybackState(
+            state = PlaybackState.STATE_ERROR,
+            positionMs = positionMs,
+            playbackSpeed = 0.0f,
+            errorMessage = message
+        )
+    }
+
+    fun updateStoppedState(positionMs: Long = 0L) {
+        setPlaybackState(
+            state = PlaybackState.STATE_STOPPED,
+            positionMs = positionMs,
+            playbackSpeed = 0.0f
+        )
+    }
+
+    private fun setPlaybackState(
+        state: Int,
+        positionMs: Long,
+        playbackSpeed: Float,
+        errorMessage: String? = null
+    ) {
         val actions = PlaybackState.ACTION_PLAY or
                 PlaybackState.ACTION_PAUSE or
                 PlaybackState.ACTION_PLAY_PAUSE or
@@ -82,14 +119,12 @@ class TtsMediaSessionManager(
                 PlaybackState.ACTION_SKIP_TO_PREVIOUS or
                 PlaybackState.ACTION_STOP
 
-        val playbackState = PlaybackState.Builder()
+        val builder = PlaybackState.Builder()
             .setActions(actions)
             .setState(state, positionMs.coerceAtLeast(0L), playbackSpeed)
-            .build()
-
-        mediaSession.setPlaybackState(playbackState)
+        if (errorMessage != null) builder.setErrorMessage(errorMessage)
+        mediaSession.setPlaybackState(builder.build())
     }
-
     fun buildNotification(
         bookTitle: String,
         currentSnippet: String,
@@ -103,9 +138,10 @@ class TtsMediaSessionManager(
             .setContentTitle(bookTitle)
             .setContentText(currentSnippet)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(openIntent)
+            .setContentIntent(openIntent ?: createOpenAppPendingIntent())
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
+            .setOngoing(true)
             .addAction(
                 NotificationCompat.Action(
                     android.R.drawable.ic_media_previous,
@@ -127,6 +163,13 @@ class TtsMediaSessionManager(
                     createPendingIntent(ACTION_NEXT)
                 )
             )
+            .addAction(
+                NotificationCompat.Action(
+                    android.R.drawable.ic_menu_close_clear_cancel,
+                    context.getString(R.string.tts_action_stop),
+                    createPendingIntent(ACTION_STOP)
+                )
+            )
             .setStyle(
                 MediaNotificationCompat.MediaStyle()
                     .setMediaSession(MediaSessionCompat.Token.fromToken(mediaSession.sessionToken))
@@ -136,6 +179,20 @@ class TtsMediaSessionManager(
         return builder.build()
     }
 
+    private fun createOpenAppPendingIntent(): PendingIntent? {
+        val launchIntent = context.packageManager
+            .getLaunchIntentForPackage(context.packageName)
+            ?.apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            ?: return null
+        return PendingIntent.getActivity(
+            context,
+            0,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
     private fun createPendingIntent(action: String): PendingIntent {
         val intent = Intent(context, TtsService::class.java).apply {
             this.action = action

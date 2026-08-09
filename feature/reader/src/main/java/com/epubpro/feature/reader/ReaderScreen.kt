@@ -183,6 +183,9 @@ fun ReaderScreen(
                     ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
 
                 EpubWebView(
+                    modifier = Modifier.padding(
+                        bottom = if (uiState.settings.showStatusBar) 20.dp else 0.dp
+                    ),
                     htmlContent = uiState.displayedChapterHtml,
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
@@ -331,26 +334,21 @@ fun ReaderScreen(
             visible = !uiState.showControls && uiState.settings.showStatusBar,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
+            modifier = Modifier.align(Alignment.BottomEnd)
         ) {
-            Surface(
-                color = readerBarBgColor.copy(alpha = 0.92f),
-                contentColor = readerContentColor,
-                shape = RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp),
-                shadowElevation = 2.dp,
-                modifier = Modifier.navigationBarsPadding()
-            ) {
-                val progressText = if (uiState.settings.isHorizontalPagination) {
-                    "Trang ${uiState.currentPageInChapter} / ${uiState.totalPagesInChapter}"
-                } else {
-                    "Chương ${uiState.currentChapterIndex + 1} / ${uiState.chapters.size.coerceAtLeast(1)}"
-                }
-                Text(
-                    text = progressText,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium
-                )
+            val progressText = if (uiState.settings.isHorizontalPagination) {
+                "Trang ${uiState.currentPageInChapter} / ${uiState.totalPagesInChapter}"
+            } else {
+                "Chương ${uiState.currentChapterIndex + 1} / ${uiState.chapters.size.coerceAtLeast(1)}"
             }
+            Text(
+                text = progressText,
+                color = readerContentColor.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(end = 10.dp),
+                style = MaterialTheme.typography.labelSmall
+            )
         }
 
         // Table of Contents Drawer Sheet
@@ -529,6 +527,7 @@ private fun sanitizeEpubHtml(html: String): String {
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun EpubWebView(
+    modifier: Modifier = Modifier,
     htmlContent: String,
     previousChapterHtml: String?,
     nextChapterHtml: String?,
@@ -682,7 +681,7 @@ fun EpubWebView(
                 webView.loadDataWithBaseURL("file:///android_asset/", preparedHtml, "text/html", "utf-8", null)
             }
         },
-        modifier = Modifier.fillMaxSize()
+        modifier = modifier.fillMaxSize()
     )
 }
 

@@ -42,8 +42,16 @@ fun TtsSettings.normalizedForPlayback(): TtsSettings {
 sealed class TtsPlayerState {
     object Idle : TtsPlayerState()
     object Loading : TtsPlayerState()
+    data class Preparing(
+        val bookId: String = "",
+        val chapterIndex: Int = 0,
+        val currentChunkIndex: Int,
+        val totalChunks: Int,
+        val currentChunk: TtsChunk
+    ) : TtsPlayerState()
     data class Playing(
         val bookId: String = "",
+        val chapterIndex: Int = 0,
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk,
@@ -52,11 +60,15 @@ sealed class TtsPlayerState {
     ) : TtsPlayerState()
     data class Paused(
         val bookId: String = "",
+        val chapterIndex: Int = 0,
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk
     ) : TtsPlayerState()
-    data class Completed(val bookId: String = "") : TtsPlayerState()
+    data class Completed(
+        val bookId: String = "",
+        val chapterIndex: Int = 0
+    ) : TtsPlayerState()
     data class Error(val message: String) : TtsPlayerState()
 }
 

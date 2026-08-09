@@ -1,10 +1,12 @@
 package com.epubpro.core.reader.tts
 
+import android.util.Log
 import com.epubpro.domain.model.TtsChunk
 import org.jsoup.Jsoup
 
 object TtsTextParser {
 
+    private const val TAG = "TtsTextParser"
     private const val DEFAULT_MAX_CHUNK_LENGTH = 280
 
     internal fun splitTextForSpeech(
@@ -78,8 +80,6 @@ object TtsTextParser {
                 paragraphs.add(Pair(currentBlock!!, currentText.toString()))
             }
             
-            println("TTS_DEBUG: found paragraphs=${paragraphs.size}")
-
             var chunkId = 0
             var paragraphIndex = 0
 
@@ -99,8 +99,8 @@ object TtsTextParser {
                 paragraphIndex++
             }
             
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (error: Exception) {
+            Log.e(TAG, "Failed to parse chapter HTML for TTS", error)
         }
 
         return chunks

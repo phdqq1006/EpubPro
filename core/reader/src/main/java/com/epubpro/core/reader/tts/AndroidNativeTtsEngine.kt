@@ -19,6 +19,7 @@ class AndroidNativeTtsEngine(
 
     private var currentOnChunkStart: ((Int) -> Unit)? = null
     private var currentOnChunkDone: ((Int) -> Unit)? = null
+    private var currentOnChunkError: ((String) -> Unit)? = null
 
     private var pendingLanguage: String = "vi"
     private var pendingSpeed: Float = 1.0f
@@ -29,7 +30,8 @@ class AndroidNativeTtsEngine(
     private data class PendingSpeech(
         val chunk: TtsChunk,
         val onChunkStart: (Int) -> Unit,
-        val onChunkDone: (Int) -> Unit
+        val onChunkDone: (Int) -> Unit,
+        val onError: (String) -> Unit
     )
 
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
@@ -62,8 +64,7 @@ class AndroidNativeTtsEngine(
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                val chunkId = utteranceId?.toIntOrNull() ?: return
-                currentOnChunkDone?.invoke(chunkId)
+                currentOnChunkError?.invoke("Android TextToSpeech không thể phát câu hiện tại")
             }
         })
 
@@ -76,22 +77,36 @@ class AndroidNativeTtsEngine(
         onReadyCallback?.invoke()
         pendingSpeech?.also { speech ->
             pendingSpeech = null
-            speak(speech.chunk, speech.onChunkStart, speech.onChunkDone)
+            speak(speech.chunk, speech.onChunkStart, speech.onChunkDone, speech.onError)
         }
     }
 
-    override fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit) {
+    override fun speak(
+        chunk: TtsChunk,
+        onChunkStart: (Int) -> Unit,
+        onChunkDone: (Int) -> Unit,
+        onError: (String) -> Unit
+    ) {
         if (!isInitialized || tts == null) {
-            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone)
+            pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone, onError)
             return
         }
         currentOnChunkStart = onChunkStart
         currentOnChunkDone = onChunkDone
+        currentOnChunkError = onError
 
         val params = Bundle().apply {
             putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, chunk.id.toString())
         }
-        tts?.speak(chunk.text, TextToSpeech.QUEUE_FLUSH, params, chunk.id.toString())
+        val result = tts?.speak(
+            chunk.text,
+            TextToSpeech.QUEUE_FLUSH,
+            params,
+            chunk.id.toString()
+        ) ?: TextToSpeech.ERROR
+        if (result == TextToSpeech.ERROR) {
+            currentOnChunkError?.invoke("Android TextToSpeech từ chối phát câu hiện tại")
+        }
     }
 
     override fun pause() {

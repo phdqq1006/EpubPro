@@ -5,7 +5,12 @@ import com.epubpro.domain.model.TtsVoice
 
 interface TtsEngine {
     fun initialize(onReady: () -> Unit, onError: (String) -> Unit)
-    fun speak(chunk: TtsChunk, onChunkStart: (Int) -> Unit, onChunkDone: (Int) -> Unit)
+    fun speak(
+        chunk: TtsChunk,
+        onChunkStart: (Int) -> Unit,
+        onChunkDone: (Int) -> Unit,
+        onError: (String) -> Unit = {}
+    )
     fun pause()
     fun resume()
     fun stop()

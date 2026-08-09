@@ -129,6 +129,7 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             TtsService.playerState.collect { state ->
                 val stateToEmit = when (state) {
+                    is TtsPlayerState.Preparing -> if (state.bookId == bookId) state else TtsPlayerState.Idle
                     is TtsPlayerState.Playing -> if (state.bookId == bookId) state else TtsPlayerState.Idle
                     is TtsPlayerState.Paused -> if (state.bookId == bookId) state else TtsPlayerState.Idle
                     is TtsPlayerState.Completed -> if (state.bookId == bookId) state else TtsPlayerState.Idle
@@ -136,25 +137,49 @@ class ReaderViewModel @Inject constructor(
                 }
 
                 if (stateToEmit is TtsPlayerState.Completed) {
-                    val uiState = _uiState.value
-                    if (uiState.selectedSleepTimer == SleepTimerOption.END_OF_CHAPTER) {
-                        _uiState.update { it.copy(ttsPlayerState = TtsPlayerState.Idle, isTtsSpeaking = false) }
-                        ttsPreferencesManager.saveLastTtsChunkIndex(bookId, uiState.currentChapterIndex, 0)
-                    } else if (uiState.currentChapterIndex < uiState.chapters.size - 1) {
-                        onChapterSelected(uiState.currentChapterIndex + 1, autoStartTts = true)
-                    } else {
-                        _uiState.update { it.copy(ttsPlayerState = TtsPlayerState.Idle, isTtsSpeaking = false) }
+                    _uiState.update {
+                        it.copy(
+                            ttsPlayerState = TtsPlayerState.Idle,
+                            isTtsSpeaking = false
+                        )
                     }
+                    ttsPreferencesManager.saveLastTtsChunkIndex(
+                        bookId,
+                        stateToEmit.chapterIndex,
+                        0
+                    )
                 } else {
-                    if (stateToEmit is TtsPlayerState.Playing) {
-                        val chunkIndex = stateToEmit.currentChunk.paragraphIndex
-                        ttsPreferencesManager.saveLastTtsChunkIndex(bookId, _uiState.value.currentChapterIndex, chunkIndex)
+                    val playbackChapterIndex = when (stateToEmit) {
+                        is TtsPlayerState.Preparing -> stateToEmit.chapterIndex
+                        is TtsPlayerState.Playing -> stateToEmit.chapterIndex
+                        is TtsPlayerState.Paused -> stateToEmit.chapterIndex
+                        else -> null
+                    }
+                    val currentPlaybackChunk = when (stateToEmit) {
+                        is TtsPlayerState.Preparing -> stateToEmit.currentChunk
+                        is TtsPlayerState.Playing -> stateToEmit.currentChunk
+                        is TtsPlayerState.Paused -> stateToEmit.currentChunk
+                        else -> null
+                    }
+                    if (playbackChapterIndex != null &&
+                        playbackChapterIndex != _uiState.value.currentChapterIndex &&
+                        playbackChapterIndex in _uiState.value.chapters.indices
+                    ) {
+                        onChapterSelected(playbackChapterIndex)
+                    }
+                    if (playbackChapterIndex != null && currentPlaybackChunk != null) {
+                        ttsPreferencesManager.saveLastTtsChunkIndex(
+                            bookId,
+                            playbackChapterIndex,
+                            currentPlaybackChunk.paragraphIndex
+                        )
                     }
                     
                     _uiState.update {
                         it.copy(
                             ttsPlayerState = stateToEmit,
-                            isTtsSpeaking = stateToEmit is TtsPlayerState.Playing
+                            isTtsSpeaking = stateToEmit is TtsPlayerState.Playing ||
+                                stateToEmit is TtsPlayerState.Preparing
                         )
                     }
                 }
@@ -694,13 +719,16 @@ class ReaderViewModel @Inject constructor(
             title = _uiState.value.book?.title ?: "EpubPro",
             bookAuthor = _uiState.value.book?.author ?: "Unknown",
             parsedChunks = chunks,
-            startIndex = validIndex
+            startIndex = validIndex,
+            chapterIndex = state.currentChapterIndex,
+            preferAiContent = state.contentVersion == ReaderContentVersion.AI
         )
     }
 
     fun toggleTtsPlayback(ttsService: TtsService?) {
         val state = _uiState.value
         when (state.ttsPlayerState) {
+            is TtsPlayerState.Preparing,
             is TtsPlayerState.Playing -> ttsService?.pause()
             is TtsPlayerState.Paused -> ttsService?.resume()
             else -> startTtsServicePlayback(ttsService)
