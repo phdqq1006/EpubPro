@@ -177,15 +177,33 @@ fun ReaderScreen(
         // Fullscreen Reader Content Layer (Never resizes when controls toggle)
         if (uiState.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        } else if (uiState.loadError != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Không thể tải nội dung sách",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = uiState.loadError.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = viewModel::retryLoad) {
+                    Text("Thử lại")
+                }
+            }
         } else if (uiState.chapters.isNotEmpty()) {
             if (uiState.displayedChapterHtml.isNotEmpty()) {
                 val activeChunkIndex = (uiState.ttsPlayerState as? TtsPlayerState.Playing)?.currentChunk?.paragraphIndex
                     ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
 
                 EpubWebView(
-                    modifier = Modifier.padding(
-                        bottom = if (uiState.settings.showStatusBar) 20.dp else 0.dp
-                    ),
                     htmlContent = uiState.displayedChapterHtml,
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
@@ -633,12 +651,14 @@ fun EpubWebView(
             val cleanHtml = sanitizeEpubHtml(htmlContent)
             val previousPreviewHtml = previousChapterHtml?.let(::sanitizeEpubHtml)
             val nextPreviewHtml = nextChapterHtml?.let(::sanitizeEpubHtml)
-            val css = CssInjector.generateCss(settings)
+            val statusFooterHeightDp = if (settings.showStatusBar) 20 else 0
+            val css = CssInjector.generateCss(settings, statusFooterHeightDp)
             val jsScript = CssInjector.generateJsBridgeScript(
                 isHorizontalPagination = settings.isHorizontalPagination,
                 initialPage = initialPage,
                 initialVisibleParagraphIndex = initialVisibleParagraphIndex,
                 settings = settings,
+                statusFooterHeightDp = statusFooterHeightDp,
                 previousChapterHtml = previousPreviewHtml,
                 nextChapterHtml = nextPreviewHtml,
                 filterPreferences = filterPreferences

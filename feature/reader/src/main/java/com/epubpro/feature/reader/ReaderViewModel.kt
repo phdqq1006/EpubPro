@@ -76,6 +76,7 @@ data class ReaderUiState(
     val settings: ReaderSettings = ReaderSettings(),
     val showControls: Boolean = true,
     val isLoading: Boolean = true,
+    val loadError: String? = null,
     val isTtsSpeaking: Boolean = false,
     val showTtsSetupBottomSheet: Boolean = false,
     val showTtsPlayerScreen: Boolean = false,
@@ -139,6 +140,8 @@ class ReaderViewModel @Inject constructor(
     private var bookFile: File? = null
     private var chapterLoadJob: Job? = null
     private var aiProcessingJob: Job? = null
+    private var progressSaveJob: Job? = null
+    private var progressSaveVersion: Long = 0L
 
     private val _uiState = MutableStateFlow(
         ReaderUiState(
@@ -246,12 +249,15 @@ class ReaderViewModel @Inject constructor(
 
     private fun loadBookData() {
         viewModelScope.launch {
-            val book = bookRepository.getBookById(bookId)
-            if (book != null) {
+            try {
+                val book = bookRepository.getBookById(bookId)
+                    ?: error("Không tìm thấy sách trong thư viện")
                 bookRepository.updateLastRead(bookId, System.currentTimeMillis())
                 val file = storageManager.getBookFile(book.filePath)
+                require(file.isFile) { "Tệp EPUB không còn tồn tại" }
                 bookFile = file
                 val headers = epubEngine.extractChapterHeaders(file)
+                require(headers.isNotEmpty()) { "Không thể đọc cấu trúc EPUB" }
 
                 val savedProgress = bookRepository.getReadingProgress(bookId).firstOrNull()
                 val requestedIndex = requestedTtsChapterIndex?.takeIf { it in headers.indices }
@@ -274,11 +280,8 @@ class ReaderViewModel @Inject constructor(
                     "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}"
                 )
 
-                val chapterBundle = if (headers.isNotEmpty()) {
-                    loadChapterBundle(file, headers, initialIndex)
-                } else {
-                    ChapterHtmlBundle("", null, null)
-                }
+                val chapterBundle = loadChapterBundle(file, headers, initialIndex)
+                require(chapterBundle.current.isNotBlank()) { "Chương hiện tại không có nội dung" }
                 val cachedAi = if (chapterBundle.current.isNotBlank()) {
                     aiVietnameseService.loadCachedChapter(
                         bookId,
@@ -302,14 +305,31 @@ class ReaderViewModel @Inject constructor(
                         aiCreatedWithOldConfiguration = cachedAi?.createdWithOldConfiguration == true,
                         currentPageInChapter = initialPage,
                         initialPageRequest = initialPage,
+                        firstVisibleParagraphIndex = parseParagraphLocator(initialCfi),
                         currentCfi = initialCfi,
                         settings = savedSettings,
                         showTtsPlayerScreen = it.showTtsPlayerScreen || shouldOpenTtsPlayer,
-                        isLoading = false
+                        isLoading = false,
+                        loadError = null
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e("EpubPro_VM", "Failed to load book $bookId", error)
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        loadError = error.message ?: "Không thể tải nội dung sách"
                     )
                 }
             }
         }
+    }
+
+    fun retryLoad() {
+        _uiState.update { it.copy(isLoading = true, loadError = null) }
+        loadBookData()
     }
 
     fun onChapterSelected(
@@ -400,7 +420,8 @@ class ReaderViewModel @Inject constructor(
                 currentPageInChapter = currentPage,
                 initialPageRequest = currentPage,
                 totalPagesInChapter = totalPages,
-                firstVisibleParagraphIndex = firstVisibleChunkIndex
+                firstVisibleParagraphIndex = firstVisibleChunkIndex,
+                currentCfi = paragraphLocator(firstVisibleChunkIndex)
             )
         }
         saveProgress()
@@ -413,10 +434,10 @@ class ReaderViewModel @Inject constructor(
     ): ChapterHtmlBundle {
         val current = epubEngine.loadChapterHtml(file, headers[index].entryName)
         val previous = headers.getOrNull(index - 1)?.let { header ->
-            epubEngine.loadChapterHtml(file, header.entryName)
+            runCatching { epubEngine.loadChapterHtml(file, header.entryName) }.getOrNull()
         }
         val next = headers.getOrNull(index + 1)?.let { header ->
-            epubEngine.loadChapterHtml(file, header.entryName)
+            runCatching { epubEngine.loadChapterHtml(file, header.entryName) }.getOrNull()
         }
         return ChapterHtmlBundle(current, previous, next)
     }
@@ -437,13 +458,19 @@ class ReaderViewModel @Inject constructor(
     }
 
     private fun saveProgress() {
-        viewModelScope.launch {
+        val saveVersion = ++progressSaveVersion
+        progressSaveJob?.cancel()
+        progressSaveJob = viewModelScope.launch {
             val state = _uiState.value
             if (state.isLoading || state.chapters.isEmpty()) {
                 Log.d(
                     "EpubPro_VM",
                     "Skip saveProgress: isLoading=${state.isLoading}, chaptersSize=${state.chapters.size}"
                 )
+                return@launch
+            }
+            // TTS owns the shared playback/widget projection while it is active.
+            if (TtsService.isPlaybackProjectionOwned()) {
                 return@launch
             }
 
@@ -491,6 +518,12 @@ class ReaderViewModel @Inject constructor(
                     fallbackHtml = displayedChapterHtml
                 )
 
+                if (saveVersion != progressSaveVersion ||
+                    TtsService.isPlaybackProjectionOwned()
+                ) {
+                    return@withContext
+                }
+
                 playbackSnapshotStore.saveSnapshot(
                     TtsPlaybackSnapshot(
                         bookId = bookId,
@@ -522,6 +555,18 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+
+    private fun parseParagraphLocator(locator: String): Int {
+        return locator
+            .removePrefix(PARAGRAPH_LOCATOR_PREFIX)
+            .toIntOrNull()
+            ?.takeIf { locator.startsWith(PARAGRAPH_LOCATOR_PREFIX) }
+            ?.coerceAtLeast(0)
+            ?: 0
+    }
+
+    private fun paragraphLocator(index: Int): String =
+        PARAGRAPH_LOCATOR_PREFIX + index.coerceAtLeast(0)
 
     private fun buildWidgetParagraphText(
         chunks: List<TtsChunk>,
@@ -639,7 +684,9 @@ class ReaderViewModel @Inject constructor(
                 contentVersion = version,
                 initialPageRequest = 1,
                 currentPageInChapter = 1,
-                totalPagesInChapter = 1
+                totalPagesInChapter = 1,
+                firstVisibleParagraphIndex = 0,
+                currentCfi = ""
             )
         }
     }
@@ -917,6 +964,7 @@ class ReaderViewModel @Inject constructor(
     private companion object {
         const val STATE_TTS_PLAYER_REQUEST_CONSUMED = "tts_player_request_consumed"
         const val STATE_SHOW_TTS_PLAYER = "show_tts_player_screen"
+        const val PARAGRAPH_LOCATOR_PREFIX = "epubpro:paragraph:"
     }
 
     private fun setTtsPlayerVisible(visible: Boolean) {

@@ -701,6 +701,7 @@ class TtsService : Service() {
         }
 
         val expectedGeneration = playbackGeneration
+        projectionRestoreInProgress = true
         snapshotRestoreJob = serviceScope.launch {
             try {
                 val restored = loadRestoredPlayback(
@@ -711,6 +712,7 @@ class TtsService : Service() {
                 if (expectedGeneration != playbackGeneration) return@launch
 
                 applyRestoredPlayback(restored, snapshot, relativeMove)
+                projectionRestoreInProgress = false
                 isRestoringSnapshot = false
                 pendingSnapshotMove = 0
                 snapshotRestoreJob = null
@@ -732,9 +734,13 @@ class TtsService : Service() {
                     }
                 }
             } catch (cancelled: CancellationException) {
+                if (expectedGeneration == playbackGeneration) {
+                    projectionRestoreInProgress = false
+                }
                 throw cancelled
             } catch (error: Throwable) {
                 if (expectedGeneration != playbackGeneration) return@launch
+                projectionRestoreInProgress = false
                 isRestoringSnapshot = false
                 pendingSnapshotMove = 0
                 snapshotRestoreJob = null
@@ -1680,6 +1686,7 @@ class TtsService : Service() {
         notificationProgressJob = null
         snapshotRestoreJob?.cancel()
         snapshotRestoreJob = null
+        projectionRestoreInProgress = false
         isRestoringSnapshot = false
         pendingSnapshotMove = 0
     }
@@ -1828,6 +1835,12 @@ class TtsService : Service() {
 
         private val _playerState = MutableStateFlow<TtsPlayerState>(TtsPlayerState.Idle)
         val playerState: StateFlow<TtsPlayerState> = _playerState.asStateFlow()
+
+        @Volatile
+        private var projectionRestoreInProgress: Boolean = false
+
+        fun isPlaybackProjectionOwned(): Boolean =
+            projectionRestoreInProgress || _playerState.value !is TtsPlayerState.Idle
 
         fun syncBubbleState(context: Context, enabled: Boolean) {
             val appContext = context.applicationContext

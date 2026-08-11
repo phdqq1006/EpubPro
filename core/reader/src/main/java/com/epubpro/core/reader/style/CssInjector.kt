@@ -15,7 +15,7 @@ object CssInjector {
         """.trimIndent()
     }
 
-    fun generateCss(settings: ReaderSettings): String {
+    fun generateCss(settings: ReaderSettings, statusFooterHeightDp: Int = 0): String {
         val (bgColor, textColor) = when (settings.themeMode) {
             ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
             ReaderThemeMode.DARK -> "#0F172A" to "#F8FAFC"
@@ -57,7 +57,7 @@ object CssInjector {
                 line-height: ${settings.lineHeightRatio} !important;
                 margin: 0 !important;
                 padding-top: ${settings.marginTopDp}px !important;
-                padding-bottom: ${settings.marginBottomDp}px !important;
+                padding-bottom: ${settings.marginBottomDp + statusFooterHeightDp}px !important;
                 padding-left: ${settings.marginLeftDp}px !important;
                 padding-right: ${settings.marginRightDp}px !important;
                 box-sizing: border-box !important;
@@ -116,7 +116,7 @@ object CssInjector {
                 font-size: ${fontSizePx}px !important;
                 line-height: ${settings.lineHeightRatio} !important;
                 padding-top: ${settings.marginTopDp}px !important;
-                padding-bottom: ${settings.marginBottomDp}px !important;
+                padding-bottom: ${settings.marginBottomDp + statusFooterHeightDp}px !important;
                 padding-left: ${settings.marginLeftDp}px !important;
                 padding-right: ${settings.marginRightDp}px !important;
                 margin: 0 auto !important;
@@ -200,6 +200,7 @@ object CssInjector {
         initialPage: Int = 1,
         initialVisibleParagraphIndex: Int = 0,
         settings: ReaderSettings = ReaderSettings(),
+        statusFooterHeightDp: Int = 0,
         previousChapterHtml: String? = null,
         nextChapterHtml: String? = null,
         filterPreferences: ContentFilterPreferences = ContentFilterPreferences()
@@ -240,7 +241,7 @@ object CssInjector {
                 var targetInitPage = $initialPage;
                 var targetInitParagraph = $initialVisibleParagraphIndex;
                 var marginTop = ${settings.marginTopDp};
-                var marginBottom = ${settings.marginBottomDp};
+                var marginBottom = ${settings.marginBottomDp + statusFooterHeightDp};
                 var marginLeft = ${settings.marginLeftDp};
                 var marginRight = ${settings.marginRightDp};
                 var transitionSpeedMs = ${if (settings.enablePageAnimation) settings.pageTurnSpeedMs else 0};
@@ -432,10 +433,18 @@ object CssInjector {
                     return pw;
                 }
 
+                function notifyPositionChanged(paragraphIndex) {
+                    if (window.ReaderJsBridge && window.ReaderJsBridge.onCfiChanged) {
+                        window.ReaderJsBridge.onCfiChanged('epubpro:paragraph:' + Math.max(0, paragraphIndex));
+                    }
+                }
+
                 function updatePageMetrics() {
                     if (!window.epubproIsHorizontal) {
+                        var verticalParagraphIndex = getFirstVisibleParagraphIndex();
+                        notifyPositionChanged(verticalParagraphIndex);
                         if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
-                            window.ReaderJsBridge.onPageChanged(1, 1, getFirstVisibleParagraphIndex());
+                            window.ReaderJsBridge.onPageChanged(1, 1, verticalParagraphIndex);
                         }
                         return;
                     }
@@ -448,6 +457,7 @@ object CssInjector {
                     dbg('METRICS', 'pw=' + pw + ' totalPages=' + totalPages + ' currentPage=' + currentPage);
 
                     var visibleIndex = getFirstVisibleParagraphIndex();
+                    notifyPositionChanged(visibleIndex);
 
                     if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
                         window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
@@ -458,6 +468,7 @@ object CssInjector {
                     if (isDraggingPage || isCoverOverlayActive) return;
                     if (window.ReaderJsBridge && window.ReaderJsBridge.onPageChanged) {
                         var visibleIndex = getFirstVisibleParagraphIndex();
+                        notifyPositionChanged(visibleIndex);
                         window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
                     }
                 }

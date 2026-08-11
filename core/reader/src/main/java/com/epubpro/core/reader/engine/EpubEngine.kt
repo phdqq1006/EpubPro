@@ -101,7 +101,7 @@ class EpubEngine @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            throw IllegalStateException("Không thể đọc cấu trúc EPUB", e)
         }
         headers
     }
@@ -119,9 +119,9 @@ class EpubEngine @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            throw IllegalStateException("Không thể tải nội dung chương", e)
         }
-        "<html><body><p>Lỗi tải nội dung chương</p></body></html>"
+        throw IllegalStateException("Không tìm thấy nội dung chương: $entryName")
     }
 
     /**
