@@ -61,7 +61,7 @@
     <string name="profile_reader_defaults_title">Mặc định đọc</string>
     <string name="profile_reader_defaults_subtitle">Áp dụng cho EPUB, Chế độ đọc và chế độ Văn bản PDF.</string>
     <string name="profile_audio_settings_title">Cài đặt âm thanh</string>
-    <string name="profile_audio_settings_subtitle">Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp</string>
+    <string name="profile_audio_settings_subtitle">Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp / Bong bóng audio</string>
     <string name="profile_highlight_tags_title">Tag highlight</string>
     <string name="profile_highlight_tags_subtitle">Sửa nhãn</string>
     <string name="profile_section_advanced">Nâng cao</string>
@@ -85,6 +85,10 @@
     <string name="audio_test_play">Nghe thử</string>
     <string name="audio_playing">Đang phát...</string>
     <string name="audio_save_settings">Lưu cài đặt</string>
+    <string name="audio_bubble_settings_title">4. Bong bóng điều khiển audio</string>
+    <string name="audio_bubble_settings_description">Hiển thị điều khiển TTS nổi trên các ứng dụng khác, kể cả khi audio đã dừng.</string>
+    <string name="audio_bubble_permission_pending">Đang chờ quyền hiển thị trên ứng dụng khác…</string>
+    <string name="audio_bubble_notification_permission_warning">Bạn chưa cấp quyền thông báo. Khi TTS dừng, thông báo bong bóng có thể chỉ xuất hiện trong Trình quản lý tác vụ.</string>
 
     <!-- Search Screen -->
     <string name="search_placeholder">Tìm từ khóa trong nội dung...</string>

@@ -14,6 +14,7 @@ import com.epubpro.domain.model.*
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.AiRuleRepository
 import com.epubpro.domain.repository.BookmarkRepository
+import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsTextParser
 import com.epubpro.core.storage.TtsPreferencesManager
@@ -91,10 +92,18 @@ class ReaderViewModel @Inject constructor(
     private val aiPreferencesManager: AiPreferencesManager,
     private val aiVietnameseService: AiVietnameseService,
     private val aiRuleRepository: AiRuleRepository,
-    savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
+    private val requestedTtsChapterIndex: Int? = if (
+        savedStateHandle.get<Boolean>(TtsOpenBookContract.NAV_ARGUMENT_OPEN_TTS_PLAYER) == true
+    ) {
+        savedStateHandle.get<Int>(TtsOpenBookContract.NAV_ARGUMENT_CHAPTER_INDEX)
+            ?.takeIf { it >= 0 }
+    } else {
+        null
+    }
     private var bookFile: File? = null
     private var chapterLoadJob: Job? = null
     private var aiProcessingJob: Job? = null
@@ -102,7 +111,8 @@ class ReaderViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         ReaderUiState(
             settings = preferencesManager.getSettings(),
-            filterPreferences = preferencesManager.getFilterPreferences()
+            filterPreferences = preferencesManager.getFilterPreferences(),
+            showTtsPlayerScreen = savedStateHandle.get<Boolean>(STATE_SHOW_TTS_PLAYER) == true
         )
     )
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
@@ -212,8 +222,18 @@ class ReaderViewModel @Inject constructor(
                 val headers = epubEngine.extractChapterHeaders(file)
 
                 val savedProgress = bookRepository.getReadingProgress(bookId).firstOrNull()
-                val initialIndex = (savedProgress?.chapterIndex ?: 0).coerceIn(0, (headers.size - 1).coerceAtLeast(0))
-                val initialPage = (savedProgress?.pageIndex ?: 1).coerceAtLeast(1)
+                val requestedIndex = requestedTtsChapterIndex?.takeIf { it in headers.indices }
+                val initialIndex = requestedIndex
+                    ?: (savedProgress?.chapterIndex ?: 0)
+                        .coerceIn(0, (headers.size - 1).coerceAtLeast(0))
+                val canRestoreSavedLocation = savedProgress?.chapterIndex == initialIndex
+                val initialPage = if (canRestoreSavedLocation) {
+                    (savedProgress?.pageIndex ?: 1).coerceAtLeast(1)
+                } else {
+                    1
+                }
+                val initialCfi = savedProgress?.currentCfi.takeIf { canRestoreSavedLocation }.orEmpty()
+                val shouldOpenTtsPlayer = consumeOpenTtsPlayerRequest()
                 val savedSettings = preferencesManager.getSettings()
 
                 Log.d("EpubPro_VM", "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}")
@@ -242,8 +262,9 @@ class ReaderViewModel @Inject constructor(
                         aiCreatedWithOldConfiguration = cachedAi?.createdWithOldConfiguration == true,
                         currentPageInChapter = initialPage,
                         initialPageRequest = initialPage,
-                        currentCfi = savedProgress?.currentCfi ?: "",
+                        currentCfi = initialCfi,
                         settings = savedSettings,
+                        showTtsPlayerScreen = it.showTtsPlayerScreen || shouldOpenTtsPlayer,
                         isLoading = false
                     )
                 }
@@ -660,12 +681,24 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
+    private fun consumeOpenTtsPlayerRequest(): Boolean {
+        if (savedStateHandle.get<Boolean>(TtsOpenBookContract.NAV_ARGUMENT_OPEN_TTS_PLAYER) != true) {
+            return false
+        }
+        if (savedStateHandle.get<Boolean>(STATE_TTS_PLAYER_REQUEST_CONSUMED) == true) {
+            return false
+        }
+        savedStateHandle[STATE_TTS_PLAYER_REQUEST_CONSUMED] = true
+        savedStateHandle[STATE_SHOW_TTS_PLAYER] = true
+        return true
+    }
+
     fun onTtsIconButtonClicked() {
         val ttsSettings = ttsPreferencesManager.getSettings()
         if (!ttsSettings.isConfigured) {
             _uiState.update { it.copy(showTtsSetupBottomSheet = true) }
         } else {
-            _uiState.update { it.copy(showTtsPlayerScreen = true) }
+            setTtsPlayerVisible(true)
         }
     }
 
@@ -678,11 +711,11 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun openTtsPlayerScreen() {
-        _uiState.update { it.copy(showTtsPlayerScreen = true) }
+        setTtsPlayerVisible(true)
     }
 
     fun closeTtsPlayerScreen() {
-        _uiState.update { it.copy(showTtsPlayerScreen = false) }
+        setTtsPlayerVisible(false)
     }
 
     fun updateTtsSettings(newSettings: TtsSettings, ttsService: TtsService?) {
@@ -692,6 +725,7 @@ class ReaderViewModel @Inject constructor(
 
     fun onStartListeningFromSetup(newSettings: TtsSettings, ttsService: TtsService?) {
         ttsPreferencesManager.saveSettings(newSettings)
+        savedStateHandle[STATE_SHOW_TTS_PLAYER] = true
         _uiState.update {
             it.copy(
                 ttsSettings = newSettings,
@@ -746,6 +780,16 @@ class ReaderViewModel @Inject constructor(
 
     fun prevTtsChunk(ttsService: TtsService?) {
         ttsService?.previousChunk()
+    }
+
+    private companion object {
+        const val STATE_TTS_PLAYER_REQUEST_CONSUMED = "tts_player_request_consumed"
+        const val STATE_SHOW_TTS_PLAYER = "show_tts_player_screen"
+    }
+
+    private fun setTtsPlayerVisible(visible: Boolean) {
+        savedStateHandle[STATE_SHOW_TTS_PLAYER] = visible
+        _uiState.update { it.copy(showTtsPlayerScreen = visible) }
     }
 
     fun seekTtsChunk(index: Int, ttsService: TtsService?) {

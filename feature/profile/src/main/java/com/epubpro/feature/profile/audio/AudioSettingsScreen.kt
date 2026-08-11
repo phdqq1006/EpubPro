@@ -1,5 +1,14 @@
 package com.epubpro.feature.profile.audio
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,10 +51,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,12 +64,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.epubpro.core.designsystem.R
+import com.epubpro.core.reader.tts.TtsService
+
+private fun Context.hasTtsBubbleNotificationPermission(): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,8 +94,89 @@ fun AudioSettingsScreen(
     viewModel: AudioSettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
+    var hasNotificationPermission by remember {
+        mutableStateOf(context.hasTtsBubbleNotificationPermission())
+    }
+
+    fun completePendingBubbleEnable() {
+        val enabledNow = viewModel.onBubbleOverlayPermissionChecked(
+            isGranted = Settings.canDrawOverlays(context)
+        )
+        if (enabledNow) {
+            TtsService.syncBubbleState(context, enabled = true)
+        }
+    }
+
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        completePendingBubbleEnable()
+    }
+
+    fun continueBubbleEnableAfterNotificationPermission() {
+        if (!viewModel.requestBubbleEnable()) return
+        if (Settings.canDrawOverlays(context)) {
+            completePendingBubbleEnable()
+            return
+        }
+
+        val permissionIntent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        )
+        runCatching { overlayPermissionLauncher.launch(permissionIntent) }
+            .onFailure {
+                viewModel.onBubbleOverlayPermissionChecked(isGranted = false)
+            }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+        continueBubbleEnableAfterNotificationPermission()
+    }
+
+    fun beginBubbleEnable() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+            runCatching {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }.onFailure {
+                continueBubbleEnableAfterNotificationPermission()
+            }
+        } else {
+            continueBubbleEnableAfterNotificationPermission()
+        }
+    }
+
+    fun syncOverlayPermissionOnResume() {
+        val state = viewModel.uiState.value
+        if (state.isBubbleEnablePending) {
+            completePendingBubbleEnable()
+        } else if (state.isBubbleEnabled && !Settings.canDrawOverlays(context)) {
+            viewModel.disableBubble()
+            TtsService.syncBubbleState(context, enabled = false)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+                syncOverlayPermissionOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+            syncOverlayPermissionOnResume()
+        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     Scaffold(
         topBar = {
@@ -280,12 +388,89 @@ fun AudioSettingsScreen(
                 }
             }
 
+            AudioBubbleSettingsCard(
+                isEnabled = uiState.isBubbleEnabled,
+                isEnablePending = uiState.isBubbleEnablePending,
+                showNotificationWarning = uiState.isBubbleEnabled && !hasNotificationPermission,
+                onEnabledChange = { shouldEnable ->
+                    if (shouldEnable) {
+                        beginBubbleEnable()
+                    } else {
+                        viewModel.disableBubble()
+                        TtsService.syncBubbleState(context, enabled = false)
+                    }
+                }
+            )
+
             Button(
                 onClick = onNavigateBack,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(stringResource(R.string.audio_save_settings), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioBubbleSettingsCard(
+    isEnabled: Boolean,
+    isEnablePending: Boolean,
+    showNotificationWarning: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val title = stringResource(R.string.audio_bubble_settings_title)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(R.string.audio_bubble_settings_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = isEnabled || isEnablePending,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics { contentDescription = title }
+                )
+            }
+
+            if (isEnablePending) {
+                Text(
+                    text = stringResource(R.string.audio_bubble_permission_pending),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (showNotificationWarning) {
+                HorizontalDivider()
+                Text(
+                    text = stringResource(R.string.audio_bubble_notification_permission_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

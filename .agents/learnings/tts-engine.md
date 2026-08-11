@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-10
+> Cập nhật lần cuối: 2026-08-11
 
 ---
 
@@ -56,9 +56,14 @@
 
 
 ### Resilient TTS Foreground Playback Session
-- **Ngày**: 2026-08-10
-- **Chi tiết**: Phiên đọc dùng service vừa started vừa bound. Việc rời màn hình, tắt màn hình hoặc vuốt ứng dụng khỏi Recent không kết thúc phiên; chỉ lệnh Stop từ app/notification mới dọn engine, AudioFocus, MediaSession và foreground notification. Service dùng START_NOT_STICKY để không tự khôi phục nội dung sau process death. Việc chuyển chương thuộc coordinator riêng, ưu tiên AI cache hợp lệ và tự fallback về nội dung gốc.
+- **Ngày**: 2026-08-11
+- **Chi tiết**: `TtsService` là chủ sở hữu duy nhất của playback, notification và bubble. Khi bubble tắt, Stop dọn phiên như media service thông thường. Khi bubble bật và còn quyền overlay, Stop chỉ giải phóng engine, AudioFocus, timer và chuyển sang Idle nhưng giữ notification/bubble; `START_STICKY` chỉ dùng trong trạng thái này. Null restart không tự phát mà chỉ phục hồi snapshot tối thiểu. Mỗi lần đổi loại foreground phải có fail-safe vì Android 12+ có thể từ chối promote khi ứng dụng ở nền.
 - **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsAudioFocusController.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt
+
+### System Overlay Audio Bubble
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Bubble dùng `TYPE_APPLICATION_OVERLAY` nhưng không tạo playback stack riêng. UI overlay chỉ gửi command và render model bất biến từ `TtsService`; reducer quyết định Disabled/Hidden/Collapsed/Expanded dựa trên toggle, quyền, foreground app, khóa màn hình và cờ ẩn phiên hiện tại. Preference vị trí cùng snapshot playback được lưu private, atomic; snapshot chỉ chứa cursor và timeline, không lưu text/HTML. Quyền overlay được theo dõi bằng `AppOpsManager`, không dùng polling khi Idle.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleRuntime.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleOverlayController.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt
 
 ---
 ## Bugs & Solutions
@@ -174,6 +179,20 @@
 - **Fix**: Truyền expected generation vào tác vụ auto-next, kiểm tra lại sau mọi suspend boundary trước khi ghi state hoặc phát audio. Coordinator dùng AtomicLong và session volatile để chỉ request prepare mới nhất được commit; clear cũng tăng generation. Stop vì thế vô hiệu hóa cả callback engine lẫn I/O đang bay.
 - **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt
 
+### Stop ở Idle không hủy sleep timer cũ
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Đặt timer khi Idle rồi bấm Stop có thể để job cũ dừng nhầm phiên phát kế tiếp.
+- **Root cause**: `stopSession()` return sớm ở nhánh Idle trước khi gọi `resetSleepTimer()`.
+- **Fix**: Reset timer phải là bước đầu tiên của Stop, trước mọi early-return; finish playback và đường fail-safe foreground cũng phải dùng cùng cleanup.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt
+
+### Quyền và deep-link bị kẹt sau process death
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Toggle bubble có thể hiển thị ON giả, notification mở Reader nhưng không mở full player, hoặc Intent mới bị bỏ qua sau khi Android tạo lại process.
+- **Root cause**: Pending quyền được đặt quá sớm; trạng thái player chỉ nằm trong `UiState`; Activity dùng một Boolean consumed không gắn với nội dung Intent.
+- **Fix**: Chỉ persist pending ở stage overlay và reconcile khi Resume; lưu visibility player vào `SavedStateHandle`; consume request bằng cách dispatch rồi xóa action/extras khỏi Intent. Trạng thái bền và one-shot effect phải được tách riêng.
+- **Files liên quan**: app/src/main/java/com/epubpro/app/MainActivity.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
+
 ---
 ## How-To
 
@@ -218,7 +237,7 @@
 
 
 ### Smoke-test vòng đời playback TTS
-- **Ngày**: 2026-08-10
+- **Ngày**: 2026-08-11
 - **Bước thực hiện**:
   1. Phát Native và AI; xác nhận notification chuyển Preparing sang Playing và progress cập nhật mỗi giây.
   2. Thử Home, khóa màn hình, đổi app và vuốt Recent; âm thanh phải tiếp tục.
@@ -226,6 +245,9 @@
   4. Đổi tốc độ/giọng khi đang phát; câu hiện tại phải khởi động lại với cấu hình mới.
   5. Bấm Stop lần lượt trên app và notification; service, audio và notification phải dừng hoàn toàn.
   6. Để hết chương; kiểm tra tự chuyển chương, AI cache không hợp lệ fallback nội dung gốc và sleep timer cuối chương.
+  7. Bật bubble theo thứ tự notification permission rồi overlay permission; kiểm tra cả grant, deny, process death giữa hai bước và revoke trực tiếp trong Android Settings.
+  8. Kiểm tra Idle Play/Previous/Next khôi phục snapshot, Stop không autoplay, mở sách đúng chương/full player, vuốt Recent và mở app lại sau force-stop/reboot.
+  9. Trên API 26/30/34, thử portrait/landscape, 3-button navigation, lockscreen và trường hợp foreground promotion bị hệ thống từ chối.
 - **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
 
 ---
@@ -284,3 +306,8 @@
 - **Ngày**: 2026-08-10
 - **Chi tiết**: Tác vụ synthesize không đồng nghĩa âm thanh đã phát. UI và MediaSession giữ trạng thái Preparing, đóng băng progress, rồi chỉ chuyển Playing tại callback ngay trước lúc ghi PCM. Mọi callback engine phải có onError và được đối chiếu generation, chapter, index, chunk ID để lỗi hoặc kết quả cũ không thay đổi phiên mới. Với AudioFocus, lưu riêng cờ pausedBySystem để chỉ auto-resume sau transient loss; pause do người dùng hoặc rút tai nghe không được tự phát lại.
 - **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt
+
+### Event-Driven Overlay Availability and Durable Cursor State
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Không giữ timer chỉ để kiểm tra quyền overlay khi Idle. Theo dõi `OPSTR_SYSTEM_ALERT_WINDOW` bằng `AppOpsManager.OnOpChangedListener`, chuyển thành `StateFlow` và chỉ đồng bộ service khi giá trị thực sự đổi. Playback snapshot dùng một record có version, commit đồng bộ để cập nhật logic nguyên tử; chỉ lưu book/chapter/paragraph/sentence/content-version/timeline. UI one-shot như Intent phải consume riêng, còn visibility cần sống qua process death phải nằm trong `SavedStateHandle`.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsOverlayPermissionTracker.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt

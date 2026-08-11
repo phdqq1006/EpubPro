@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.core.reader.tts.AndroidNativeTtsEngine
+import com.epubpro.core.storage.TtsBubblePreferencesManager
 import com.epubpro.core.storage.TtsPreferencesManager
 import com.epubpro.core.tts.SherpaTtsEngine
 import com.epubpro.core.tts.TtsVoiceCatalog
@@ -39,7 +40,9 @@ data class AudioSettingsUiState(
     val downloadError: String? = null,
     val isPlaying: Boolean = false,
     val speechSpeed: Float = 1.0f,
-    val speechPitch: Float = 1.0f
+    val speechPitch: Float = 1.0f,
+    val isBubbleEnabled: Boolean = false,
+    val isBubbleEnablePending: Boolean = false
 )
 
 @HiltViewModel
@@ -47,7 +50,8 @@ class AudioSettingsViewModel @Inject constructor(
     @ApplicationContext context: Context,
     private val voiceModelDownloader: VoiceModelDownloader,
     private val ttsEngine: SherpaTtsEngine,
-    private val preferencesManager: TtsPreferencesManager
+    private val preferencesManager: TtsPreferencesManager,
+    private val bubblePreferencesManager: TtsBubblePreferencesManager
 ) : ViewModel() {
 
     companion object {
@@ -55,7 +59,13 @@ class AudioSettingsViewModel @Inject constructor(
     }
 
     private val nativeTtsEngine = AndroidNativeTtsEngine(context.applicationContext)
-    private val _uiState = MutableStateFlow(AudioSettingsUiState())
+    private val initialBubblePreferences = bubblePreferencesManager.getPreferences()
+    private val _uiState = MutableStateFlow(
+        AudioSettingsUiState(
+            isBubbleEnabled = initialBubblePreferences.enabled,
+            isBubbleEnablePending = initialBubblePreferences.pendingEnable
+        )
+    )
     val uiState: StateFlow<AudioSettingsUiState> = _uiState.asStateFlow()
 
     init {
@@ -100,6 +110,15 @@ class AudioSettingsViewModel @Inject constructor(
                 refreshAiVoices()
                 applyNativeSettings()
                 refreshSystemVoices()
+            }
+        }
+
+        viewModelScope.launch {
+            bubblePreferencesManager.preferencesFlow.collect { preferences ->
+                _uiState.value = _uiState.value.copy(
+                    isBubbleEnabled = preferences.enabled,
+                    isBubbleEnablePending = preferences.pendingEnable
+                )
             }
         }
     }
@@ -208,6 +227,29 @@ class AudioSettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(speechPitch = pitch)
         applyNativeSettings()
         saveSettings()
+    }
+
+    fun requestBubbleEnable(): Boolean {
+        return bubblePreferencesManager.setPendingEnable(true)
+    }
+
+    fun onBubbleOverlayPermissionChecked(isGranted: Boolean): Boolean {
+        val preferences = bubblePreferencesManager.getPreferences()
+        return when {
+            preferences.pendingEnable -> {
+                val saved = bubblePreferencesManager.setEnabled(isGranted)
+                isGranted && saved
+            }
+            preferences.enabled && !isGranted -> {
+                bubblePreferencesManager.setEnabled(false)
+                false
+            }
+            else -> false
+        }
+    }
+
+    fun disableBubble() {
+        bubblePreferencesManager.setEnabled(false)
     }
 
     fun downloadCurrentVoice() {
