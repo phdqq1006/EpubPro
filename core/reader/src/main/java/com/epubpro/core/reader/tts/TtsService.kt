@@ -361,23 +361,37 @@ class TtsService : Service() {
         if (chunks.isEmpty() || currentIndex !in chunks.indices) return
         ensureStartedSession()
 
+        val filterPrefs = readerPreferencesManager.getFilterPreferences()
+        var candidateIndex = currentIndex
+        var chunkToSpeak: TtsChunk? = null
+        while (candidateIndex in chunks.indices) {
+            val candidate = chunks[candidateIndex]
+            val text = if (filterPrefs.isFilterEnabled) {
+                ContentSanitizer.sanitize(candidate.text, filterPrefs)
+            } else {
+                candidate.text
+            }
+            if (text.isNotBlank()) {
+                currentIndex = candidateIndex
+                chunkToSpeak = candidate.copy(text = text)
+                break
+            }
+            candidateIndex++
+        }
+
+        if (chunkToSpeak == null) {
+            currentIndex = chunks.lastIndex
+            val expectedGeneration = playbackGeneration
+            serviceScope.launch { advanceToNextChapter(expectedGeneration) }
+            return
+        }
+
         val originalChunk = chunks[currentIndex]
         preferencesManager.saveLastTtsChunkIndex(
             bookId,
             currentChapterIndex,
             originalChunk.paragraphIndex
         )
-        val filterPrefs = readerPreferencesManager.getFilterPreferences()
-        val text = if (filterPrefs.isFilterEnabled) {
-            ContentSanitizer.sanitize(originalChunk.text, filterPrefs)
-        } else {
-            originalChunk.text
-        }
-        if (text.isBlank()) {
-            serviceScope.launch { advancePastCurrentSentence() }
-            return
-        }
-        val chunkToSpeak = originalChunk.copy(text = text)
 
         if (!audioFocusController.requestFocus()) {
             showPlaybackError(getString(R.string.tts_audio_focus_error))
@@ -413,8 +427,10 @@ class TtsService : Service() {
         )
         mediaSessionManager.updatePreparingState(currentChunkStartPositionMs)
         publishBubbleModel()
+        // Keep the technical Preparing state for transport controls, but do not
+        // expose a loading message between every two consecutive chunks.
         showForegroundNotification(
-            text = getString(R.string.tts_preparing_voice),
+            text = chunkToSpeak.text,
             isPlaying = true
         )
 
@@ -619,10 +635,14 @@ class TtsService : Service() {
     }
 
     private fun moveToChunk(index: Int) {
+        if (_playerState.value == TtsPlayerState.Loading) return
         if (index !in chunks.indices) {
             if (index >= chunks.size) {
                 val expectedGeneration = playbackGeneration
                 serviceScope.launch { advanceToNextChapter(expectedGeneration) }
+            } else if (index < 0 && currentChapterIndex > 0) {
+                val expectedGeneration = playbackGeneration
+                serviceScope.launch { advanceToPreviousChapter(expectedGeneration) }
             }
             return
         }
@@ -633,6 +653,7 @@ class TtsService : Service() {
     }
 
     fun nextChunk() {
+        if (_playerState.value == TtsPlayerState.Loading) return
         if (_playerState.value is TtsPlayerState.Idle ||
             _playerState.value is TtsPlayerState.Completed
         ) {
@@ -643,6 +664,7 @@ class TtsService : Service() {
     }
 
     fun previousChunk() {
+        if (_playerState.value == TtsPlayerState.Loading) return
         if (_playerState.value is TtsPlayerState.Idle ||
             _playerState.value is TtsPlayerState.Completed
         ) {
@@ -695,7 +717,9 @@ class TtsService : Service() {
             mediaSessionManager.updatePreparingState(snapshot.timelinePositionMs)
             publishBubbleModel()
             showForegroundNotification(
-                text = getString(R.string.tts_preparing_voice),
+                // Do not surface a loading message while a next/previous request
+                // restores the snapshot; the media state already reports buffering.
+                text = bookTitle,
                 isPlaying = true
             )
         }
@@ -1127,15 +1151,16 @@ class TtsService : Service() {
 
     private suspend fun advanceToNextChapter(expectedGeneration: Long) {
         if (expectedGeneration != playbackGeneration) return
-        invalidatePlayback()
-        val navigationGeneration = playbackGeneration
-        currentEngine.stop()
-        playbackStartedAtElapsedRealtimeMs = null
-
         if (sleepTimerOption == SleepTimerOption.END_OF_CHAPTER) {
             finishPlayback()
             return
         }
+
+        invalidatePlayback()
+        val navigationGeneration = playbackGeneration
+        currentEngine.stop()
+        playbackStartedAtElapsedRealtimeMs = null
+        enterChapterTransitionState()
 
         val preparationResult = chapterPreparation?.await()
             ?: runCatching {
@@ -1188,6 +1213,85 @@ class TtsService : Service() {
             }
             nextChapterIndex++
         }
+    }
+
+    private suspend fun advanceToPreviousChapter(expectedGeneration: Long) {
+        if (expectedGeneration != playbackGeneration || currentChapterIndex <= 0) return
+
+        val originalIndex = currentIndex
+        invalidatePlayback()
+        val navigationGeneration = playbackGeneration
+        currentEngine.stop()
+        playbackStartedAtElapsedRealtimeMs = null
+        enterChapterTransitionState()
+
+        val preparationResult = chapterPreparation?.await()
+            ?: runCatching {
+                chapterPlaybackCoordinator.prepare(bookId, preferAiContent)
+            }
+        if (navigationGeneration != playbackGeneration) return
+        if (preparationResult.isFailure) {
+            showPlaybackError(
+                preparationResult.exceptionOrNull()?.message
+                    ?: "Không thể chuẩn bị chương trước"
+            )
+            return
+        }
+
+        var previousChapterIndex = currentChapterIndex - 1
+        while (previousChapterIndex >= 0) {
+            val previousChapterResult = runCatching {
+                chapterPlaybackCoordinator.loadChapter(previousChapterIndex)
+            }
+            if (navigationGeneration != playbackGeneration) return
+            val previousChapter = previousChapterResult.getOrElse { error ->
+                showPlaybackError(error.message ?: "Không thể tải chương trước")
+                return
+            }
+
+            if (previousChapter == null) {
+                previousChapterIndex--
+                continue
+            }
+
+            val previousChunks = TtsSentenceSegmenter.segment(
+                previousChapter.chunks,
+                activeSettings.language
+            )
+            if (previousChunks.isNotEmpty()) {
+                chapterPlaybackCoordinator.saveChapterProgress(previousChapter.chapterIndex)
+                if (navigationGeneration != playbackGeneration) return
+                currentChapterIndex = previousChapter.chapterIndex
+                currentChapterTitle = previousChapter.chapterTitle
+                chunks = previousChunks
+                currentIndex = chunks.lastIndex
+                rebuildEstimatedTimeline(activeSettings.speed)
+                preferencesManager.saveLastTtsChunkIndex(
+                    bookId,
+                    currentChapterIndex,
+                    chunks[currentIndex].paragraphIndex
+                )
+                playCurrentChunk()
+                return
+            }
+            previousChapterIndex--
+        }
+
+        // No readable previous chapter: resume the current chunk instead of
+        // leaving the service stuck in Loading.
+        currentIndex = originalIndex
+        playCurrentChunk()
+    }
+
+    private fun enterChapterTransitionState() {
+        _playerState.value = TtsPlayerState.Loading
+        publishWidgetState()
+        mediaSessionManager.updatePreparingState(currentTimelinePositionMs)
+        publishBubbleModel()
+        showForegroundNotification(
+            text = currentNotificationText(),
+            isPlaying = false
+        )
     }
 
     private fun finishPlayback() {
@@ -1571,7 +1675,7 @@ class TtsService : Service() {
         is TtsPlayerState.Playing -> state.currentChunk.text
         is TtsPlayerState.Paused -> state.currentChunk.text
         is TtsPlayerState.Error -> state.message
-        TtsPlayerState.Loading -> getString(R.string.tts_preparing_voice)
+        TtsPlayerState.Loading -> chunks.getOrNull(currentIndex)?.text.orEmpty()
         TtsPlayerState.Idle,
         is TtsPlayerState.Completed -> getString(ReaderR.string.tts_bubble_notification_idle)
     }

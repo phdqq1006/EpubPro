@@ -37,7 +37,7 @@ fun TtsMiniPlayerBar(
     val primaryColor = Color(0xFFD97757)
 
     val currentText = when (playerState) {
-        is TtsPlayerState.Preparing -> "Đang chuẩn bị giọng đọc…"
+        is TtsPlayerState.Preparing -> playerState.currentChunk.text
         is TtsPlayerState.Playing -> playerState.currentChunk.text
         is TtsPlayerState.Paused -> playerState.currentChunk.text
         else -> ""

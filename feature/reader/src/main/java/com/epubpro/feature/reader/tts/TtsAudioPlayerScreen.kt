@@ -197,10 +197,10 @@ fun TtsAudioPlayerScreen(
                         .padding(20.dp)
                 ) {
                     val currentText = when (playerState) {
-                        is TtsPlayerState.Preparing -> "Đang chuẩn bị giọng đọc…"
+                        is TtsPlayerState.Preparing -> playerState.currentChunk.text
                         is TtsPlayerState.Playing -> playerState.currentChunk.text
                         is TtsPlayerState.Paused -> playerState.currentChunk.text
-                        else -> "Đang chuẩn bị giọng đọc..."
+                        else -> currentChunkText
                     }
 
                     val currentChunkInfo = when (playerState) {

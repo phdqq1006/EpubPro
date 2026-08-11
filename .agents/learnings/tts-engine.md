@@ -119,12 +119,12 @@
   2. Trong `SherpaTtsEngine.speak()`, thực hiện ghi PCM vào `AudioTrack` theo từng khối nhỏ 4KB (`chunkSize = 4096`) và kiểm tra `coroutineContext.isActive` trong mỗi vòng lặp. Nếu bị cancel, vòng lặp dừng ngay lập tức và xả buffer `AudioTrack.pause() + flush()`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
-### Nút Next không chuyển đúng đoạn trong chương EPUB
-- **Ngày**: 2026-08-06
-- **Vấn đề**: Player chỉ hiện một đoạn hoặc Next vẫn tiếp tục âm thanh cũ, đặc biệt với EPUB dùng `div`/`br` thay cho thẻ `p`.
-- **Root cause**: Parser chỉ chọn nhóm thẻ semantic; khi có một heading, fallback rỗng không chạy dù phần lớn body bị bỏ sót. Đoạn quá dài tạo một request synthesize blocking. Callback hoàn tất của request cũ còn có thể tăng index sau khi người dùng đã Next.
-- **Fix**: Fallback sang toàn bộ body khi độ phủ text của selector quá thấp; chia nội dung tối đa 280 ký tự tại biên câu/từ. Trước Next/Previous/Seek phải stop và vô hiệu hóa lượt phát cũ; gắn generation token cùng expected chunk/index để bỏ callback stale. Dùng `Mutex` ngăn hai lần Sherpa generate chạy đồng thời.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
+### Nút Next/Previous bị kẹt hoặc phát lại đoạn cũ khi qua ranh giới chương
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Next/Previous liên tiếp trong lúc synthesize có thể bị bỏ qua; ở chunk đầu/cuối, lệnh không chuyển được sang chương kế/trước; chunk rỗng còn tạo vòng coroutine và trạng thái không ổn định.
+- **Root cause**: Tác vụ chuyển chương bất đồng bộ vẫn để player ở trạng thái Playing, nhánh index âm trả về sớm, và callback/chuỗi xử lý cũ tiếp tục ghi đè index mới.
+- **Fix**: Đặt Loading trước khi invalidate/await, bỏ qua lệnh điều hướng mới trong lúc chuyển chương, kiểm tra generation sau mỗi suspend boundary. Duyệt và bỏ qua chunk rỗng trong cùng lần phát; xử lý cả hai hướng qua chương kế/trước và khôi phục index cũ nếu không có chương trước hợp lệ.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt`
 
 ### Highlight tô sáng cả trang thay vì từng đoạn văn đang đọc
 - **Ngày**: 2026-08-07
@@ -302,12 +302,19 @@
 - **Chi tiết**: Catalog chỉ chứa sự thật tĩnh của model; isDownloaded được tính từ filesystem/downloader tại thời điểm hiển thị. Nhờ tách hai lớp, cùng một catalog dùng được ở Settings và Reader nhưng UI vẫn phản ánh model bị xóa, tải dở hoặc vừa tải xong mà không làm biến đổi metadata dùng chung.
 - **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt
 
-### Preparing State and Actual-Audio Start Boundary
-- **Ngày**: 2026-08-10
-- **Chi tiết**: Tác vụ synthesize không đồng nghĩa âm thanh đã phát. UI và MediaSession giữ trạng thái Preparing, đóng băng progress, rồi chỉ chuyển Playing tại callback ngay trước lúc ghi PCM. Mọi callback engine phải có onError và được đối chiếu generation, chapter, index, chunk ID để lỗi hoặc kết quả cũ không thay đổi phiên mới. Với AudioFocus, lưu riêng cờ pausedBySystem để chỉ auto-resume sau transient loss; pause do người dùng hoặc rút tai nghe không được tự phát lại.
-- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt
+### Preparing/Loading vẫn lộ text “Đang chuẩn bị giọng đọc” khi chuyển đoạn
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Service đã chuyển sang Loading/Preparing nhưng Full Player hoặc Mini Player vẫn hiển thị câu placeholder thay vì đoạn hiện tại trong lúc tải audio của đoạn mới.
+- **Root cause**: UI có nhánh fallback hard-code `tts_preparing_voice` cho mọi state ngoài Playing; vì vậy state chuyển tiếp che mất `currentChunk.text`, dù nội dung đoạn đã sẵn sàng.
+- **Fix**: Giữ Preparing/Loading là trạng thái nội bộ để MediaSession và progress phản ánh việc synthesize; UI dùng `currentChunk.text` cho Preparing/Playing/Paused và projection hiện tại cho các state còn lại. Notification cũng fallback về text chunk hiện tại, không thay bằng placeholder.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/tts/TtsAudioPlayerScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/tts/TtsMiniPlayerBar.kt`
 
 ### Event-Driven Overlay Availability and Durable Cursor State
 - **Ngày**: 2026-08-11
 - **Chi tiết**: Không giữ timer chỉ để kiểm tra quyền overlay khi Idle. Theo dõi `OPSTR_SYSTEM_ALERT_WINDOW` bằng `AppOpsManager.OnOpChangedListener`, chuyển thành `StateFlow` và chỉ đồng bộ service khi giá trị thực sự đổi. Playback snapshot dùng một record có version, commit đồng bộ để cập nhật logic nguyên tử; chỉ lưu book/chapter/paragraph/sentence/content-version/timeline. UI one-shot như Intent phải consume riêng, còn visibility cần sống qua process death phải nằm trong `SavedStateHandle`.
 - **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsOverlayPermissionTracker.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
+
+### Explicit Chapter Transition State
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Mọi chuyển chương phải phát tín hiệu Loading trước khi dừng engine và chờ I/O. State này khóa Previous/Next cạnh tranh, cập nhật MediaSession thành buffering nhưng vẫn giữ tiêu đề và text chunk cuối để notification/bubble không nhấp nháy placeholder. Sau khi load xong, chỉ generation hiện tại mới được commit index/chunk và chuyển sang play.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
