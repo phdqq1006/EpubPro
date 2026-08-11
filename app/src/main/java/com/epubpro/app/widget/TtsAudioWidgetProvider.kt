@@ -26,7 +26,10 @@ class TtsAudioWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        if (intent.action == TtsWidgetContract.ACTION_STATE_CHANGED) updateAll(context)
+        if (intent.action == TtsWidgetContract.ACTION_STATE_CHANGED) {
+            updateAll(context)
+            TtsReadingWidgetProvider.updateAll(context)
+        }
     }
 
     companion object {
@@ -50,18 +53,45 @@ class TtsAudioWidgetProvider : AppWidgetProvider() {
                 R.id.tts_widget_title,
                 state.bookTitle.ifBlank { context.getString(R.string.tts_widget_default_title) }
             )
-            views.setTextViewText(R.id.tts_widget_status, statusText(context, state.playbackStatus))
+            val statusLabel = statusText(context, state.playbackStatus)
+            val statusFullText = if (state.chapterTitle.isNotBlank()) {
+                "${state.chapterTitle} • $statusLabel"
+            } else {
+                statusLabel
+            }
+            views.setTextViewText(R.id.tts_widget_status, statusFullText)
+
+            val percent = (state.normalizedProgress * 100f).roundToInt()
+            val timeText = if (state.hasSnapshot && state.durationMs > 0L) {
+                val posStr = formatTimeMs(state.positionMs)
+                val durStr = formatTimeMs(state.durationMs)
+                "$percent% • $posStr / $durStr"
+            } else if (state.hasSnapshot) {
+                "$percent%"
+            } else {
+                ""
+            }
+            views.setTextViewText(R.id.tts_widget_progress_text, timeText)
+
             views.setProgressBar(
                 R.id.tts_widget_progress,
                 100,
-                (state.normalizedProgress * 100f).roundToInt(),
+                percent,
                 state.playbackStatus == TtsWidgetPlaybackStatus.PREPARING
             )
+
+            val coverBitmap = decodeScaledCover(state.coverPath)
+            if (coverBitmap != null) {
+                views.setImageViewBitmap(R.id.tts_widget_icon, coverBitmap)
+            } else {
+                views.setImageViewResource(R.id.tts_widget_icon, R.drawable.ic_widget_book_placeholder)
+            }
+
             val isPlaying = state.playbackStatus == TtsWidgetPlaybackStatus.PLAYING ||
                 state.playbackStatus == TtsWidgetPlaybackStatus.PREPARING
             views.setImageViewResource(
                 R.id.tts_widget_play_pause,
-                if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+                if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
             )
             val serviceFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             views.setOnClickPendingIntent(R.id.tts_widget_play_pause, playIntent(context, state, serviceFlags))
@@ -76,6 +106,27 @@ class TtsAudioWidgetProvider : AppWidgetProvider() {
             views.setBoolean(R.id.tts_widget_previous, "setEnabled", state.hasSnapshot)
             views.setBoolean(R.id.tts_widget_next, "setEnabled", state.hasSnapshot)
             manager.updateAppWidget(appWidgetId, views)
+        }
+
+        private fun decodeScaledCover(coverPath: String?): android.graphics.Bitmap? {
+            val path = coverPath?.takeIf { it.isNotBlank() } ?: return null
+            val file = java.io.File(path)
+            if (!file.isFile) return null
+            return runCatching {
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+                var sampleSize = 1
+                val targetPx = 144
+                while (bounds.outWidth / sampleSize > targetPx || bounds.outHeight / sampleSize > targetPx) {
+                    sampleSize *= 2
+                }
+                android.graphics.BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                )
+            }.getOrNull()
         }
 
         private fun playIntent(context: Context, state: TtsWidgetState, flags: Int): PendingIntent {
@@ -106,6 +157,19 @@ class TtsAudioWidgetProvider : AppWidgetProvider() {
                     TtsWidgetPlaybackStatus.COMPLETED -> R.string.tts_widget_completed
                 }
             )
+
+        private fun formatTimeMs(ms: Long): String {
+            val totalSec = (ms / 1000L).coerceAtLeast(0L)
+            val min = totalSec / 60L
+            val sec = totalSec % 60L
+            val hr = min / 60L
+            val remMin = min % 60L
+            return if (hr > 0L) {
+                String.format(java.util.Locale.US, "%d:%02d:%02d", hr, remMin, sec)
+            } else {
+                String.format(java.util.Locale.US, "%02d:%02d", remMin, sec)
+            }
+        }
 
         private const val REQUEST_LIBRARY = 4100
     }

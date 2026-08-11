@@ -14,7 +14,8 @@
         android:name=".EpubApplication"
         android:allowBackup="true"
         android:largeHeap="true"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="EpubPro"
         android:supportsRtl="true"
         android:theme="@style/Theme.EpubPro">
@@ -49,6 +50,18 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/tts_audio_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TtsReadingWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.epubpro.tts.ACTION_WIDGET_STATE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/tts_reading_widget_info" />
         </receiver>
     </application>
 

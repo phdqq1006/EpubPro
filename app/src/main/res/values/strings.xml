@@ -12,4 +12,6 @@
     <string name="tts_widget_previous">Câu trước</string>
     <string name="tts_widget_play_pause">Phát hoặc tạm dừng</string>
     <string name="tts_widget_next">Câu tiếp theo</string>
+    <string name="tts_widget_open_app">Mở ứng dụng</string>
+    <string name="tts_reading_widget_description">Đọc sách trực tiếp trên màn hình chính</string>
 </resources>

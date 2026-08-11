@@ -92,8 +92,10 @@ class TtsService : Service() {
     private var chunks: List<TtsChunk> = emptyList()
     private var currentIndex: Int = 0
     private var currentChapterIndex: Int = 0
+    private var currentChapterTitle: String = ""
     private var bookId: String = ""
     private var bookTitle: String = ""
+    private var bookCoverPath: String? = null
     private var author: String = "EpubPro Reader"
     private var preferAiContent: Boolean = false
 
@@ -203,6 +205,8 @@ class TtsService : Service() {
             ACTION_WIDGET_PLAY_PAUSE -> handleWidgetPlayPause(startId)
             ACTION_WIDGET_PREVIOUS -> handleWidgetPrevious(startId)
             ACTION_WIDGET_NEXT -> handleWidgetNext(startId)
+            ACTION_WIDGET_READING_PREVIOUS -> handleReadingWidgetMove(startId, -1)
+            ACTION_WIDGET_READING_NEXT -> handleReadingWidgetMove(startId, 1)
         }
         return if (bubbleRuntime.isBubbleAvailable()) START_STICKY else START_NOT_STICKY
     }
@@ -236,6 +240,77 @@ class TtsService : Service() {
         nextChunk()
     }
 
+    private fun handleReadingWidgetMove(startId: Int, relativeMove: Int) {
+        val snapshot = playbackSnapshotStore.getSnapshot() ?: run {
+            stopSelf(startId)
+            return
+        }
+        if (!isForeground) {
+            showForegroundNotification(
+                text = currentNotificationText(),
+                isPlaying = false
+            )
+        }
+        val expectedGeneration = playbackGeneration
+        serviceScope.launch {
+            val projection = runCatching {
+                loadReadingWidgetProjection(snapshot, relativeMove, expectedGeneration)
+            }.getOrElse {
+                if (!isPlaybackSessionActive() && !bubbleRuntime.isBubbleAvailable()) {
+                    stopForegroundAndRemove()
+                    startedSession = false
+                    stopSelf(startId)
+                }
+                return@launch
+            }
+
+            playbackSnapshotStore.saveSnapshot(
+                TtsPlaybackSnapshot(
+                    bookId = projection.book.id,
+                    chapterIndex = projection.chapter.content.chapterIndex,
+                    paragraphIndex = projection.paragraphIndex,
+                    sentenceIndex = 0,
+                    preferAiContent = snapshot.preferAiContent,
+                    timelinePositionMs = 0L
+                )
+            )
+
+            val changed = widgetStateStore.saveState(
+                TtsWidgetState(
+                    bookTitle = projection.book.title,
+                    chapterTitle = projection.chapter.content.chapterTitle,
+                    playbackStatus = if (isPlaybackRunning()) {
+                        TtsWidgetPlaybackStatus.PLAYING
+                    } else {
+                        TtsWidgetPlaybackStatus.IDLE
+                    },
+                    progress = if (projection.totalParagraphs > 0) {
+                        ((projection.paragraphIndex + 1).toFloat() / projection.totalParagraphs.toFloat())
+                            .coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    },
+                    hasSnapshot = true,
+                    coverPath = projection.book.coverPath,
+                    paragraphIndex = projection.paragraphIndex,
+                    totalParagraphs = projection.totalParagraphs,
+                    paragraphText = buildReadingWidgetText(
+                        chunks = projection.chapter.chunks,
+                        paragraphIndex = projection.paragraphIndex,
+                        maxChars = WIDGET_READING_TEXT_MAX_CHARS
+                    )
+                )
+            )
+            if (changed) {
+                sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(packageName))
+            }
+            if (!isPlaybackSessionActive() && !bubbleRuntime.isBubbleAvailable()) {
+                stopForegroundAndRemove()
+                startedSession = false
+                stopSelf(startId)
+            }
+        }
+    }
     fun loadContent(
         id: String,
         title: String,
@@ -243,6 +318,7 @@ class TtsService : Service() {
         parsedChunks: List<TtsChunk>,
         startIndex: Int = 0,
         chapterIndex: Int = 0,
+        chapterTitle: String = "",
         preferAiContent: Boolean = false
     ) {
         ensureStartedSession()
@@ -254,6 +330,7 @@ class TtsService : Service() {
         bookTitle = title
         author = bookAuthor
         currentChapterIndex = chapterIndex
+        currentChapterTitle = chapterTitle
         this.preferAiContent = preferAiContent
         activeSettings = preferencesManager.getSettings().normalizedForPlayback()
         applySettingsToEngines(activeSettings)
@@ -797,6 +874,65 @@ class TtsService : Service() {
         return null
     }
 
+
+    private suspend fun loadReadingWidgetProjection(
+        snapshot: TtsPlaybackSnapshot,
+        relativeMove: Int,
+        expectedGeneration: Long
+    ): ReadingWidgetProjection {
+        val book = bookRepository.getBookById(snapshot.bookId)
+            ?: error("Widget book is no longer in the library")
+        ensureRestoreCurrent(expectedGeneration)
+        chapterPlaybackCoordinator.prepare(snapshot.bookId, snapshot.preferAiContent)
+        ensureRestoreCurrent(expectedGeneration)
+
+        var chapter = loadSegmentedChapter(snapshot.chapterIndex, expectedGeneration)
+            ?: loadSegmentedChapter(0, expectedGeneration)
+            ?: error("Book has no readable chapter")
+        if (chapter.chunks.isEmpty()) {
+            chapter = findNonEmptyChapter(chapter.content.chapterIndex, expectedGeneration)
+                ?: error("Book has no readable content")
+        }
+
+        var targetParagraph = snapshot.paragraphIndex + relativeMove
+        while (targetParagraph < 0) {
+            val previous = findPreviousNonEmptyChapter(
+                startChapterIndex = chapter.content.chapterIndex - 1,
+                expectedGeneration = expectedGeneration
+            )
+            if (previous == null) {
+                targetParagraph = 0
+                break
+            }
+            chapter = previous
+            targetParagraph = lastParagraphIndex(chapter.chunks)
+        }
+
+        while (targetParagraph > lastParagraphIndex(chapter.chunks)) {
+            val next = findNextNonEmptyChapter(
+                startChapterIndex = chapter.content.chapterIndex + 1,
+                expectedGeneration = expectedGeneration
+            )
+            if (next == null) {
+                targetParagraph = lastParagraphIndex(chapter.chunks)
+                break
+            }
+            chapter = next
+            targetParagraph = 0
+        }
+
+        val currentIndex = chapter.chunks.indexOfFirst { it.paragraphIndex >= targetParagraph }
+            .takeIf { it >= 0 }
+            ?: chapter.chunks.lastIndex
+        val paragraphIndex = chapter.chunks.getOrNull(currentIndex)?.paragraphIndex ?: 0
+        return ReadingWidgetProjection(
+            book = book,
+            chapter = chapter,
+            currentIndex = currentIndex.coerceAtLeast(0),
+            paragraphIndex = paragraphIndex,
+            totalParagraphs = totalParagraphCount(chapter.chunks)
+        )
+    }
     private fun ensureRestoreCurrent(expectedGeneration: Long) {
         if (expectedGeneration != playbackGeneration) {
             throw CancellationException("Playback restore was superseded")
@@ -810,9 +946,11 @@ class TtsService : Service() {
     ) {
         bookId = restored.book.id
         bookTitle = restored.book.title
+        bookCoverPath = restored.book.coverPath
         author = restored.book.author
         preferAiContent = snapshot.preferAiContent
         currentChapterIndex = restored.chapter.content.chapterIndex
+        currentChapterTitle = restored.chapter.content.chapterTitle
         chunks = restored.chapter.chunks
         currentIndex = restored.currentIndex
         currentCoverBitmap = restored.coverBitmap
@@ -836,6 +974,8 @@ class TtsService : Service() {
         bookId = ""
         bookTitle = getString(R.string.tts_default_book_title)
         author = "EpubPro Reader"
+        currentChapterTitle = ""
+        bookCoverPath = null
         preferAiContent = false
         currentCoverBitmap = null
         currentTimelinePositionMs = 0L
@@ -851,6 +991,13 @@ class TtsService : Service() {
         val chunks: List<TtsChunk>
     )
 
+    private data class ReadingWidgetProjection(
+        val book: Book,
+        val chapter: RestoredChapter,
+        val currentIndex: Int,
+        val paragraphIndex: Int,
+        val totalParagraphs: Int
+    )
     private data class RestoredPlayback(
         val book: Book,
         val chapter: RestoredChapter,
@@ -1021,6 +1168,7 @@ class TtsService : Service() {
                 chapterPlaybackCoordinator.saveChapterProgress(nextChapter.chapterIndex)
                 if (navigationGeneration != playbackGeneration) return
                 currentChapterIndex = nextChapter.chapterIndex
+                currentChapterTitle = nextChapter.chapterTitle
                 chunks = nextChunks
                 currentIndex = 0
                 rebuildEstimatedTimeline(activeSettings.speed)
@@ -1314,9 +1462,12 @@ class TtsService : Service() {
     private fun publishWidgetState() {
         if (!::widgetStateStore.isInitialized) return
         val playerState = _playerState.value
+        val positionMs = currentPlaybackPositionMs()
         val progress = if (estimatedTotalDurationMs > 0L) {
-            (currentTimelinePositionMs.coerceAtLeast(0L).toFloat() / estimatedTotalDurationMs.toFloat())
+            (positionMs.coerceAtLeast(0L).toFloat() / estimatedTotalDurationMs.toFloat())
                 .coerceIn(0f, 1f)
+        } else if (chunks.isNotEmpty()) {
+            ((currentIndex + 1).toFloat() / chunks.size.toFloat()).coerceIn(0f, 1f)
         } else {
             0f
         }
@@ -1333,15 +1484,54 @@ class TtsService : Service() {
         val changed = widgetStateStore.saveState(
             TtsWidgetState(
                 bookTitle = bookTitle,
+                chapterTitle = currentChapterTitle,
                 playbackStatus = status,
                 progress = progress,
-                hasSnapshot = playbackSnapshotStore.getSnapshot() != null
+                positionMs = positionMs.coerceAtLeast(0L),
+                durationMs = estimatedTotalDurationMs.coerceAtLeast(0L),
+                hasSnapshot = playbackSnapshotStore.getSnapshot() != null,
+                coverPath = bookCoverPath,
+                paragraphIndex = chunks.getOrNull(currentIndex)?.paragraphIndex ?: 0,
+                totalParagraphs = totalParagraphCount(chunks),
+                paragraphText = buildReadingWidgetText(
+                    chunks.getOrNull(currentIndex)?.paragraphIndex ?: 0
+                )
             )
         )
         if (changed) {
             sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(packageName))
         }
     }
+
+    private fun buildReadingWidgetText(
+        paragraphIndex: Int,
+        maxChars: Int = WIDGET_READING_TEXT_MAX_CHARS
+    ): String = buildReadingWidgetText(chunks, paragraphIndex, maxChars)
+
+    private fun buildReadingWidgetText(
+        chunks: List<TtsChunk>,
+        paragraphIndex: Int,
+        maxChars: Int = WIDGET_READING_TEXT_MAX_CHARS
+    ): String {
+        if (chunks.isEmpty()) return ""
+        val text = chunks
+            .filter { it.paragraphIndex == paragraphIndex }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        if (text.isNotBlank()) return text.take(maxChars)
+
+        return chunks
+            .dropWhile { it.paragraphIndex < paragraphIndex }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+            .take(maxChars)
+    }
+
+    private fun totalParagraphCount(chunks: List<TtsChunk>): Int =
+        chunks.maxOfOrNull { it.paragraphIndex + 1 }?.coerceAtLeast(1) ?: 0
+
+    private fun lastParagraphIndex(chunks: List<TtsChunk>): Int =
+        chunks.maxOfOrNull { it.paragraphIndex } ?: 0
 
     private fun publishBubbleModel() {
         if (!::bubbleRuntime.isInitialized) return
@@ -1407,6 +1597,7 @@ class TtsService : Service() {
             val cover = withContext(Dispatchers.IO) { decodeCoverBitmap(book.coverPath) }
             if (bookId != expectedBookId) return@launch
             bookTitle = book.title
+            bookCoverPath = book.coverPath
             author = book.author
             currentCoverBitmap = cover
             publishBubbleModel()
@@ -1546,6 +1737,7 @@ class TtsService : Service() {
     ) {
         notificationProgressJob?.cancel()
         notificationProgressJob = serviceScope.launch {
+            var lastWidgetSec = -1L
             while (playbackId == playbackGeneration &&
                 currentChapterIndex == expectedChapterIndex &&
                 currentIndex == expectedIndex &&
@@ -1577,6 +1769,12 @@ class TtsService : Service() {
                         text = playingState.currentChunk.text,
                         isPlaying = true
                     )
+                }
+
+                val currentSec = currentTimelinePositionMs / 5000L
+                if (currentSec != lastWidgetSec) {
+                    lastWidgetSec = currentSec
+                    publishWidgetState()
                 }
             }
         }
@@ -1614,12 +1812,15 @@ class TtsService : Service() {
         const val ACTION_WIDGET_PLAY_PAUSE = "com.epubpro.tts.ACTION_WIDGET_PLAY_PAUSE"
         const val ACTION_WIDGET_PREVIOUS = "com.epubpro.tts.ACTION_WIDGET_PREVIOUS"
         const val ACTION_WIDGET_NEXT = "com.epubpro.tts.ACTION_WIDGET_NEXT"
+        const val ACTION_WIDGET_READING_PREVIOUS = "com.epubpro.tts.ACTION_WIDGET_READING_PREVIOUS"
+        const val ACTION_WIDGET_READING_NEXT = "com.epubpro.tts.ACTION_WIDGET_READING_NEXT"
         private const val ACTION_START_SESSION = "com.epubpro.tts.ACTION_START_SESSION"
         private const val ACTION_SYNC_BUBBLE = "com.epubpro.tts.ACTION_SYNC_BUBBLE"
         private const val PREVIEW_CHUNK_ID = 9999
         private const val OPEN_BOOK_REQUEST_CODE = 2002
         private const val MAX_COVER_SIZE_PX = 128
         private const val MAX_QUEUED_SNAPSHOT_MOVES = 100
+        private const val WIDGET_READING_TEXT_MAX_CHARS = 800
         private const val ESTIMATED_CHARACTERS_PER_SECOND = 15f
         private const val MIN_TIMELINE_SPEED = 0.5f
         private const val MIN_CHUNK_DURATION_MS = 2_000L

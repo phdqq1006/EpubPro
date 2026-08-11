@@ -10,4 +10,5 @@
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/tts_audio_widget"
+    android:previewLayout="@layout/tts_audio_widget"
     android:description="@string/tts_widget_description" />

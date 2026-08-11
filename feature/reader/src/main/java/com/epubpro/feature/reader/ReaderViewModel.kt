@@ -1,31 +1,60 @@
 package com.epubpro.feature.reader
 
+import android.content.Context
+import android.content.Intent
 import android.util.Log
-import com.epubpro.core.ai.AiVietnameseService
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.epubpro.core.ai.AiVietnameseService
 import com.epubpro.core.reader.engine.EpubChapterHeader
 import com.epubpro.core.reader.engine.EpubEngine
-import com.epubpro.core.storage.AiPreferencesManager
-import com.epubpro.core.storage.EpubStorageManager
-import com.epubpro.core.storage.ReaderPreferencesManager
-import com.epubpro.domain.model.*
-import com.epubpro.domain.repository.BookRepository
-import com.epubpro.domain.repository.AiRuleRepository
-import com.epubpro.domain.repository.BookmarkRepository
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsTextParser
+import com.epubpro.core.reader.tts.TtsWidgetContract
+import com.epubpro.core.storage.AiPreferencesManager
+import com.epubpro.core.storage.EpubStorageManager
+import com.epubpro.core.storage.ReaderPreferencesManager
+import com.epubpro.core.storage.TtsPlaybackSnapshot
+import com.epubpro.core.storage.TtsPlaybackSnapshotStore
 import com.epubpro.core.storage.TtsPreferencesManager
+import com.epubpro.core.storage.TtsWidgetPlaybackStatus
+import com.epubpro.core.storage.TtsWidgetState
+import com.epubpro.core.storage.TtsWidgetStateStore
+import com.epubpro.domain.model.AiRule
+import com.epubpro.domain.model.AiRuleAction
+import com.epubpro.domain.model.AiRuleScope
+import com.epubpro.domain.model.AiSettings
+import com.epubpro.domain.model.Book
+import com.epubpro.domain.model.Bookmark
+import com.epubpro.domain.model.ContentFilterPreferences
+import com.epubpro.domain.model.Highlight
+import com.epubpro.domain.model.ReaderSettings
+import com.epubpro.domain.model.ReadingProgress
+import com.epubpro.domain.model.SleepTimerOption
+import com.epubpro.domain.model.TtsChunk
+import com.epubpro.domain.model.TtsPlayerState
+import com.epubpro.domain.model.TtsSettings
+import com.epubpro.domain.repository.AiRuleRepository
+import com.epubpro.domain.repository.BookRepository
+import com.epubpro.domain.repository.BookmarkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+
+private const val WIDGET_TEXT_MAX_CHARS = 800
 
 enum class ReaderContentVersion {
     ORIGINAL,
@@ -83,6 +112,7 @@ private data class ChapterHtmlBundle(
 
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val bookRepository: BookRepository,
     private val bookmarkRepository: BookmarkRepository,
     private val storageManager: EpubStorageManager,
@@ -92,7 +122,9 @@ class ReaderViewModel @Inject constructor(
     private val aiPreferencesManager: AiPreferencesManager,
     private val aiVietnameseService: AiVietnameseService,
     private val aiRuleRepository: AiRuleRepository,
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val widgetStateStore: TtsWidgetStateStore,
+    private val playbackSnapshotStore: TtsPlaybackSnapshotStore
 ) : ViewModel() {
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
@@ -184,12 +216,12 @@ class ReaderViewModel @Inject constructor(
                             currentPlaybackChunk.paragraphIndex
                         )
                     }
-                    
+
                     _uiState.update {
                         it.copy(
                             ttsPlayerState = stateToEmit,
                             isTtsSpeaking = stateToEmit is TtsPlayerState.Playing ||
-                                stateToEmit is TtsPlayerState.Preparing
+                                    stateToEmit is TtsPlayerState.Preparing
                         )
                     }
                 }
@@ -232,11 +264,15 @@ class ReaderViewModel @Inject constructor(
                 } else {
                     1
                 }
-                val initialCfi = savedProgress?.currentCfi.takeIf { canRestoreSavedLocation }.orEmpty()
+                val initialCfi =
+                    savedProgress?.currentCfi.takeIf { canRestoreSavedLocation }.orEmpty()
                 val shouldOpenTtsPlayer = consumeOpenTtsPlayerRequest()
                 val savedSettings = preferencesManager.getSettings()
 
-                Log.d("EpubPro_VM", "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}")
+                Log.d(
+                    "EpubPro_VM",
+                    "Restoring progress for bookId=$bookId: savedChapter=${savedProgress?.chapterIndex}, savedPage=${savedProgress?.pageIndex} -> finalChapter=$initialIndex, finalPage=$initialPage, totalChapters=${headers.size}"
+                )
 
                 val chapterBundle = if (headers.isNotEmpty()) {
                     loadChapterBundle(file, headers, initialIndex)
@@ -244,7 +280,11 @@ class ReaderViewModel @Inject constructor(
                     ChapterHtmlBundle("", null, null)
                 }
                 val cachedAi = if (chapterBundle.current.isNotBlank()) {
-                    aiVietnameseService.loadCachedChapter(bookId, initialIndex, chapterBundle.current)
+                    aiVietnameseService.loadCachedChapter(
+                        bookId,
+                        initialIndex,
+                        chapterBundle.current
+                    )
                 } else {
                     null
                 }
@@ -272,7 +312,12 @@ class ReaderViewModel @Inject constructor(
         }
     }
 
-    fun onChapterSelected(index: Int, openAtLastPage: Boolean = false, autoStartTts: Boolean = false, ttsService: TtsService? = null) {
+    fun onChapterSelected(
+        index: Int,
+        openAtLastPage: Boolean = false,
+        autoStartTts: Boolean = false,
+        ttsService: TtsService? = null
+    ) {
         val state = _uiState.value
         val file = bookFile
         if (file != null && index in 0 until state.chapters.size) {
@@ -312,7 +357,7 @@ class ReaderViewModel @Inject constructor(
                         ttsPlayerState = if (autoStartTts) TtsPlayerState.Loading else it.ttsPlayerState
                     )
                 }
-                
+
                 if (autoStartTts) {
                     ttsPreferencesManager.saveLastTtsChunkIndex(bookId, index, 0)
                     startTtsServicePlayback(ttsService)
@@ -332,12 +377,16 @@ class ReaderViewModel @Inject constructor(
     fun updatePageMetrics(currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) {
         val currentState = _uiState.value
         if (currentState.isLoading) return
-        
+
         // Save the visible chunk index for TTS resuming
         if (!currentState.chapters.isEmpty()) {
-            ttsPreferencesManager.saveLastTtsChunkIndex(bookId, currentState.currentChapterIndex, firstVisibleChunkIndex)
+            ttsPreferencesManager.saveLastTtsChunkIndex(
+                bookId,
+                currentState.currentChapterIndex,
+                firstVisibleChunkIndex
+            )
         }
-        
+
         if (
             currentState.currentPageInChapter == currentPage &&
             currentState.totalPagesInChapter == totalPages &&
@@ -391,16 +440,25 @@ class ReaderViewModel @Inject constructor(
         viewModelScope.launch {
             val state = _uiState.value
             if (state.isLoading || state.chapters.isEmpty()) {
-                Log.d("EpubPro_VM", "Skip saveProgress: isLoading=${state.isLoading}, chaptersSize=${state.chapters.size}")
+                Log.d(
+                    "EpubPro_VM",
+                    "Skip saveProgress: isLoading=${state.isLoading}, chaptersSize=${state.chapters.size}"
+                )
                 return@launch
             }
 
             val totalChapters = state.chapters.size.coerceAtLeast(1)
             val chapterProgress = state.currentChapterIndex.toFloat() / totalChapters
-            val pageProgress = ((state.currentPageInChapter.toFloat() - 1) / state.totalPagesInChapter.coerceAtLeast(1)) / totalChapters
+            val pageProgress =
+                ((state.currentPageInChapter.toFloat() - 1) / state.totalPagesInChapter.coerceAtLeast(
+                    1
+                )) / totalChapters
             val overallProgress = (chapterProgress + pageProgress).coerceIn(0f, 1f)
 
-            Log.d("EpubPro_VM", "Saving reading progress: chapterIndex=${state.currentChapterIndex}, pageIndex=${state.currentPageInChapter}, progress=$overallProgress")
+            Log.d(
+                "EpubPro_VM",
+                "Saving reading progress: chapterIndex=${state.currentChapterIndex}, pageIndex=${state.currentPageInChapter}, progress=$overallProgress"
+            )
 
             bookRepository.saveReadingProgress(
                 ReadingProgress(
@@ -411,13 +469,84 @@ class ReaderViewModel @Inject constructor(
                     progressPercentage = overallProgress
                 )
             )
+
+            val currentChapterTitle =
+                state.chapters.getOrNull(state.currentChapterIndex)?.title.orEmpty()
+            val coverPath = state.book?.coverPath
+            val paragraphIndex = state.firstVisibleParagraphIndex.coerceAtLeast(0)
+            val displayedChapterHtml = state.displayedChapterHtml
+            val bookTitle = state.book?.title.orEmpty()
+            val isTtsSpeaking = state.isTtsSpeaking
+            val preferAiContent = state.contentVersion == ReaderContentVersion.AI
+
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val chapterChunks = TtsTextParser.parseHtmlToChunks(displayedChapterHtml)
+                val totalParagraphs = chapterChunks
+                    .maxOfOrNull { it.paragraphIndex + 1 }
+                    ?.coerceAtLeast(1)
+                    ?: 1
+                val pageText = buildWidgetParagraphText(
+                    chunks = chapterChunks,
+                    paragraphIndex = paragraphIndex,
+                    fallbackHtml = displayedChapterHtml
+                )
+
+                playbackSnapshotStore.saveSnapshot(
+                    TtsPlaybackSnapshot(
+                        bookId = bookId,
+                        chapterIndex = state.currentChapterIndex,
+                        paragraphIndex = paragraphIndex,
+                        sentenceIndex = 0,
+                        timelinePositionMs = 0L,
+                        preferAiContent = preferAiContent
+                    )
+                )
+
+                widgetStateStore.saveState(
+                    TtsWidgetState(
+                        bookTitle = bookTitle,
+                        chapterTitle = currentChapterTitle,
+                        playbackStatus = if (isTtsSpeaking) TtsWidgetPlaybackStatus.PLAYING else TtsWidgetPlaybackStatus.IDLE,
+                        progress = overallProgress,
+                        positionMs = 0L,
+                        durationMs = 0L,
+                        hasSnapshot = true,
+                        coverPath = coverPath,
+                        paragraphIndex = paragraphIndex,
+                        totalParagraphs = totalParagraphs,
+                        paragraphText = pageText
+                    )
+                )
+            }
+            context.sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(context.packageName))
         }
+    }
+
+
+    private fun buildWidgetParagraphText(
+        chunks: List<TtsChunk>,
+        paragraphIndex: Int,
+        fallbackHtml: String
+    ): String {
+        val paragraphText = chunks
+            .filter { it.paragraphIndex == paragraphIndex }
+            .joinToString(" ") { it.text.trim() }
+            .trim()
+        if (paragraphText.isNotBlank()) return paragraphText.take(WIDGET_TEXT_MAX_CHARS)
+
+        return runCatching {
+            android.text.Html.fromHtml(
+                fallbackHtml,
+                android.text.Html.FROM_HTML_MODE_LEGACY
+            ).toString().trim().take(WIDGET_TEXT_MAX_CHARS)
+        }.getOrDefault("")
     }
 
     fun addBookmark() {
         viewModelScope.launch {
             val state = _uiState.value
-            val chapterTitle = state.chapters.getOrNull(state.currentChapterIndex)?.title ?: "Chapter ${state.currentChapterIndex + 1}"
+            val chapterTitle = state.chapters.getOrNull(state.currentChapterIndex)?.title
+                ?: "Chapter ${state.currentChapterIndex + 1}"
             bookmarkRepository.addBookmark(
                 Bookmark(
                     id = UUID.randomUUID().toString(),
@@ -624,8 +753,8 @@ class ReaderViewModel @Inject constructor(
 
         val duplicate = _uiState.value.aiRules.any { existing ->
             existing.id != ruleId &&
-                existing.scope == scope &&
-                existing.source.equals(normalizedSource, ignoreCase = !caseSensitive)
+                    existing.scope == scope &&
+                    existing.source.equals(normalizedSource, ignoreCase = !caseSensitive)
         }
         if (duplicate) {
             _uiState.update { it.copy(aiError = "Đã có quy tắc cùng phạm vi cho thuật ngữ này.") }
@@ -745,7 +874,8 @@ class ReaderViewModel @Inject constructor(
         val author = state.book?.author ?: "Tác giả"
 
         // Retrieve the last saved chunk index for this specific book and chapter
-        val savedChunkIndex = ttsPreferencesManager.getLastTtsChunkIndex(bookId, state.currentChapterIndex)
+        val savedChunkIndex =
+            ttsPreferencesManager.getLastTtsChunkIndex(bookId, state.currentChapterIndex)
         val validIndex = savedChunkIndex.coerceIn(0, (chunks.size - 1).coerceAtLeast(0))
 
         ttsService?.loadContent(
@@ -755,6 +885,7 @@ class ReaderViewModel @Inject constructor(
             parsedChunks = chunks,
             startIndex = validIndex,
             chapterIndex = state.currentChapterIndex,
+            chapterTitle = state.chapters.getOrNull(state.currentChapterIndex)?.title.orEmpty(),
             preferAiContent = state.contentVersion == ReaderContentVersion.AI
         )
     }
@@ -764,6 +895,7 @@ class ReaderViewModel @Inject constructor(
         when (state.ttsPlayerState) {
             is TtsPlayerState.Preparing,
             is TtsPlayerState.Playing -> ttsService?.pause()
+
             is TtsPlayerState.Paused -> ttsService?.resume()
             else -> startTtsServicePlayback(ttsService)
         }

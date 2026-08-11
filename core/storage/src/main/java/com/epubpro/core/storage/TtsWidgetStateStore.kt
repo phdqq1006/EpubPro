@@ -21,9 +21,16 @@ enum class TtsWidgetPlaybackStatus {
 
 data class TtsWidgetState(
     val bookTitle: String = "",
+    val chapterTitle: String = "",
     val playbackStatus: TtsWidgetPlaybackStatus = TtsWidgetPlaybackStatus.IDLE,
     val progress: Float = 0f,
-    val hasSnapshot: Boolean = false
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val hasSnapshot: Boolean = false,
+    val coverPath: String? = null,
+    val paragraphIndex: Int = 0,
+    val totalParagraphs: Int = 0,
+    val paragraphText: String = ""
 ) {
     val normalizedProgress: Float
         get() = progress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
@@ -78,12 +85,30 @@ internal object TtsWidgetStateCodec {
         val title = Base64.getUrlEncoder()
             .withoutPadding()
             .encodeToString(normalized.bookTitle.toByteArray(Charsets.UTF_8))
+        val chapter = Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(normalized.chapterTitle.toByteArray(Charsets.UTF_8))
+        val cover = normalized.coverPath?.let {
+            Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(it.toByteArray(Charsets.UTF_8))
+        } ?: ""
+        val text = Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(normalized.paragraphText.take(800).toByteArray(Charsets.UTF_8))
         return listOf(
             SCHEMA_VERSION,
             title,
             normalized.playbackStatus.name,
             normalized.progress.toString(),
-            if (normalized.hasSnapshot) "1" else "0"
+            if (normalized.hasSnapshot) "1" else "0",
+            cover,
+            chapter,
+            normalized.positionMs.toString(),
+            normalized.durationMs.toString(),
+            normalized.paragraphIndex.toString(),
+            normalized.totalParagraphs.toString(),
+            text
         ).joinToString(FIELD_SEPARATOR.toString())
     }
 
@@ -106,11 +131,50 @@ internal object TtsWidgetStateCodec {
             "0" -> false
             else -> return null
         }
+        val coverPath = if (fields.size >= 6 && fields[5].isNotBlank()) {
+            runCatching {
+                String(
+                    Base64.getUrlDecoder().decode(fields[5]),
+                    Charsets.UTF_8
+                )
+            }.getOrNull()
+        } else null
+
+        val chapterTitle = if (fields.size >= 7 && fields[6].isNotBlank()) {
+            runCatching {
+                String(
+                    Base64.getUrlDecoder().decode(fields[6]),
+                    Charsets.UTF_8
+                )
+            }.getOrNull().orEmpty()
+        } else ""
+
+        val positionMs = if (fields.size >= 8) fields[7].toLongOrNull() ?: 0L else 0L
+        val durationMs = if (fields.size >= 9) fields[8].toLongOrNull() ?: 0L else 0L
+
+        val paragraphIndex = if (fields.size >= 10) fields[9].toIntOrNull() ?: 0 else 0
+        val totalParagraphs = if (fields.size >= 11) fields[10].toIntOrNull() ?: 0 else 0
+        val paragraphText = if (fields.size >= 12 && fields[11].isNotBlank()) {
+            runCatching {
+                String(
+                    Base64.getUrlDecoder().decode(fields[11]),
+                    Charsets.UTF_8
+                )
+            }.getOrNull().orEmpty()
+        } else ""
+
         return TtsWidgetState(
             bookTitle = title,
+            chapterTitle = chapterTitle,
             playbackStatus = status,
             progress = progress,
-            hasSnapshot = hasSnapshot
+            positionMs = positionMs,
+            durationMs = durationMs,
+            hasSnapshot = hasSnapshot,
+            coverPath = coverPath,
+            paragraphIndex = paragraphIndex,
+            totalParagraphs = totalParagraphs,
+            paragraphText = paragraphText
         )
     }
 }

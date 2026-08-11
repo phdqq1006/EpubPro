@@ -33,9 +33,9 @@
 ### Thành phần
 
 - `TtsAudioWidgetProvider`: nhận lifecycle/update callback và render `RemoteViews`.
-- `tts_audio_widget.xml`: layout 4x1, màu lấy theo design system.
-- `tts_audio_widget_info.xml`: metadata kích thước và resize.
-- `TtsWidgetStateStore`: lưu projection tối thiểu cho lần render sau process recreation.
+- `tts_audio_widget.xml`: layout 4x1 phong cách Dark Mode Premium (Material You, nền #1F2026 với viền 1px mờ #34353E, corner radius 24dp). Hiển thị bìa sách 48x48dp (hoặc placeholder fallback), nút Play/Pause dạng circle container màu cam Accent #FF6B4B nổi bật và bộ icon vector custom.
+- `tts_audio_widget_info.xml`: metadata kích thước và resize (targetCellWidth=4, targetCellHeight=1, minWidth=250dp, minHeight=72dp).
+- `TtsWidgetStateStore`: lưu projection tối thiểu (title, playbackStatus, progress, hasSnapshot, coverPath) cho lần render sau process recreation.
 - `TtsService`: nhận action widget và cập nhật state/notification/bubble/widget đồng bộ.
 
 ### Action
