@@ -27,6 +27,9 @@ import com.epubpro.core.storage.TtsBubblePreferencesManager
 import com.epubpro.core.storage.TtsPlaybackSnapshot
 import com.epubpro.core.storage.TtsPlaybackSnapshotStore
 import com.epubpro.core.storage.TtsPreferencesManager
+import com.epubpro.core.storage.TtsWidgetPlaybackStatus
+import com.epubpro.core.storage.TtsWidgetState
+import com.epubpro.core.storage.TtsWidgetStateStore
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.SleepTimerOption
 import com.epubpro.domain.model.TtsChunk
@@ -73,6 +76,9 @@ class TtsService : Service() {
 
     @Inject
     lateinit var bookRepository: BookRepository
+
+    @Inject
+    lateinit var widgetStateStore: TtsWidgetStateStore
 
     private val binder = TtsBinder()
     private val serviceJob = Job()
@@ -169,6 +175,7 @@ class TtsService : Service() {
             onOverlayUnavailable = ::handleOverlayUnavailable
         )
         publishBubbleModel()
+        publishWidgetState()
 
         serviceScope.launch {
             preferencesManager.settingsFlow.collect { settings ->
@@ -193,8 +200,40 @@ class TtsService : Service() {
             TtsMediaSessionManager.ACTION_NEXT -> nextChunk()
             TtsMediaSessionManager.ACTION_PREV -> previousChunk()
             TtsMediaSessionManager.ACTION_STOP -> stopSession()
+            ACTION_WIDGET_PLAY_PAUSE -> handleWidgetPlayPause(startId)
+            ACTION_WIDGET_PREVIOUS -> handleWidgetPrevious(startId)
+            ACTION_WIDGET_NEXT -> handleWidgetNext(startId)
         }
         return if (bubbleRuntime.isBubbleAvailable()) START_STICKY else START_NOT_STICKY
+    }
+
+    private fun handleWidgetPlayPause(startId: Int) {
+        if (playbackSnapshotStore.getSnapshot() == null &&
+            _playerState.value is TtsPlayerState.Idle
+        ) {
+            stopSelf(startId)
+            return
+        }
+        startedSession = true
+        if (isPlaybackRunning()) pause() else resume()
+    }
+
+    private fun handleWidgetPrevious(startId: Int) {
+        if (playbackSnapshotStore.getSnapshot() == null && chunks.isEmpty()) {
+            stopSelf(startId)
+            return
+        }
+        startedSession = true
+        previousChunk()
+    }
+
+    private fun handleWidgetNext(startId: Int) {
+        if (playbackSnapshotStore.getSnapshot() == null && chunks.isEmpty()) {
+            stopSelf(startId)
+            return
+        }
+        startedSession = true
+        nextChunk()
     }
 
     fun loadContent(
@@ -288,6 +327,7 @@ class TtsService : Service() {
             totalChunks = chunks.size,
             currentChunk = chunkToSpeak
         )
+        publishWidgetState()
         mediaSessionManager.updateMetadata(
             bookTitle = bookTitle,
             author = author,
@@ -326,6 +366,7 @@ class TtsService : Service() {
                         progressMs = currentChunkStartPositionMs,
                         totalMs = estimatedTotalDurationMs
                     )
+                    publishWidgetState()
                     saveCurrentSnapshot(currentChunkStartPositionMs)
                     publishBubbleModel()
                     mediaSessionManager.updatePlaybackState(
@@ -388,6 +429,7 @@ class TtsService : Service() {
         playbackStartedAtElapsedRealtimeMs = null
         pausedBySystem = false
         _playerState.value = TtsPlayerState.Idle
+        publishWidgetState()
         mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
         publishBubbleModel()
         if (bubbleRuntime.isBubbleAvailable()) {
@@ -429,6 +471,7 @@ class TtsService : Service() {
             totalChunks = chunks.size,
             currentChunk = currentChunk
         )
+        publishWidgetState()
         mediaSessionManager.updatePlaybackState(
             isPlaying = false,
             positionMs = currentTimelinePositionMs
@@ -486,6 +529,7 @@ class TtsService : Service() {
         isRestoringSnapshot = false
 
         _playerState.value = TtsPlayerState.Idle
+        publishWidgetState()
         mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
         publishBubbleModel()
         if (bubbleRuntime.isBubbleAvailable()) {
@@ -604,6 +648,7 @@ class TtsService : Service() {
                         durationMs = estimatedTotalDurationMs
                     )
                     mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
+                    publishWidgetState()
                     publishBubbleModel()
                     if (bubbleRuntime.isBubbleAvailable()) {
                         showIdleBubbleNotification(forceForegroundEpisodeRestart = false)
@@ -873,6 +918,7 @@ class TtsService : Service() {
                 currentChunk = currentChunk,
                 totalChunks = chunks.size
             )
+            publishWidgetState()
             mediaSessionManager.updateMetadata(
                 bookTitle = bookTitle,
                 author = author,
@@ -1005,6 +1051,7 @@ class TtsService : Service() {
             bookId = bookId,
             chapterIndex = currentChapterIndex
         )
+        publishWidgetState()
         mediaSessionManager.updateStoppedState(estimatedTotalDurationMs)
         publishBubbleModel()
         if (bubbleRuntime.isBubbleAvailable()) {
@@ -1027,6 +1074,7 @@ class TtsService : Service() {
         isRestoringSnapshot = false
 
         _playerState.value = TtsPlayerState.Error(message)
+        publishWidgetState()
         mediaSessionManager.updateErrorState(
             positionMs = currentTimelinePositionMs,
             message = message
@@ -1183,6 +1231,7 @@ class TtsService : Service() {
         isRestoringSnapshot = false
         pendingSnapshotMove = 0
         _playerState.value = TtsPlayerState.Idle
+        publishWidgetState()
         mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
         publishBubbleModel()
 
@@ -1262,6 +1311,38 @@ class TtsService : Service() {
         }
     }
 
+    private fun publishWidgetState() {
+        if (!::widgetStateStore.isInitialized) return
+        val playerState = _playerState.value
+        val progress = if (estimatedTotalDurationMs > 0L) {
+            (currentTimelinePositionMs.coerceAtLeast(0L).toFloat() / estimatedTotalDurationMs.toFloat())
+                .coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val status = when {
+            isRestoringSnapshot -> TtsWidgetPlaybackStatus.PREPARING
+            playerState is TtsPlayerState.Loading ||
+                playerState is TtsPlayerState.Preparing -> TtsWidgetPlaybackStatus.PREPARING
+            playerState is TtsPlayerState.Playing -> TtsWidgetPlaybackStatus.PLAYING
+            playerState is TtsPlayerState.Paused -> TtsWidgetPlaybackStatus.PAUSED
+            playerState is TtsPlayerState.Error -> TtsWidgetPlaybackStatus.ERROR
+            playerState is TtsPlayerState.Completed -> TtsWidgetPlaybackStatus.COMPLETED
+            else -> TtsWidgetPlaybackStatus.IDLE
+        }
+        val changed = widgetStateStore.saveState(
+            TtsWidgetState(
+                bookTitle = bookTitle,
+                playbackStatus = status,
+                progress = progress,
+                hasSnapshot = playbackSnapshotStore.getSnapshot() != null
+            )
+        )
+        if (changed) {
+            sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(packageName))
+        }
+    }
+
     private fun publishBubbleModel() {
         if (!::bubbleRuntime.isInitialized) return
         val state = _playerState.value
@@ -1329,6 +1410,7 @@ class TtsService : Service() {
             author = book.author
             currentCoverBitmap = cover
             publishBubbleModel()
+            publishWidgetState()
         }
     }
 
@@ -1529,6 +1611,9 @@ class TtsService : Service() {
     }
 
     companion object {
+        const val ACTION_WIDGET_PLAY_PAUSE = "com.epubpro.tts.ACTION_WIDGET_PLAY_PAUSE"
+        const val ACTION_WIDGET_PREVIOUS = "com.epubpro.tts.ACTION_WIDGET_PREVIOUS"
+        const val ACTION_WIDGET_NEXT = "com.epubpro.tts.ACTION_WIDGET_NEXT"
         private const val ACTION_START_SESSION = "com.epubpro.tts.ACTION_START_SESSION"
         private const val ACTION_SYNC_BUBBLE = "com.epubpro.tts.ACTION_SYNC_BUBBLE"
         private const val PREVIEW_CHUNK_ID = 9999

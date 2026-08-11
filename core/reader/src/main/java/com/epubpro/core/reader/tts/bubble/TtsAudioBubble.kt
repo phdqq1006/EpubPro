@@ -39,14 +39,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.epubpro.core.designsystem.theme.EpubProTheme
 import com.epubpro.core.reader.R
 
 internal class TtsBubbleDragCallbacks(
@@ -73,20 +71,10 @@ internal class TtsBubbleDragCallbacks(
 
 @Composable
 internal fun TtsBubbleTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) {
-        darkColorScheme(
-            primary = Color(0xFF9FC9FF),
-            surface = Color(0xFF20242D),
-            surfaceVariant = Color(0xFF2A303C)
-        )
-    } else {
-        lightColorScheme(
-            primary = Color(0xFF1769AA),
-            surface = Color(0xFFFFFBFF),
-            surfaceVariant = Color(0xFFE9EEF7)
-        )
-    }
-    MaterialTheme(colorScheme = colors, content = content)
+    EpubProTheme(
+        darkTheme = isSystemInDarkTheme(),
+        content = content
+    )
 }
 
 @Composable

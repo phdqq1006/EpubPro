@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tts_widget_background">#FF2D2D2D</color>
+    <color name="tts_widget_primary">#FFE88A6A</color>
+    <color name="tts_widget_on_surface">#FFE0E0E0</color>
+    <color name="tts_widget_on_surface_variant">#FFBDBDBD</color>
+</resources>

@@ -14,6 +14,7 @@ import com.epubpro.core.designsystem.theme.EpubProTheme
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsOpenBookRequest
 import com.epubpro.core.reader.tts.TtsService
+import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.TtsBubblePreferencesManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.channels.Channel
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dispatchOpenBookRequest(intent)
+        dispatchOpenLibraryRequest(intent)
 
         enableEdgeToEdge()
         setContent {
@@ -39,7 +41,8 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 AppNavHost(
                     navController = navController,
-                    openBookRequests = intentViewModel.openBookRequests
+                    openBookRequests = intentViewModel.openBookRequests,
+                    openLibraryRequests = intentViewModel.openLibraryRequests
                 )
             }
         }
@@ -57,6 +60,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         dispatchOpenBookRequest(intent)
+        dispatchOpenLibraryRequest(intent)
+    }
+
+    private fun dispatchOpenLibraryRequest(intent: Intent?) {
+        if (intent?.action != TtsWidgetContract.ACTION_OPEN_LIBRARY) return
+        intentViewModel.dispatchOpenLibrary()
+        intent.action = null
     }
 
     private fun dispatchOpenBookRequest(intent: Intent?) {
@@ -83,9 +93,15 @@ class MainActivity : ComponentActivity() {
 
 internal class MainIntentViewModel : ViewModel() {
     private val requestChannel = Channel<TtsOpenBookRequest>(Channel.BUFFERED)
+    private val libraryChannel = Channel<Unit>(Channel.BUFFERED)
     val openBookRequests: Flow<TtsOpenBookRequest> = requestChannel.receiveAsFlow()
+    val openLibraryRequests: Flow<Unit> = libraryChannel.receiveAsFlow()
 
     fun dispatch(request: TtsOpenBookRequest) {
         requestChannel.trySend(request)
+    }
+
+    fun dispatchOpenLibrary() {
+        libraryChannel.trySend(Unit)
     }
 }

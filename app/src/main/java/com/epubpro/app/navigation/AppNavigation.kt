@@ -40,7 +40,8 @@ import kotlinx.coroutines.flow.emptyFlow
 @Composable
 fun AppNavHost(
     navController: NavHostController,
-    openBookRequests: Flow<TtsOpenBookRequest> = emptyFlow()
+    openBookRequests: Flow<TtsOpenBookRequest> = emptyFlow(),
+    openLibraryRequests: Flow<Unit> = emptyFlow()
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -57,6 +58,17 @@ fun AppNavHost(
                     openTtsPlayer = request.openTtsPlayer
                 )
             ) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    LaunchedEffect(navController, openLibraryRequests) {
+        openLibraryRequests.collect {
+            navController.navigate(Screen.Library.route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = false
+                }
                 launchSingleTop = true
             }
         }
