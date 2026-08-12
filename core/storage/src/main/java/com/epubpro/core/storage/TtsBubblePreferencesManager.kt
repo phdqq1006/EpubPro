@@ -14,12 +14,18 @@ enum class TtsBubbleSide {
     RIGHT
 }
 
+enum class TtsBubblePowerMode {
+    ALWAYS_ON,
+    BATTERY_SAVER
+}
+
 data class TtsBubblePreferences(
     val enabled: Boolean = false,
     val pendingEnable: Boolean = false,
     val side: TtsBubbleSide = TtsBubbleSide.RIGHT,
     val normalizedY: Float = DEFAULT_BUBBLE_NORMALIZED_Y,
-    val hiddenForCurrentSession: Boolean = false
+    val hiddenForCurrentSession: Boolean = false,
+    val powerMode: TtsBubblePowerMode = TtsBubblePowerMode.ALWAYS_ON
 )
 
 internal const val DEFAULT_BUBBLE_NORMALIZED_Y = 0.5f
@@ -86,6 +92,8 @@ class TtsBubblePreferencesManager @Inject constructor(
         it.copy(side = side, normalizedY = normalizedY)
     }
 
+    fun setPowerMode(mode: TtsBubblePowerMode): Boolean = updatePreferences { it.copy(powerMode = mode) }
+
     fun setHiddenForCurrentSession(hidden: Boolean): Boolean = updatePreferences {
         it.copy(hiddenForCurrentSession = hidden)
     }
@@ -115,7 +123,8 @@ internal object TtsBubblePreferencesCodec {
             value.pendingEnable.encoded(),
             value.side.name,
             value.normalizedY.toString(),
-            value.hiddenForCurrentSession.encoded()
+            value.hiddenForCurrentSession.encoded(),
+            value.powerMode.name
         ).joinToString(FIELD_SEPARATOR.toString())
     }
 
@@ -128,13 +137,20 @@ internal object TtsBubblePreferencesCodec {
         val side = runCatching { TtsBubbleSide.valueOf(fields[3]) }.getOrNull() ?: return null
         val normalizedY = fields[4].toFloatOrNull() ?: return null
         val hidden = fields[5].decodedBoolean() ?: return null
+        val powerMode = if (fields.size >= 7) {
+            runCatching { TtsBubblePowerMode.valueOf(fields[6]) }.getOrNull()
+                ?: return null
+        } else {
+            TtsBubblePowerMode.ALWAYS_ON
+        }
 
         return TtsBubblePreferences(
             enabled = enabled,
             pendingEnable = pendingEnable,
             side = side,
             normalizedY = normalizedY,
-            hiddenForCurrentSession = hidden
+            hiddenForCurrentSession = hidden,
+            powerMode = powerMode
         ).normalized()
     }
 

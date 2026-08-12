@@ -77,6 +77,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.epubpro.core.designsystem.R
+import com.epubpro.core.storage.TtsBubblePowerMode
 import com.epubpro.core.reader.tts.TtsService
 
 private fun Context.hasTtsBubbleNotificationPermission(): Boolean {
@@ -98,6 +99,7 @@ fun AudioSettingsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
+    var showPowerModeMenu by remember { mutableStateOf(false) }
     var hasNotificationPermission by remember {
         mutableStateOf(context.hasTtsBubbleNotificationPermission())
     }
@@ -402,6 +404,13 @@ fun AudioSettingsScreen(
                 }
             )
 
+            BubblePowerModeCard(
+                mode = uiState.bubblePowerMode,
+                expanded = showPowerModeMenu,
+                onExpandedChange = { showPowerModeMenu = it },
+                onModeSelected = viewModel::setBubblePowerMode
+            )
+
             Button(
                 onClick = onNavigateBack,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -471,6 +480,66 @@ private fun AudioBubbleSettingsCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BubblePowerModeCard(
+    mode: TtsBubblePowerMode,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onModeSelected: (TtsBubblePowerMode) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(stringResource(R.string.audio_bubble_power_mode_title), fontWeight = FontWeight.SemiBold)
+            Text(
+                text = if (mode == TtsBubblePowerMode.ALWAYS_ON) {
+                    stringResource(R.string.audio_bubble_power_mode_always_on_desc)
+                } else {
+                    stringResource(R.string.audio_bubble_power_mode_saver_desc)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Box {
+                SettingSelector(
+                    text = if (mode == TtsBubblePowerMode.ALWAYS_ON) {
+                        stringResource(R.string.audio_bubble_power_mode_always_on)
+                    } else {
+                        stringResource(R.string.audio_bubble_power_mode_saver)
+                    },
+                    enabled = true,
+                    onClick = { onExpandedChange(true) }
+                )
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { onExpandedChange(false) }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.audio_bubble_power_mode_always_on)) },
+                        onClick = {
+                            onModeSelected(TtsBubblePowerMode.ALWAYS_ON)
+                            onExpandedChange(false)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.audio_bubble_power_mode_saver)) },
+                        onClick = {
+                            onModeSelected(TtsBubblePowerMode.BATTERY_SAVER)
+                            onExpandedChange(false)
+                        }
+                    )
+                }
             }
         }
     }

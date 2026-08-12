@@ -87,6 +87,11 @@
     <string name="audio_save_settings">Lưu cài đặt</string>
     <string name="audio_bubble_settings_title">4. Bong bóng điều khiển audio</string>
     <string name="audio_bubble_settings_description">Hiển thị điều khiển TTS nổi trên các ứng dụng khác, kể cả khi audio đã dừng.</string>
+    <string name="audio_bubble_power_mode_title">Chế độ hoạt động nền</string>
+    <string name="audio_bubble_power_mode_always_on_desc">Giữ bubble và dịch vụ nền sẵn sàng.</string>
+    <string name="audio_bubble_power_mode_saver_desc">Tự dừng runtime sau 5 phút khi app ở nền và đang Idle.</string>
+    <string name="audio_bubble_power_mode_always_on">Luôn sẵn sàng</string>
+    <string name="audio_bubble_power_mode_saver">Tiết kiệm pin</string>
     <string name="audio_bubble_permission_pending">Đang chờ quyền hiển thị trên ứng dụng khác…</string>
     <string name="audio_bubble_notification_permission_warning">Bạn chưa cấp quyền thông báo. Khi TTS dừng, thông báo bong bóng có thể chỉ xuất hiện trong Trình quản lý tác vụ.</string>
 

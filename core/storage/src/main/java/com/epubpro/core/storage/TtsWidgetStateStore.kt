@@ -56,13 +56,11 @@ class TtsWidgetStateStore @Inject constructor(
         val normalized = state.copy(progress = state.normalizedProgress)
         if (normalized == _stateFlow.value) return false
 
-        val committed = preferences.edit()
+        preferences.edit()
             .putString(KEY_STATE, TtsWidgetStateCodec.encode(normalized))
-            .commit()
-        if (committed) {
-            _stateFlow.value = normalized
-        }
-        return committed
+            .apply()
+        _stateFlow.value = normalized
+        return true
     }
 
     private fun readState(): TtsWidgetState {

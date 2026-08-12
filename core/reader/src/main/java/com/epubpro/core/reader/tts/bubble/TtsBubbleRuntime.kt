@@ -19,7 +19,9 @@ internal class TtsBubbleRuntime(
     private val preferencesManager: TtsBubblePreferencesManager,
     onCommand: (TtsBubbleCommand) -> Unit,
     private val onAvailabilityChanged: (Boolean) -> Unit,
-    private val onOverlayUnavailable: (Throwable) -> Unit
+    private val onOverlayUnavailable: (Throwable) -> Unit,
+    private val onEnvironmentChanged: () -> Unit = {},
+    private val onInteraction: () -> Unit = {}
 ) : AutoCloseable {
     private val appContext = context.applicationContext
     private val appVisibilityTracker = AppVisibilityTracker()
@@ -35,17 +37,20 @@ internal class TtsBubbleRuntime(
         context = appContext,
         initialPosition = preferencesManager.getPreferences().toPosition(),
         callbacks = TtsBubbleOverlayCallbacks(
-            onCommand = onCommand,
+            onCommand = { command -> onInteraction(); onCommand(command) },
             onExpansionChangeRequested = { expanded ->
+                onInteraction()
                 expansionRequested = expanded
                 render()
             },
             onTemporarilyHideRequested = {
+                onInteraction()
                 expansionRequested = false
                 preferencesManager.setHiddenForCurrentSession(true)
                 render()
             },
             onPositionChanged = { position ->
+                onInteraction()
                 preferencesManager.savePosition(
                     side = when (position.edge) {
                         TtsBubbleHorizontalEdge.LEFT -> TtsBubbleSide.LEFT
@@ -81,6 +86,7 @@ internal class TtsBubbleRuntime(
                 if (availabilityObserver.update(permissionGranted)) {
                     onAvailabilityChanged(permissionGranted)
                 }
+                onEnvironmentChanged()
             }
     }
 
@@ -104,6 +110,11 @@ internal class TtsBubbleRuntime(
             overlayPermissionTracker.granted.value &&
             !overlayUnavailable
     }
+
+    fun isAppVisible(): Boolean = appVisibilityTracker.appVisible.value
+
+    fun isExpanded(): Boolean = expansionRequested
+
 
     override fun close() {
         environmentJob.cancel()

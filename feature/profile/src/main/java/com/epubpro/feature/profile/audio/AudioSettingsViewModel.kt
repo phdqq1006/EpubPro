@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.core.reader.tts.AndroidNativeTtsEngine
 import com.epubpro.core.storage.TtsBubblePreferencesManager
+import com.epubpro.core.storage.TtsBubblePowerMode
 import com.epubpro.core.storage.TtsPreferencesManager
 import com.epubpro.core.tts.SherpaTtsEngine
 import com.epubpro.core.tts.TtsVoiceCatalog
@@ -42,7 +43,8 @@ data class AudioSettingsUiState(
     val speechSpeed: Float = 1.0f,
     val speechPitch: Float = 1.0f,
     val isBubbleEnabled: Boolean = false,
-    val isBubbleEnablePending: Boolean = false
+    val isBubbleEnablePending: Boolean = false,
+    val bubblePowerMode: TtsBubblePowerMode = TtsBubblePowerMode.ALWAYS_ON
 )
 
 @HiltViewModel
@@ -63,7 +65,8 @@ class AudioSettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         AudioSettingsUiState(
             isBubbleEnabled = initialBubblePreferences.enabled,
-            isBubbleEnablePending = initialBubblePreferences.pendingEnable
+            isBubbleEnablePending = initialBubblePreferences.pendingEnable,
+            bubblePowerMode = initialBubblePreferences.powerMode
         )
     )
     val uiState: StateFlow<AudioSettingsUiState> = _uiState.asStateFlow()
@@ -117,7 +120,8 @@ class AudioSettingsViewModel @Inject constructor(
             bubblePreferencesManager.preferencesFlow.collect { preferences ->
                 _uiState.value = _uiState.value.copy(
                     isBubbleEnabled = preferences.enabled,
-                    isBubbleEnablePending = preferences.pendingEnable
+                    isBubbleEnablePending = preferences.pendingEnable,
+                    bubblePowerMode = preferences.powerMode
                 )
             }
         }
@@ -246,6 +250,10 @@ class AudioSettingsViewModel @Inject constructor(
             }
             else -> false
         }
+    }
+
+    fun setBubblePowerMode(mode: TtsBubblePowerMode) {
+        bubblePreferencesManager.setPowerMode(mode)
     }
 
     fun disableBubble() {

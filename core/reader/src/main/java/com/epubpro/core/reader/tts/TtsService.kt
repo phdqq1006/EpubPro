@@ -24,6 +24,7 @@ import com.epubpro.core.reader.tts.bubble.TtsBubbleUiModel
 import com.epubpro.core.reader.tts.bubble.toBubblePlaybackStatus
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsBubblePreferencesManager
+import com.epubpro.core.storage.TtsBubblePowerMode
 import com.epubpro.core.storage.TtsPlaybackSnapshot
 import com.epubpro.core.storage.TtsPlaybackSnapshotStore
 import com.epubpro.core.storage.TtsPreferencesManager
@@ -102,6 +103,7 @@ class TtsService : Service() {
     private var activeSettings: TtsSettings = TtsSettings()
     private var sleepTimerOption: SleepTimerOption = SleepTimerOption.OFF
     private var sleepTimerJob: Job? = null
+    private var idleTimeoutJob: Job? = null
     private var notificationProgressJob: Job? = null
     private var chapterPreparation: Deferred<Result<Unit>>? = null
     private var remainingSleepSeconds: Int = 0
@@ -113,6 +115,8 @@ class TtsService : Service() {
     private var isRestoringSnapshot: Boolean = false
     private var pendingSnapshotMove: Int = 0
     private var snapshotRestoreJob: Job? = null
+    private var idleEpisodeId: Long = 0L
+    private var isShuttingDownIdle: Boolean = false
     private var currentCoverBitmap: Bitmap? = null
 
     private lateinit var bubbleRuntime: TtsBubbleRuntime
@@ -159,14 +163,6 @@ class TtsService : Service() {
         currentEngine = engineFor(activeSettings)
         applySettingsToEngines(activeSettings)
 
-        nativeTtsEngine.initialize(
-            onReady = { applySettingsToEngines(activeSettings) },
-            onError = ::handleEngineInitializationError
-        )
-        piperTtsEngineWrapper.initialize(
-            onReady = { applySettingsToEngines(activeSettings) },
-            onError = ::handleEngineInitializationError
-        )
 
         bubbleRuntime = TtsBubbleRuntime(
             context = applicationContext,
@@ -174,7 +170,9 @@ class TtsService : Service() {
             preferencesManager = bubblePreferencesManager,
             onCommand = ::handleBubbleCommand,
             onAvailabilityChanged = { syncBubbleLifecycle() },
-            onOverlayUnavailable = ::handleOverlayUnavailable
+            onOverlayUnavailable = ::handleOverlayUnavailable,
+            onEnvironmentChanged = { if (::bubbleRuntime.isInitialized) syncPowerPolicy() },
+            onInteraction = ::handleBubbleInteraction
         )
         publishBubbleModel()
         publishWidgetState()
@@ -208,7 +206,10 @@ class TtsService : Service() {
             ACTION_WIDGET_READING_PREVIOUS -> handleReadingWidgetMove(startId, -1)
             ACTION_WIDGET_READING_NEXT -> handleReadingWidgetMove(startId, 1)
         }
-        return if (bubbleRuntime.isBubbleAvailable()) START_STICKY else START_NOT_STICKY
+        return if (
+            bubbleRuntime.isBubbleAvailable() &&
+            bubblePreferencesManager.getPreferences().powerMode == TtsBubblePowerMode.ALWAYS_ON
+        ) START_STICKY else START_NOT_STICKY
     }
 
     private fun handleWidgetPlayPause(startId: Int) {
@@ -1381,6 +1382,129 @@ class TtsService : Service() {
         )
     }
 
+    private fun handleBubbleInteraction() {
+        if (!isIdleTimeoutEligibleState()) return
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
+        idleEpisodeId++
+        syncPowerPolicy()
+    }
+
+    private fun syncPowerPolicy() {
+        if (!::bubbleRuntime.isInitialized || isShuttingDownIdle) return
+        val preferences = bubblePreferencesManager.getPreferences()
+        val shouldSchedule = TtsPowerPolicy.shouldScheduleIdleTimeout(
+            TtsPowerPolicyInput(
+                powerMode = preferences.powerMode,
+                playbackState = currentPowerPlaybackState(),
+                bubbleEnabled = preferences.enabled,
+                bubbleAvailable = bubbleRuntime.isBubbleAvailable(),
+                appVisible = bubbleRuntime.isAppVisible()
+            )
+        )
+        if (!shouldSchedule) {
+            if (idleTimeoutJob != null) idleEpisodeId++
+            idleTimeoutJob?.cancel()
+            idleTimeoutJob = null
+            return
+        }
+        if (idleTimeoutJob?.isActive == true) return
+
+        val episode = ++idleEpisodeId
+        val generation = playbackGeneration
+        idleTimeoutJob = serviceScope.launch {
+            delay(IDLE_TIMEOUT_MS)
+            if (episode != idleEpisodeId || generation != playbackGeneration) return@launch
+            val latestPreferences = bubblePreferencesManager.getPreferences()
+            val latestInput = TtsPowerPolicyInput(
+                powerMode = latestPreferences.powerMode,
+                playbackState = currentPowerPlaybackState(),
+                bubbleEnabled = latestPreferences.enabled,
+                bubbleAvailable = bubbleRuntime.isBubbleAvailable(),
+                appVisible = bubbleRuntime.isAppVisible()
+            )
+            if (episode != idleEpisodeId ||
+                !TtsPowerPolicy.shouldShutdownIdleRuntime(latestInput)
+            ) {
+                syncPowerPolicy()
+                return@launch
+            }
+            shutdownIdleRuntime(episode, generation)
+        }
+    }
+
+    private fun currentPowerPlaybackState(): TtsPowerPlaybackState = when (_playerState.value) {
+        TtsPlayerState.Idle -> TtsPowerPlaybackState.IDLE
+        is TtsPlayerState.Completed -> TtsPowerPlaybackState.COMPLETED
+        is TtsPlayerState.Paused -> TtsPowerPlaybackState.PAUSED
+        else -> TtsPowerPlaybackState.ACTIVE
+    }
+
+    private fun isIdleTimeoutEligibleState(): Boolean =
+        _playerState.value == TtsPlayerState.Idle ||
+            _playerState.value is TtsPlayerState.Completed
+
+    private fun currentSnapshotOrNull(): TtsPlaybackSnapshot? {
+        val currentChunk = chunks.getOrNull(currentIndex) ?: return null
+        if (bookId.isBlank()) return null
+        return TtsPlaybackSnapshot(
+            bookId = bookId,
+            chapterIndex = currentChapterIndex,
+            paragraphIndex = currentChunk.paragraphIndex,
+            sentenceIndex = TtsPlaybackCursorResolver.sentenceIndexInParagraph(
+                chunks = chunks,
+                currentIndex = currentIndex
+            ),
+            preferAiContent = preferAiContent,
+            timelinePositionMs = currentPlaybackPositionMs().coerceAtLeast(0L)
+        )
+    }
+
+    private suspend fun shutdownIdleRuntime(episode: Long, generation: Long) {
+        val finalSnapshot = currentSnapshotOrNull()
+        if (finalSnapshot != null) {
+            withContext(Dispatchers.IO) {
+                playbackSnapshotStore.saveSnapshot(finalSnapshot)
+            }
+        }
+        val preferences = bubblePreferencesManager.getPreferences()
+        val input = TtsPowerPolicyInput(
+            powerMode = preferences.powerMode,
+            playbackState = currentPowerPlaybackState(),
+            bubbleEnabled = preferences.enabled,
+            bubbleAvailable = bubbleRuntime.isBubbleAvailable(),
+            appVisible = bubbleRuntime.isAppVisible()
+        )
+        if (episode != idleEpisodeId ||
+            generation != playbackGeneration ||
+            !TtsPowerPolicy.shouldShutdownIdleRuntime(input)
+        ) {
+            syncPowerPolicy()
+            return
+        }
+
+        isShuttingDownIdle = true
+        idleTimeoutJob = null
+        idleEpisodeId++
+        invalidatePlayback()
+        chapterPreparation?.cancel()
+        chapterPreparation = null
+        currentEngine.stop()
+        audioFocusController.abandonFocus()
+        chapterPlaybackCoordinator.clear()
+        playbackStartedAtElapsedRealtimeMs = null
+        pausedBySystem = false
+        isRestoringSnapshot = false
+        _playerState.value = TtsPlayerState.Idle
+        publishWidgetState()
+        mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
+        publishBubbleModel()
+        stopForegroundAndRemove()
+        startedSession = false
+        isShuttingDownIdle = false
+        stopSelf()
+    }
+
     private fun syncBubbleLifecycle() {
         if (!::bubbleRuntime.isInitialized) return
         bubbleRuntime.refreshEnvironment()
@@ -1841,6 +1965,13 @@ class TtsService : Service() {
             .coerceIn(0L, estimatedTotalDurationMs.coerceAtLeast(0L))
     }
 
+    private fun bubbleUpdateIntervalMs(): Long =
+        if (bubbleRuntime.isExpanded()) {
+            BUBBLE_EXPANDED_UPDATE_INTERVAL_MS
+        } else {
+            BUBBLE_COLLAPSED_UPDATE_INTERVAL_MS
+        }
+
     private fun startNotificationProgressUpdates(
         playbackId: Long,
         expectedChapterIndex: Int,
@@ -1849,6 +1980,7 @@ class TtsService : Service() {
         notificationProgressJob?.cancel()
         notificationProgressJob = serviceScope.launch {
             var lastWidgetSec = -1L
+            var nextBubbleUpdateAtElapsedRealtimeMs = 0L
             while (playbackId == playbackGeneration &&
                 currentChapterIndex == expectedChapterIndex &&
                 currentIndex == expectedIndex &&
@@ -1875,11 +2007,13 @@ class TtsService : Service() {
                         progressMs = currentTimelinePositionMs,
                         totalMs = estimatedTotalDurationMs
                     )
-                    publishBubbleModel()
-                    showForegroundNotification(
-                        text = playingState.currentChunk.text,
-                        isPlaying = true
-                    )
+                    val now = SystemClock.elapsedRealtime()
+                    if (!bubbleRuntime.isAppVisible() &&
+                        now >= nextBubbleUpdateAtElapsedRealtimeMs
+                    ) {
+                        publishBubbleModel()
+                        nextBubbleUpdateAtElapsedRealtimeMs = now + bubbleUpdateIntervalMs()
+                    }
                 }
 
                 val currentSec = currentTimelinePositionMs / 5000L
@@ -1899,6 +2033,7 @@ class TtsService : Service() {
 
     override fun onDestroy() {
         sleepTimerJob?.cancel()
+        idleTimeoutJob?.cancel()
         chapterPreparation?.cancel()
         snapshotRestoreJob?.cancel()
         audioFocusController.abandonFocus()
@@ -1936,6 +2071,7 @@ class TtsService : Service() {
         private const val MIN_TIMELINE_SPEED = 0.5f
         private const val MIN_CHUNK_DURATION_MS = 2_000L
         private const val NOTIFICATION_PROGRESS_UPDATE_INTERVAL_MS = 1_000L
+        private const val IDLE_TIMEOUT_MS = 5 * 60 * 1_000L
 
         private val _playerState = MutableStateFlow<TtsPlayerState>(TtsPlayerState.Idle)
         val playerState: StateFlow<TtsPlayerState> = _playerState.asStateFlow()
@@ -1959,3 +2095,5 @@ class TtsService : Service() {
         }
     }
 }
+        private const val BUBBLE_EXPANDED_UPDATE_INTERVAL_MS = 1_000L
+        private const val BUBBLE_COLLAPSED_UPDATE_INTERVAL_MS = 5_000L

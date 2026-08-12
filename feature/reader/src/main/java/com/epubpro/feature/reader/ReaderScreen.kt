@@ -1,61 +1,115 @@
 package com.epubpro.feature.reader
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.FormatSize
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.NavigateBefore
+import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.epubpro.core.designsystem.R
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.bridge.ReaderJsBridge
 import com.epubpro.core.reader.style.CssInjector
-import com.epubpro.domain.model.ReaderSettings
+import com.epubpro.core.reader.tts.TtsService
+import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
+import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
-import org.json.JSONObject
-
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
-import android.os.IBinder
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import com.epubpro.core.reader.tts.TtsService
-import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.feature.reader.tts.TtsAudioPlayerScreen
 import com.epubpro.feature.reader.tts.TtsMiniPlayerBar
 import com.epubpro.feature.reader.tts.TtsSetupBottomSheet
+import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,28 +173,33 @@ fun ReaderScreen(
             Color(0xFFF1F5F9),
             Color(0xFF0F172A)
         )
+
         ReaderThemeMode.DARK -> Triple(
             Color(0xFF0F172A),
             Color(0xFF1E293B),
             Color(0xFFF8FAFC)
         )
+
         ReaderThemeMode.SEPIA -> Triple(
             Color(0xFFFBF0D9),
             Color(0xFFEFE0C2),
             Color(0xFF3B2F23)
         )
+
         ReaderThemeMode.PAPER -> Triple(
             Color(0xFFF5F0E8),
             Color(0xFFE5DDD0),
             Color(0xFF2C2825)
         )
+
         ReaderThemeMode.MIDNIGHT -> Triple(
             Color(0xFF000000),
             Color(0xFF18181B),
             Color(0xFFE2E8F0)
         )
     }
-    val isDarkTheme = uiState.settings.themeMode in listOf(ReaderThemeMode.DARK, ReaderThemeMode.MIDNIGHT)
+    val isDarkTheme =
+        uiState.settings.themeMode in listOf(ReaderThemeMode.DARK, ReaderThemeMode.MIDNIGHT)
 
     val currentStatusBarColor = if (uiState.showControls) readerBarBgColor else readerBgColor
 
@@ -148,7 +207,8 @@ fun ReaderScreen(
         val window = (context as? android.app.Activity)?.window
         val originalStatusBarColor = window?.statusBarColor
         val originalNavBarColor = window?.navigationBarColor
-        val controller = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, hostView) }
+        val controller =
+            window?.let { androidx.core.view.WindowCompat.getInsetsController(it, hostView) }
         val originalLightStatus = controller?.isAppearanceLightStatusBars ?: true
         val originalLightNav = controller?.isAppearanceLightNavigationBars ?: true
 
@@ -200,8 +260,9 @@ fun ReaderScreen(
             }
         } else if (uiState.chapters.isNotEmpty()) {
             if (uiState.displayedChapterHtml.isNotEmpty()) {
-                val activeChunkIndex = (uiState.ttsPlayerState as? TtsPlayerState.Playing)?.currentChunk?.paragraphIndex
-                    ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
+                val activeChunkIndex =
+                    (uiState.ttsPlayerState as? TtsPlayerState.Playing)?.currentChunk?.paragraphIndex
+                        ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
 
                 EpubWebView(
                     htmlContent = uiState.displayedChapterHtml,
@@ -251,7 +312,10 @@ fun ReaderScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = stringResource(R.string.action_back)
+                        )
                     }
                 },
                 actions = {
@@ -277,13 +341,22 @@ fun ReaderScreen(
                         )
                     }
                     IconButton(onClick = { viewModel.addBookmark() }) {
-                        Icon(Icons.Default.BookmarkBorder, contentDescription = stringResource(R.string.reader_save_bookmark))
+                        Icon(
+                            Icons.Default.BookmarkBorder,
+                            contentDescription = stringResource(R.string.reader_save_bookmark)
+                        )
                     }
                     IconButton(onClick = { showTocDrawer = true }) {
-                        Icon(Icons.Default.List, contentDescription = stringResource(R.string.reader_toc))
+                        Icon(
+                            Icons.Default.List,
+                            contentDescription = stringResource(R.string.reader_toc)
+                        )
                     }
                     IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(Icons.Default.FormatSize, contentDescription = stringResource(R.string.reader_display_settings))
+                        Icon(
+                            Icons.Default.FormatSize,
+                            contentDescription = stringResource(R.string.reader_display_settings)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -320,13 +393,20 @@ fun ReaderScreen(
                         onClick = viewModel::previousChapter,
                         enabled = uiState.currentChapterIndex > 0
                     ) {
-                        Icon(Icons.Default.NavigateBefore, contentDescription = stringResource(R.string.reader_prev_chapter))
+                        Icon(
+                            Icons.Default.NavigateBefore,
+                            contentDescription = stringResource(R.string.reader_prev_chapter)
+                        )
                     }
 
                     val progressText = if (uiState.settings.isHorizontalPagination) {
                         "Trang ${uiState.currentPageInChapter} / ${uiState.totalPagesInChapter} • Chương ${uiState.currentChapterIndex + 1}"
                     } else {
-                        "Chương ${uiState.currentChapterIndex + 1} / ${uiState.chapters.size.coerceAtLeast(1)}"
+                        "Chương ${uiState.currentChapterIndex + 1} / ${
+                            uiState.chapters.size.coerceAtLeast(
+                                1
+                            )
+                        }"
                     }
 
                     if (uiState.settings.showStatusBar) {
@@ -342,7 +422,10 @@ fun ReaderScreen(
                         onClick = viewModel::nextChapter,
                         enabled = uiState.currentChapterIndex < uiState.chapters.size - 1
                     ) {
-                        Icon(Icons.Default.NavigateNext, contentDescription = stringResource(R.string.reader_next_chapter))
+                        Icon(
+                            Icons.Default.NavigateNext,
+                            contentDescription = stringResource(R.string.reader_next_chapter)
+                        )
                     }
                 }
             }
@@ -485,10 +568,10 @@ fun ReaderScreen(
         }
 
         // Fullscreen Tts Audio Player Dialog / Screen
-        if (uiState.showTtsPlayerScreen && !uiState.showTtsSetupBottomSheet) {
-            androidx.compose.ui.window.Dialog(
+        if (uiState.showTtsPlayerScreen && !uiState.showTtsSetupBottomSheet)
+            Dialog(
                 onDismissRequest = viewModel::closeTtsPlayerScreen,
-                properties = androidx.compose.ui.window.DialogProperties(
+                properties = DialogProperties(
                     usePlatformDefaultWidth = false
                 )
             ) {
@@ -511,7 +594,6 @@ fun ReaderScreen(
                     }
                 )
             }
-        }
     }
 }
 
@@ -542,6 +624,7 @@ private fun sanitizeEpubHtml(html: String): String {
         .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
         .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
 }
+
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun EpubWebView(
@@ -612,8 +695,10 @@ fun EpubWebView(
             }
         },
         update = { webView ->
-            webView.isVerticalScrollBarEnabled = settings.showScrollBar && !settings.isHorizontalPagination
-            webView.isHorizontalScrollBarEnabled = settings.showScrollBar && settings.isHorizontalPagination
+            webView.isVerticalScrollBarEnabled =
+                settings.showScrollBar && !settings.isHorizontalPagination
+            webView.isHorizontalScrollBarEnabled =
+                settings.showScrollBar && settings.isHorizontalPagination
             webView.setOnKeyListener { _, keyCode, event ->
                 if (event.action != KeyEvent.ACTION_UP) return@setOnKeyListener false
 
@@ -623,10 +708,12 @@ fun EpubWebView(
                         KeyEvent.KEYCODE_PAGE_DOWN,
                         KeyEvent.KEYCODE_SPACE
                     ) -> 1
+
                     settings.enableKeyboardNavigation && keyCode in listOf(
                         KeyEvent.KEYCODE_DPAD_LEFT,
                         KeyEvent.KEYCODE_PAGE_UP
                     ) -> -1
+
                     settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN -> 1
                     settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_UP -> -1
                     else -> 0
@@ -635,14 +722,19 @@ fun EpubWebView(
                 if (direction == 0) {
                     false
                 } else {
-                    val functionName = if (direction > 0) "epubproGoNextPage" else "epubproGoPrevPage"
-                    webView.evaluateJavascript("if (typeof $functionName === 'function') { $functionName(); }", null)
+                    val functionName =
+                        if (direction > 0) "epubproGoNextPage" else "epubproGoPrevPage"
+                    webView.evaluateJavascript(
+                        "if (typeof $functionName === 'function') { $functionName(); }",
+                        null
+                    )
                     true
                 }
             }
 
             val runtimeSpeedMs = if (settings.enablePageAnimation) settings.pageTurnSpeedMs else 0
-            val runtimeActions = JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
+            val runtimeActions =
+                JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
             webView.evaluateJavascript(
                 "if (typeof epubproApplyRuntimeSettings === 'function') { epubproApplyRuntimeSettings($runtimeSpeedMs, $runtimeActions); }",
                 null
@@ -677,28 +769,41 @@ fun EpubWebView(
                         "$headInjection</head>"
                     }
                 }
+
                 cleanHtml.contains("<head>", ignoreCase = true) -> {
                     "(?i)<head>".toRegex().replace(cleanHtml) {
                         "<head>$headInjection"
                     }
                 }
+
                 cleanHtml.contains("<html", ignoreCase = true) -> {
                     "(?i)(<html[^>]*>)".toRegex().replace(cleanHtml) { match ->
                         "${match.value}<head>$headInjection</head>"
                     }
                 }
+
                 else -> {
                     "<!DOCTYPE html><html><head>$headInjection</head><body>$cleanHtml</body></html>"
                 }
             }
 
-            val newHtmlKey = "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.contentReloadKey()}"
+            val newHtmlKey =
+                "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.contentReloadKey()}"
             if (loadedHtmlKey != newHtmlKey) {
                 loadedHtmlKey = newHtmlKey
-                Log.d("EpubPro_HTML", "Loading HTML, length=${preparedHtml.length}, isHorizontal=${settings.isHorizontalPagination}")
+                Log.d(
+                    "EpubPro_HTML",
+                    "Loading HTML, length=${preparedHtml.length}, isHorizontal=${settings.isHorizontalPagination}"
+                )
                 Log.d("EpubPro_HTML", "First 1000 chars: ${preparedHtml.take(1000)}")
 
-                webView.loadDataWithBaseURL("file:///android_asset/", preparedHtml, "text/html", "utf-8", null)
+                webView.loadDataWithBaseURL(
+                    "file:///android_asset/",
+                    preparedHtml,
+                    "text/html",
+                    "utf-8",
+                    null
+                )
             }
         },
         modifier = modifier.fillMaxSize()
@@ -741,7 +846,11 @@ fun ReaderSettingsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_horizontal_scroll), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    stringResource(R.string.reader_horizontal_scroll),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Text(
                     stringResource(R.string.reader_horizontal_scroll_desc),
                     style = MaterialTheme.typography.bodySmall,
@@ -784,17 +893,18 @@ fun ReaderSettingsContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                PAGE_TURN_SPEED_PRESETS_MS.zip(listOf("Nhanh", "Vừa", "Chậm")).forEach { (speed, name) ->
-                    FilterChip(
-                        selected = draftPageTurnSpeedMs == speed,
-                        onClick = {
-                            draftPageTurnSpeedMs = speed
-                            onSettingsChanged(settings.copy(pageTurnSpeedMs = speed))
-                        },
-                        label = { Text("$name (${speed}ms)", fontSize = 11.sp) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                PAGE_TURN_SPEED_PRESETS_MS.zip(listOf("Nhanh", "Vừa", "Chậm"))
+                    .forEach { (speed, name) ->
+                        FilterChip(
+                            selected = draftPageTurnSpeedMs == speed,
+                            onClick = {
+                                draftPageTurnSpeedMs = speed
+                                onSettingsChanged(settings.copy(pageTurnSpeedMs = speed))
+                            },
+                            label = { Text("$name (${speed}ms)", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
             }
         }
 
@@ -805,10 +915,17 @@ fun ReaderSettingsContent(
         )
 
         // --- SECTION 2: Phông chữ & Kiểu chữ ---
-        SettingSectionHeader(title = stringResource(R.string.reader_font_family), icon = Icons.Default.TextFields)
+        SettingSectionHeader(
+            title = stringResource(R.string.reader_font_family),
+            icon = Icons.Default.TextFields
+        )
         Spacer(modifier = Modifier.height(10.dp))
 
-        Text(stringResource(R.string.reader_font_family), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            stringResource(R.string.reader_font_family),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -835,7 +952,11 @@ fun ReaderSettingsContent(
         } else {
             "%.1f".format(java.util.Locale.US, draftFontSizeSp)
         }
-        Text(stringResource(R.string.reader_font_size_format, formattedFontSize), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            stringResource(R.string.reader_font_size_format, formattedFontSize),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
         Slider(
             value = draftFontSizeSp,
             onValueChange = { draftFontSizeSp = kotlin.math.round(it * 2f) / 2f },
@@ -846,13 +967,22 @@ fun ReaderSettingsContent(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text(stringResource(R.string.reader_line_spacing), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            stringResource(R.string.reader_line_spacing),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf(1.2f to "1.2x", 1.5f to "1.5x", 1.8f to "1.8x", 2.0f to "2.0x").forEach { (ratio, label) ->
+            listOf(
+                1.2f to "1.2x",
+                1.5f to "1.5x",
+                1.8f to "1.8x",
+                2.0f to "2.0x"
+            ).forEach { (ratio, label) ->
                 FilterChip(
                     selected = settings.lineHeightRatio == ratio,
                     onClick = { onSettingsChanged(settings.copy(lineHeightRatio = ratio)) },
@@ -869,33 +999,65 @@ fun ReaderSettingsContent(
         )
 
         // --- SECTION 3: Phông nền & Màu sắc ---
-        SettingSectionHeader(title = stringResource(R.string.profile_appearance_title), icon = Icons.Default.Palette)
+        SettingSectionHeader(
+            title = stringResource(R.string.profile_appearance_title),
+            icon = Icons.Default.Palette
+        )
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            ThemeChip("Sáng", Color.White, Color.Black, settings.themeMode == ReaderThemeMode.LIGHT) {
+            ThemeChip(
+                "Sáng",
+                Color.White,
+                Color.Black,
+                settings.themeMode == ReaderThemeMode.LIGHT
+            ) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.LIGHT))
             }
-            ThemeChip("Tối", Color(0xFF1E293B), Color.White, settings.themeMode == ReaderThemeMode.DARK) {
+            ThemeChip(
+                "Tối",
+                Color(0xFF1E293B),
+                Color.White,
+                settings.themeMode == ReaderThemeMode.DARK
+            ) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.DARK))
             }
-            ThemeChip("Sepia", Color(0xFFFBF0D9), Color(0xFF4A3B32), settings.themeMode == ReaderThemeMode.SEPIA) {
+            ThemeChip(
+                "Sepia",
+                Color(0xFFFBF0D9),
+                Color(0xFF4A3B32),
+                settings.themeMode == ReaderThemeMode.SEPIA
+            ) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.SEPIA))
             }
-            ThemeChip("Giấy", Color(0xFFF5F0E8), Color(0xFF3C3530), settings.themeMode == ReaderThemeMode.PAPER) {
+            ThemeChip(
+                "Giấy",
+                Color(0xFFF5F0E8),
+                Color(0xFF3C3530),
+                settings.themeMode == ReaderThemeMode.PAPER
+            ) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.PAPER))
             }
-            ThemeChip("Đêm", Color(0xFF0F172A), Color(0xFF94A3B8), settings.themeMode == ReaderThemeMode.MIDNIGHT) {
+            ThemeChip(
+                "Đêm",
+                Color(0xFF0F172A),
+                Color(0xFF94A3B8),
+                settings.themeMode == ReaderThemeMode.MIDNIGHT
+            ) {
                 onSettingsChanged(settings.copy(themeMode = ReaderThemeMode.MIDNIGHT))
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(stringResource(R.string.reader_page_margin), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            stringResource(R.string.reader_page_margin),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
@@ -903,7 +1065,10 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_top_format, draftMarginTopDp), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.reader_margin_top_format, draftMarginTopDp),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Slider(
                     value = draftMarginTopDp.toFloat(),
                     onValueChange = { draftMarginTopDp = it.toInt() },
@@ -912,7 +1077,10 @@ fun ReaderSettingsContent(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_bottom_format, draftMarginBottomDp), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.reader_margin_bottom_format, draftMarginBottomDp),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Slider(
                     value = draftMarginBottomDp.toFloat(),
                     onValueChange = { draftMarginBottomDp = it.toInt() },
@@ -927,7 +1095,10 @@ fun ReaderSettingsContent(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_left_format, draftMarginLeftDp), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.reader_margin_left_format, draftMarginLeftDp),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Slider(
                     value = draftMarginLeftDp.toFloat(),
                     onValueChange = { draftMarginLeftDp = it.toInt() },
@@ -936,7 +1107,10 @@ fun ReaderSettingsContent(
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(stringResource(R.string.reader_margin_right_format, draftMarginRightDp), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    stringResource(R.string.reader_margin_right_format, draftMarginRightDp),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Slider(
                     value = draftMarginRightDp.toFloat(),
                     onValueChange = { draftMarginRightDp = it.toInt() },
@@ -953,9 +1127,18 @@ fun ReaderSettingsContent(
 @Composable
 fun SettingSectionHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
         Spacer(modifier = Modifier.width(8.dp))
-        Text(text = title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
