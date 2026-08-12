@@ -117,47 +117,57 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    suspend fun speak(
+    suspend fun synthesize(
         text: String,
-        speed: Float = 1.0f,
-        onAudioStarted: () -> Unit = {}
-    ) = withContext(Dispatchers.IO) {
+        speed: Float = 1.0f
+    ): ByteArray = withContext(Dispatchers.IO) {
         val currentTts = tts
             ?: throw IllegalStateException("Sherpa TTS chưa được khởi tạo")
-        val track = audioTrack
-            ?: throw IllegalStateException("AudioTrack chưa được khởi tạo")
-
         coroutineContext.ensureActive()
-        Log.d(TAG, "speak() characters=${text.length} speed=$speed")
 
         val audio = try {
             synthesisMutex.withLock {
                 currentTts.generate(text, sid = 0, speed = speed)
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "OfflineTts.generate() threw", t); null
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            Log.e(TAG, "OfflineTts.generate() threw", t)
+            null
         }
 
         coroutineContext.ensureActive()
-
         val samples = audio?.samples
         if (samples == null || samples.isEmpty()) {
             throw IllegalStateException("Sherpa không tạo được dữ liệu âm thanh")
         }
-        Log.d(TAG, "Generated ${samples.size} samples, converting to PCM16...")
 
-        // Float32 → PCM16LE
         val pcm = ByteArray(samples.size * 2)
         for (i in samples.indices) {
-            val s = (samples[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
-            pcm[i * 2] = (s.toInt() and 0xFF).toByte()
-            pcm[i * 2 + 1] = ((s.toInt() shr 8) and 0xFF).toByte()
+            val sample = (samples[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
+            pcm[i * 2] = (sample.toInt() and 0xFF).toByte()
+            pcm[i * 2 + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
         }
+        pcm
+    }
+
+    suspend fun speak(
+        text: String,
+        speed: Float = 1.0f,
+        onAudioStarted: () -> Unit = {}
+    ) {
+        val pcm = synthesize(text, speed)
+        playPcm(pcm, onAudioStarted)
+    }
+
+    suspend fun playPcm(
+        pcm: ByteArray,
+        onAudioStarted: () -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val track = audioTrack
+            ?: throw IllegalStateException("AudioTrack chưa được khởi tạo")
 
         try {
-            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                track.play()
-            }
+            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) track.play()
         } catch (t: Throwable) {
             Log.e(TAG, "Error playing AudioTrack", t)
             throw IllegalStateException("Không thể bắt đầu AudioTrack", t)
@@ -166,7 +176,6 @@ class SherpaTtsEngine @Inject constructor(
         coroutineContext.ensureActive()
         onAudioStarted()
 
-        // Ghi dữ liệu PCM theo từng chunk 4KB để có thể hủy (cancel) ngay lập tức khi tạm dừng
         val chunkSize = 4096
         var offset = 0
         while (offset < pcm.size && coroutineContext.isActive) {
@@ -177,7 +186,6 @@ class SherpaTtsEngine @Inject constructor(
             }
             offset += written
         }
-        Log.d(TAG, "Finished writing $offset / ${pcm.size} bytes to AudioTrack (active=${coroutineContext.isActive})")
     }
 
     /**

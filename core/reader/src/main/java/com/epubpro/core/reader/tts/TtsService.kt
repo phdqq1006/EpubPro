@@ -450,6 +450,11 @@ class TtsService : Service() {
                         return@launch
                     }
 
+                    currentEngine.prefetchNextChunkIfSupported(
+                        chunks = chunks,
+                        currentIndex = expectedIndex,
+                        readerPreferencesManager = readerPreferencesManager
+                    )
                     playbackStartedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
                     _playerState.value = TtsPlayerState.Playing(
                         bookId = bookId,
@@ -1140,6 +1145,20 @@ class TtsService : Service() {
         sleepTimerOption = SleepTimerOption.OFF
     }
 
+    private fun TtsEngine.prefetchNextChunkIfSupported(
+        chunks: List<TtsChunk>,
+        currentIndex: Int,
+        readerPreferencesManager: ReaderPreferencesManager
+    ) {
+        val next = chunks.getOrNull(currentIndex + 1) ?: return
+        val filterPrefs = readerPreferencesManager.getFilterPreferences()
+        val text = if (filterPrefs.isFilterEnabled) {
+            ContentSanitizer.sanitize(next.text, filterPrefs)
+        } else {
+            next.text
+        }
+        if (text.isNotBlank()) prefetch(next.copy(text = text))
+    }
     private fun advancePastCurrentSentence() {
         if (currentIndex < chunks.lastIndex) {
             currentIndex++

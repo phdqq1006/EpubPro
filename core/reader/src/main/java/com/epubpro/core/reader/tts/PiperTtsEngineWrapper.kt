@@ -6,6 +6,8 @@ import com.epubpro.core.tts.VoiceModelDownloader
 import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsVoice
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +33,14 @@ class PiperTtsEngineWrapper @Inject constructor(
     private var onReadyCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var pendingSpeech: PendingSpeech? = null
+    private val prefetchLock = Any()
+
+    private var prefetchedAudio: PrefetchedAudio? = null
+
+    private data class PrefetchedAudio(
+        val key: String,
+        val audio: Deferred<ByteArray>
+    )
 
     private data class PendingSpeech(
         val chunk: TtsChunk,
@@ -90,6 +100,20 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
     }
 
+    override fun prefetch(chunk: TtsChunk) {
+        if (!isEngineReady || currentVoiceId == null) return
+        val speed = currentSpeed
+        val key = prefetchKey(chunk, speed)
+        synchronized(prefetchLock) {
+            if (prefetchedAudio?.key == key) return
+            prefetchedAudio?.audio?.cancel()
+            prefetchedAudio = PrefetchedAudio(
+                key = key,
+                audio = engineScope.async { sherpaTtsEngine.synthesize(chunk.text, speed) }
+            )
+        }
+    }
+
     override fun speak(
         chunk: TtsChunk,
         onChunkStart: (Int) -> Unit,
@@ -110,9 +134,18 @@ class PiperTtsEngineWrapper @Inject constructor(
         speakJob = engineScope.launch {
             var completedNormally = false
             try {
-                sherpaTtsEngine.speak(
-                    text = chunk.text,
-                    speed = currentSpeed,
+                val speed = currentSpeed
+                val cached = takePrefetched(prefetchKey(chunk, speed))
+                val pcm = try {
+                    cached?.audio?.await() ?: sherpaTtsEngine.synthesize(chunk.text, speed)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    cached?.audio?.cancel()
+                    sherpaTtsEngine.synthesize(chunk.text, speed)
+                }
+                sherpaTtsEngine.playPcm(
+                    pcm = pcm,
                     onAudioStarted = { onChunkStart(chunk.id) }
                 )
                 completedNormally = true
@@ -123,6 +156,25 @@ class PiperTtsEngineWrapper @Inject constructor(
             } finally {
                 if (completedNormally) onChunkDone(chunk.id)
             }
+        }
+    }
+
+    private fun prefetchKey(chunk: TtsChunk, speed: Float): String =
+        "${chunk.id}:${chunk.text.hashCode()}:$speed"
+
+    private fun takePrefetched(key: String): PrefetchedAudio? = synchronized(prefetchLock) {
+        val cached = prefetchedAudio
+        prefetchedAudio = null
+        if (cached?.key == key) cached else {
+            cached?.audio?.cancel()
+            null
+        }
+    }
+
+    private fun clearPrefetch() {
+        synchronized(prefetchLock) {
+            prefetchedAudio?.audio?.cancel()
+            prefetchedAudio = null
         }
     }
 
@@ -140,6 +192,7 @@ class PiperTtsEngineWrapper @Inject constructor(
 
     private fun stopPlayback() {
         pendingSpeech = null
+        clearPrefetch()
         speakJob?.cancel()
         speakJob = null
         initializeJob?.cancel()
@@ -154,6 +207,7 @@ class PiperTtsEngineWrapper @Inject constructor(
     }
 
     override fun setSpeed(speed: Float) {
+        if (currentSpeed != speed) clearPrefetch()
         currentSpeed = speed
     }
 
@@ -166,6 +220,7 @@ class PiperTtsEngineWrapper @Inject constructor(
         if (currentVoiceId == supportedVoiceId) return
 
         currentVoiceId = supportedVoiceId
+        clearPrefetch()
         pendingSpeech = null
         speakJob?.cancel()
         speakJob = null
@@ -188,6 +243,7 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
 
     override fun shutdown() {
+        clearPrefetch()
         pendingSpeech = null
         isInitializing = false
         speakJob?.cancel()

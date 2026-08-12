@@ -11,6 +11,8 @@ interface TtsEngine {
         onChunkDone: (Int) -> Unit,
         onError: (String) -> Unit = {}
     )
+    /** Starts background synthesis for the next chunk; Native TTS keeps the default no-op. */
+    fun prefetch(chunk: TtsChunk) = Unit
     fun pause()
     fun resume()
     fun stop()
