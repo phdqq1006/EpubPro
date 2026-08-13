@@ -1,17 +1,10 @@
 package com.epubpro.feature.reader
 
-import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
-import android.util.Log
-import android.view.KeyEvent
-import android.view.View
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -91,15 +84,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.designsystem.R
-import com.epubpro.core.reader.bridge.ReaderJsBridge
-import com.epubpro.core.reader.style.CssInjector
 import com.epubpro.core.reader.tts.TtsService
-import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
@@ -109,6 +98,7 @@ import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.feature.reader.tts.TtsAudioPlayerScreen
 import com.epubpro.feature.reader.tts.TtsMiniPlayerBar
 import com.epubpro.feature.reader.tts.TtsSetupBottomSheet
+import com.epubpro.feature.reader.webview.EpubProWebView
 import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -258,7 +248,7 @@ fun ReaderScreen(
                     (uiState.ttsPlayerState as? TtsPlayerState.Playing)?.currentChunk?.paragraphIndex
                         ?: (uiState.ttsPlayerState as? TtsPlayerState.Paused)?.currentChunk?.paragraphIndex
 
-                EpubWebView(
+                EpubProWebView(
                     htmlContent = uiState.displayedChapterHtml,
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
@@ -589,219 +579,6 @@ fun ReaderScreen(
                 )
             }
     }
-}
-
-internal fun ReaderSettings.contentReloadKey(): Int = listOf(
-    fontSizeSp,
-    fontFamily,
-    lineHeightRatio,
-    marginTopDp,
-    marginBottomDp,
-    marginLeftDp,
-    marginRightDp,
-    themeMode,
-    isHorizontalPagination,
-    paragraphSpacingDp,
-    firstLineIndentDp,
-    textAlignment,
-    showScrollBar
-).hashCode()
-
-private fun sanitizeEpubHtml(html: String): String {
-    return html
-        .replace("""(?i)<meta\s+name=["']viewport["'][^>]*>""".toRegex(), "")
-        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*/>""".toRegex(), "")
-        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*>""".toRegex(), "")
-        .replace("""(?is)<style[^>]*>.*?</style>""".toRegex(), "")
-        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
-        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
-        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
-        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
-}
-
-@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-@Composable
-fun EpubWebView(
-    modifier: Modifier = Modifier,
-    htmlContent: String,
-    previousChapterHtml: String?,
-    nextChapterHtml: String?,
-    initialPage: Int,
-    initialVisibleParagraphIndex: Int,
-    settings: ReaderSettings,
-    filterPreferences: ContentFilterPreferences = ContentFilterPreferences(),
-    activeTtsParagraphIndex: Int? = null,
-    onPageTapped: () -> Unit,
-    onPageChanged: (currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) -> Unit,
-    onNextChapter: () -> Unit,
-    onPreviousChapter: () -> Unit,
-    onTextSelected: (String) -> Unit,
-    onCfiChanged: (String) -> Unit
-) {
-    val jsBridge = remember {
-        ReaderJsBridge(
-            onTextSelectedListener = onTextSelected,
-            onCfiChangedListener = onCfiChanged,
-            onPageTappedListener = onPageTapped,
-            onPageChangedListener = onPageChanged,
-            onNextChapterListener = onNextChapter,
-            onPreviousChapterListener = onPreviousChapter
-        )
-    }
-
-    var loadedHtmlKey by remember { mutableStateOf("") }
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-
-    LaunchedEffect(activeTtsParagraphIndex) {
-        if (activeTtsParagraphIndex != null && webViewRef != null) {
-            webViewRef?.evaluateJavascript(
-                "if (typeof epubproHighlightTtsParagraph === 'function') { epubproHighlightTtsParagraph($activeTtsParagraphIndex); }",
-                null
-            )
-        }
-    }
-
-    AndroidView(
-        factory = { ctx ->
-            WebView(ctx).apply {
-                webViewRef = this
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                this.settings.javaScriptEnabled = true
-                this.settings.domStorageEnabled = true
-                this.settings.useWideViewPort = false
-                this.settings.loadWithOverviewMode = false
-                this.settings.textZoom = 100
-                this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
-                isFocusable = true
-                isFocusableInTouchMode = true
-                requestFocus()
-
-                addJavascriptInterface(jsBridge, "ReaderJsBridge")
-                webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        view?.evaluateJavascript(
-                            "if (typeof epubproUpdateMetrics === 'function') { epubproUpdateMetrics(); }",
-                            null
-                        )
-                    }
-                }
-            }
-        },
-        update = { webView ->
-            webView.isVerticalScrollBarEnabled =
-                settings.showScrollBar && !settings.isHorizontalPagination
-            webView.isHorizontalScrollBarEnabled =
-                settings.showScrollBar && settings.isHorizontalPagination
-            webView.setOnKeyListener { _, keyCode, event ->
-                if (event.action != KeyEvent.ACTION_UP) return@setOnKeyListener false
-
-                val direction = when {
-                    settings.enableKeyboardNavigation && keyCode in listOf(
-                        KeyEvent.KEYCODE_DPAD_RIGHT,
-                        KeyEvent.KEYCODE_PAGE_DOWN,
-                        KeyEvent.KEYCODE_SPACE
-                    ) -> 1
-
-                    settings.enableKeyboardNavigation && keyCode in listOf(
-                        KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_PAGE_UP
-                    ) -> -1
-
-                    settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN -> 1
-                    settings.enableVolumeKeyNavigation && keyCode == KeyEvent.KEYCODE_VOLUME_UP -> -1
-                    else -> 0
-                }
-
-                if (direction == 0) {
-                    false
-                } else {
-                    val functionName =
-                        if (direction > 0) "epubproGoNextPage" else "epubproGoPrevPage"
-                    webView.evaluateJavascript(
-                        "if (typeof $functionName === 'function') { $functionName(); }",
-                        null
-                    )
-                    true
-                }
-            }
-
-            val runtimeSpeedMs = if (settings.enablePageAnimation) settings.pageTurnSpeedMs else 0
-            val runtimeActions =
-                JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
-            webView.evaluateJavascript(
-                "if (typeof epubproApplyRuntimeSettings === 'function') { epubproApplyRuntimeSettings($runtimeSpeedMs, $runtimeActions); }",
-                null
-            )
-
-            val cleanHtml = sanitizeEpubHtml(htmlContent)
-            val previousPreviewHtml = previousChapterHtml?.let(::sanitizeEpubHtml)
-            val nextPreviewHtml = nextChapterHtml?.let(::sanitizeEpubHtml)
-            val statusFooterHeightDp = if (settings.showStatusBar) 20 else 0
-            val css = CssInjector.generateCss(settings, statusFooterHeightDp)
-            val jsScript = CssInjector.generateJsBridgeScript(
-                isHorizontalPagination = settings.isHorizontalPagination,
-                initialPage = initialPage,
-                initialVisibleParagraphIndex = initialVisibleParagraphIndex,
-                settings = settings,
-                statusFooterHeightDp = statusFooterHeightDp,
-                previousChapterHtml = previousPreviewHtml,
-                nextChapterHtml = nextPreviewHtml,
-                filterPreferences = filterPreferences
-            )
-            val meta = CssInjector.generateMetaAndViewport()
-            val headInjection = """
-                $meta
-                $css
-                <script>
-                $jsScript
-                </script>
-            """.trimIndent()
-            val preparedHtml = when {
-                cleanHtml.contains("</head>", ignoreCase = true) -> {
-                    "(?i)</head>".toRegex().replace(cleanHtml) {
-                        "$headInjection</head>"
-                    }
-                }
-
-                cleanHtml.contains("<head>", ignoreCase = true) -> {
-                    "(?i)<head>".toRegex().replace(cleanHtml) {
-                        "<head>$headInjection"
-                    }
-                }
-
-                cleanHtml.contains("<html", ignoreCase = true) -> {
-                    "(?i)(<html[^>]*>)".toRegex().replace(cleanHtml) { match ->
-                        "${match.value}<head>$headInjection</head>"
-                    }
-                }
-
-                else -> {
-                    "<!DOCTYPE html><html><head>$headInjection</head><body>$cleanHtml</body></html>"
-                }
-            }
-
-            val newHtmlKey =
-                "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.contentReloadKey()}"
-            if (loadedHtmlKey != newHtmlKey) {
-                loadedHtmlKey = newHtmlKey
-                Log.d(
-                    "EpubPro_HTML",
-                    "Loading HTML, length=${preparedHtml.length}, isHorizontal=${settings.isHorizontalPagination}"
-                )
-                Log.d("EpubPro_HTML", "First 1000 chars: ${preparedHtml.take(1000)}")
-
-                webView.loadDataWithBaseURL(
-                    "file:///android_asset/",
-                    preparedHtml,
-                    "text/html",
-                    "utf-8",
-                    null
-                )
-            }
-        },
-        modifier = modifier.fillMaxSize()
-    )
 }
 
 @Composable

@@ -203,7 +203,8 @@ object CssInjector {
         statusFooterHeightDp: Int = 0,
         previousChapterHtml: String? = null,
         nextChapterHtml: String? = null,
-        filterPreferences: ContentFilterPreferences = ContentFilterPreferences()
+        filterPreferences: ContentFilterPreferences = ContentFilterPreferences(),
+        loadGeneration: Int = 0
     ): String {
         val (bgColor, _) = when (settings.themeMode) {
             ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
@@ -253,6 +254,7 @@ object CssInjector {
                 var isExecutingScroll = false;
                 var isLayoutReady = !window.epubproIsHorizontal;
                 var hasInitializedLayout = false;
+                var hasNotifiedLayoutReady = false;
                 var scrollExtentElement = null;
                 var scrollExtentBaseWidth = 0;
                 var scrollExtentWidth = 0;
@@ -517,6 +519,16 @@ object CssInjector {
                     }
                 }
 
+                function notifyReaderLayoutReady() {
+                    if (hasNotifiedLayoutReady) return;
+                    hasNotifiedLayoutReady = true;
+                    window.requestAnimationFrame(function() {
+                        if (window.ReaderJsBridge && window.ReaderJsBridge.onReaderLayoutReady) {
+                            window.ReaderJsBridge.onReaderLayoutReady($loadGeneration);
+                        }
+                    });
+                }
+
                 function settlePageOffset(page, attemptsRemaining, onSettled) {
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
                     var boundedPage = Math.min(totalPages, Math.max(1, page));
@@ -548,7 +560,7 @@ object CssInjector {
                     });
                 }
 
-                function scrollToPage(page, animate) {
+                function scrollToPage(page, animate, onSettled) {
                     if (!window.epubproIsHorizontal) return;
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
                     var targetX = (page - 1) * pw;
@@ -575,6 +587,7 @@ object CssInjector {
                                     isExecutingScroll = false;
                                     suppressScrollMetrics(100);
                                     notifyPageChangeCompleted();
+                                    if (onSettled) onSettled();
                                 });
                             }
                         }
@@ -584,6 +597,7 @@ object CssInjector {
                             isExecutingScroll = false;
                             suppressScrollMetrics(100);
                             notifyPageChangeCompleted();
+                            if (onSettled) onSettled();
                         });
                     }
                 }
@@ -673,9 +687,10 @@ object CssInjector {
                             targetInitPage = Math.min(totalPages, Math.max(1, targetInitPage));
                             if (window.epubproIsHorizontal) {
                                 isLayoutReady = true;
-                                scrollToPage(targetInitPage, false);
+                                scrollToPage(targetInitPage, false, notifyReaderLayoutReady);
                             } else {
                                 updatePageMetrics();
+                                notifyReaderLayoutReady();
                             }
                         });
                     });

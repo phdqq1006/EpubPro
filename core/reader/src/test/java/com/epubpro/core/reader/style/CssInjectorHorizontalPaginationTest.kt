@@ -71,4 +71,20 @@ class CssInjectorHorizontalPaginationTest {
         )
         assertTrue(script.contains("isLayoutReady = true"))
     }
+
+    @Test
+    fun layoutReadyCarriesGenerationAfterInitialPageSettles() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = true,
+            settings = asymmetricSettings,
+            loadGeneration = 42
+        )
+
+        assertTrue(
+            script.contains(
+                "scrollToPage(targetInitPage, false, notifyReaderLayoutReady)"
+            )
+        )
+        assertTrue(script.contains("window.ReaderJsBridge.onReaderLayoutReady(42)"))
+    }
 }

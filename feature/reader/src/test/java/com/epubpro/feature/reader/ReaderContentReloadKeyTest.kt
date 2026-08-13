@@ -4,6 +4,7 @@ import com.epubpro.domain.model.ReaderEngineType
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TapZoneAction
+import com.epubpro.feature.reader.webview.contentReloadKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test

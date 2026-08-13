@@ -9,7 +9,8 @@ class ReaderJsBridge(
     private val onPageTappedListener: () -> Unit,
     private val onPageChangedListener: (currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) -> Unit = { _, _, _ -> },
     private val onNextChapterListener: () -> Unit = {},
-    private val onPreviousChapterListener: () -> Unit = {}
+    private val onPreviousChapterListener: () -> Unit = {},
+    private val onReaderLayoutReadyListener: (loadGeneration: Int) -> Unit = {}
 ) {
     @JavascriptInterface
     fun onTextSelected(selectionJson: String) {
@@ -39,6 +40,11 @@ class ReaderJsBridge(
     @JavascriptInterface
     fun onPreviousChapterRequested() {
         onPreviousChapterListener()
+    }
+
+    @JavascriptInterface
+    fun onReaderLayoutReady(loadGeneration: Int) {
+        onReaderLayoutReadyListener(loadGeneration)
     }
 
     @JavascriptInterface
