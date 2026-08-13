@@ -251,6 +251,11 @@ object CssInjector {
                 var startTouchY = 0;
                 var startTouchTime = 0;
                 var isExecutingScroll = false;
+                var isLayoutReady = !window.epubproIsHorizontal;
+                var hasInitializedLayout = false;
+                var scrollExtentElement = null;
+                var scrollExtentBaseWidth = 0;
+                var scrollExtentWidth = 0;
 
                 function dbg(tag, msg) {
                     try {
@@ -350,7 +355,9 @@ object CssInjector {
                     body.style.setProperty('overflow', 'visible', 'important');
                     body.style.setProperty('word-wrap', 'break-word', 'important');
                     body.style.setProperty('overflow-wrap', 'break-word', 'important');
-                    measureTotalPages();
+                    // Keep the multi-column container at one viewport. Expanding
+                    // the body changes the geometry of the final column.
+                    body.style.removeProperty('min-width');
 
                     dbg('FORCE', 'vh=' + vh + ' vw=' + vw + ' bodyH=' + body.clientHeight);
                 }
@@ -414,6 +421,46 @@ object CssInjector {
                     }, durationMs || 250);
                 }
 
+                function setHorizontalScrollExtentWidth(requiredWidth) {
+                    var html = document.documentElement;
+                    if (!html) return;
+
+                    if (!scrollExtentElement || !scrollExtentElement.parentNode) {
+                        scrollExtentElement = document.createElement('div');
+                        scrollExtentElement.id = 'epubpro-scroll-extent';
+                        scrollExtentElement.setAttribute('aria-hidden', 'true');
+                        scrollExtentElement.setAttribute('role', 'presentation');
+                        scrollExtentElement.style.setProperty('position', 'absolute', 'important');
+                        scrollExtentElement.style.setProperty('top', '0px', 'important');
+                        scrollExtentElement.style.setProperty('width', '1px', 'important');
+                        scrollExtentElement.style.setProperty('height', '1px', 'important');
+                        scrollExtentElement.style.setProperty('margin', '0px', 'important');
+                        scrollExtentElement.style.setProperty('padding', '0px', 'important');
+                        scrollExtentElement.style.setProperty('opacity', '0', 'important');
+                        scrollExtentElement.style.setProperty('pointer-events', 'none', 'important');
+                        scrollExtentElement.style.setProperty('user-select', 'none', 'important');
+                        html.appendChild(scrollExtentElement);
+                    }
+
+                    // This marker extends the document without participating in
+                    // the body's multi-column flow.
+                    scrollExtentElement.style.setProperty(
+                        'left',
+                        Math.max(0, requiredWidth - 1) + 'px',
+                        'important'
+                    );
+                    scrollExtentWidth = requiredWidth;
+                }
+
+                function updateHorizontalScrollExtent(pageWidth) {
+                    if (!window.epubproIsHorizontal) return;
+                    var requiredWidth = Math.max(pageWidth, totalPages * pageWidth);
+                    if (scrollExtentBaseWidth !== requiredWidth) {
+                        scrollExtentBaseWidth = requiredWidth;
+                        setHorizontalScrollExtentWidth(requiredWidth);
+                    }
+                }
+
                 function measureTotalPages() {
                     var pw = window.innerWidth || document.documentElement.clientWidth || 1;
                     if (!window.epubproIsHorizontal) {
@@ -426,9 +473,7 @@ object CssInjector {
                     body.style.removeProperty('min-width');
                     var sw = body.scrollWidth;
                     totalPages = Math.max(1, Math.ceil((sw - 1) / pw));
-
-                    var paddedWidth = totalPages * pw;
-                    body.style.setProperty('min-width', paddedWidth + 'px', 'important');
+                    updateHorizontalScrollExtent(pw);
 
                     return pw;
                 }
@@ -448,9 +493,8 @@ object CssInjector {
                         }
                         return;
                     }
+                    if (!isLayoutReady || isExecutingScroll || isDraggingPage || isCoverOverlayActive || ignoreScrollMetrics) return;
                     var pw = measureTotalPages();
-
-                    if (isExecutingScroll || isDraggingPage || isCoverOverlayActive || ignoreScrollMetrics) return;
                     var sl = window.scrollX || window.pageXOffset || 0;
                     currentPage = Math.min(totalPages, Math.max(1, Math.round(sl / pw) + 1));
 
@@ -471,6 +515,37 @@ object CssInjector {
                         notifyPositionChanged(visibleIndex);
                         window.ReaderJsBridge.onPageChanged(currentPage, totalPages, visibleIndex);
                     }
+                }
+
+                function settlePageOffset(page, attemptsRemaining, onSettled) {
+                    var pw = window.innerWidth || document.documentElement.clientWidth || 1;
+                    var boundedPage = Math.min(totalPages, Math.max(1, page));
+                    var targetX = (boundedPage - 1) * pw;
+                    currentPage = boundedPage;
+                    window.scrollTo(targetX, 0);
+
+                    window.requestAnimationFrame(function() {
+                        var actualX = window.scrollX || window.pageXOffset || 0;
+                        var shortfall = targetX - actualX;
+                        if (Math.abs(shortfall) <= 1 || attemptsRemaining <= 0) {
+                            if (Math.abs(shortfall) > 1) {
+                                dbg('SCROLL_MISMATCH', 'target=' + targetX + ' actual=' + actualX
+                                    + ' pages=' + totalPages + ' extent=' + scrollExtentWidth);
+                            } else if (boundedPage === totalPages) {
+                                dbg('LAST_PAGE_OFFSET', 'target=' + targetX + ' actual=' + actualX
+                                    + ' pages=' + totalPages + ' extent=' + scrollExtentWidth);
+                            }
+                            if (onSettled) onSettled(actualX, targetX);
+                            return;
+                        }
+                        if (shortfall > 1) {
+                            // Calibrate against the WebView's real native clamp.
+                            // This uses the measured shortfall, never a margin-
+                            // specific compensation.
+                            setHorizontalScrollExtentWidth(scrollExtentWidth + shortfall);
+                        }
+                        settlePageOffset(boundedPage, attemptsRemaining - 1, onSettled);
+                    });
                 }
 
                 function scrollToPage(page, animate) {
@@ -496,20 +571,20 @@ object CssInjector {
                             if (progress < duration) {
                                 window.requestAnimationFrame(step);
                             } else {
-                                window.scrollTo(targetX, 0);
-                                isExecutingScroll = false;
-                                suppressScrollMetrics(100);
-                                notifyPageChangeCompleted();
+                                settlePageOffset(currentPage, 2, function() {
+                                    isExecutingScroll = false;
+                                    suppressScrollMetrics(100);
+                                    notifyPageChangeCompleted();
+                                });
                             }
                         }
                         window.requestAnimationFrame(step);
                     } else {
-                        window.scrollTo(targetX, 0);
-                        setTimeout(function() {
+                        settlePageOffset(currentPage, 2, function() {
                             isExecutingScroll = false;
                             suppressScrollMetrics(100);
                             notifyPageChangeCompleted();
-                        }, 50);
+                        });
                     }
                 }
 
@@ -558,13 +633,26 @@ object CssInjector {
                 }, { passive: true });
 
                 window.addEventListener('resize', function() {
+                    if (!hasInitializedLayout) return;
+                    var pageToRestore = currentPage;
+                    isLayoutReady = !window.epubproIsHorizontal;
                     forceBodyDimensions();
-                    setTimeout(function() {
-                        updatePageMetrics();
-                    }, 100);
+                    window.requestAnimationFrame(function() {
+                        window.requestAnimationFrame(function() {
+                            if (window.epubproIsHorizontal) {
+                                measureTotalPages();
+                                isLayoutReady = true;
+                                scrollToPage(Math.min(totalPages, pageToRestore), false);
+                            } else {
+                                updatePageMetrics();
+                            }
+                        });
+                    });
                 }, { passive: true });
 
                 function initLayout() {
+                    if (hasInitializedLayout || document.readyState !== 'complete' || !document.body) return;
+                    hasInitializedLayout = true;
                     dbg('INIT', 'initLayout called, readyState=' + document.readyState + ', targetInitPage=' + targetInitPage);
                     forceBodyDimensions();
                     dumpLayout();
@@ -584,6 +672,7 @@ object CssInjector {
                             }
                             targetInitPage = Math.min(totalPages, Math.max(1, targetInitPage));
                             if (window.epubproIsHorizontal) {
+                                isLayoutReady = true;
                                 scrollToPage(targetInitPage, false);
                             } else {
                                 updatePageMetrics();
@@ -1012,12 +1101,9 @@ object CssInjector {
                                     if (commitDone || completingGestureToken !== gestureToken) return;
                                     commitDone = true;
                                     currentPage = Math.min(totalPages, currentPage + 1);
-                                    window.scrollTo((currentPage - 1) * pw, 0);
-                                    requestAnimationFrame(function() {
-                                        requestAnimationFrame(function() {
-                                            cleanupCoverOverlay();
-                                            notifyPageChangeCompleted();
-                                        });
+                                    settlePageOffset(currentPage, 2, function() {
+                                        cleanupCoverOverlay();
+                                        notifyPageChangeCompleted();
                                     });
                                 }
                                 activeTopOverlay.addEventListener('transitionend', function onTE(ev) {
@@ -1058,12 +1144,9 @@ object CssInjector {
                                     if (commitDone || completingGestureToken !== gestureToken) return;
                                     commitDone = true;
                                     currentPage = Math.max(1, currentPage - 1);
-                                    window.scrollTo((currentPage - 1) * pw, 0);
-                                    requestAnimationFrame(function() {
-                                        requestAnimationFrame(function() {
-                                            cleanupCoverOverlay();
-                                            notifyPageChangeCompleted();
-                                        });
+                                    settlePageOffset(currentPage, 2, function() {
+                                        cleanupCoverOverlay();
+                                        notifyPageChangeCompleted();
                                     });
                                 }
                                 activeTopOverlay.addEventListener('transitionend', function onTE3(ev) {
