@@ -23,11 +23,14 @@ class TtsReadingWidgetProvider : AppWidgetProvider() {
         appWidgetIds.forEach { updateWidget(context, manager, it, state) }
     }
 
+    /**
+     * Xử lý broadcast trạng thái phát trong phạm vi ứng dụng và chỉ cập nhật các reading widget,
+     * tránh việc audio widget provider kích hoạt hiển thị trùng lặp.
+     */
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == TtsWidgetContract.ACTION_STATE_CHANGED) {
             updateAll(context)
-            TtsAudioWidgetProvider.updateAll(context)
         }
     }
 

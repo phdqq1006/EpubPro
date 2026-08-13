@@ -1,20 +1,11 @@
 package com.epubpro.core.reader.tts
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
-import android.os.Build
-import android.support.v4.media.session.MediaSessionCompat
-import androidx.core.app.NotificationCompat
-import androidx.media.app.NotificationCompat as MediaNotificationCompat
-import com.epubpro.core.designsystem.R
 
+/** Quản lý metadata, trạng thái phát và việc chuyển tiếp callback điều khiển của MediaSession. */
 class TtsMediaSessionManager(
     private val context: Context,
     private val onPlay: () -> Unit,
@@ -24,6 +15,7 @@ class TtsMediaSessionManager(
     private val onStop: () -> Unit
 ) {
 
+    /** MediaSession đang hoạt động để SystemUI và các media controller bên ngoài sử dụng. */
     val mediaSession: MediaSession = MediaSession(context, "EpubProTtsSession").apply {
         setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS)
         setCallback(object : MediaSession.Callback() {
@@ -36,24 +28,11 @@ class TtsMediaSessionManager(
         isActive = true
     }
 
-    private val notificationManager =
-        context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    /** Token được gắn vào MediaStyle notification để liên kết với MediaSession hiện tại. */
+    val sessionToken: MediaSession.Token
+        get() = mediaSession.sessionToken
 
-    init {
-        createNotificationChannel()
-    }
-
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            context.getString(R.string.tts_channel_name),
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = context.getString(R.string.tts_channel_desc)
-        }
-        notificationManager.createNotificationChannel(channel)
-    }
-
+    /** Cập nhật metadata của sách và thời lượng chương cho media card của SystemUI. */
     fun updateMetadata(
         bookTitle: String,
         author: String,
@@ -69,6 +48,10 @@ class TtsMediaSessionManager(
         mediaSession.setMetadata(metadata)
     }
 
+    /**
+     * Cập nhật trạng thái đang phát hoặc tạm dừng cùng vị trí và tốc độ dùng để chạy progress trên
+     * notification. Trạng thái đang phát với tốc độ `0f` giữ nút pause nhưng đóng băng progress.
+     */
     fun updatePlaybackState(
         isPlaying: Boolean,
         positionMs: Long = 0L,
@@ -81,6 +64,7 @@ class TtsMediaSessionManager(
         )
     }
 
+    /** Cập nhật trạng thái buffering thực sự trước khi đoạn đọc đầu tiên bắt đầu phát. */
     fun updatePreparingState(positionMs: Long) {
         setPlaybackState(
             state = PlaybackState.STATE_BUFFERING,
@@ -89,6 +73,7 @@ class TtsMediaSessionManager(
         )
     }
 
+    /** Cập nhật lỗi phát cuối cùng nhưng vẫn giữ lại vị trí progress gần nhất đã biết. */
     fun updateErrorState(positionMs: Long, message: String) {
         setPlaybackState(
             state = PlaybackState.STATE_ERROR,
@@ -98,6 +83,7 @@ class TtsMediaSessionManager(
         )
     }
 
+    /** Cập nhật phiên phát đã dừng tại vị trí cuối hoặc vị trí được khôi phục đã cung cấp. */
     fun updateStoppedState(positionMs: Long = 0L) {
         setPlaybackState(
             state = PlaybackState.STATE_STOPPED,
@@ -106,6 +92,7 @@ class TtsMediaSessionManager(
         )
     }
 
+    /** Ghi PlaybackState của hệ thống cùng tập action điều khiển được hỗ trợ. */
     private fun setPlaybackState(
         state: Int,
         positionMs: Long,
@@ -125,98 +112,10 @@ class TtsMediaSessionManager(
         if (errorMessage != null) builder.setErrorMessage(errorMessage)
         mediaSession.setPlaybackState(builder.build())
     }
-    fun buildNotification(
-        bookTitle: String,
-        currentSnippet: String,
-        isPlaying: Boolean,
-        openIntent: PendingIntent?
-    ): Notification {
-        val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val playPauseTitle = if (isPlaying) context.getString(R.string.tts_action_pause) else context.getString(R.string.tts_action_play)
-
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(bookTitle)
-            .setContentText(currentSnippet)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(openIntent ?: createOpenAppPendingIntent())
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .addAction(
-                NotificationCompat.Action(
-                    android.R.drawable.ic_media_previous,
-                    context.getString(R.string.tts_action_prev),
-                    createPendingIntent(ACTION_PREV)
-                )
-            )
-            .addAction(
-                NotificationCompat.Action(
-                    playPauseIcon,
-                    playPauseTitle,
-                    createPendingIntent(if (isPlaying) ACTION_PAUSE else ACTION_PLAY)
-                )
-            )
-            .addAction(
-                NotificationCompat.Action(
-                    android.R.drawable.ic_media_next,
-                    context.getString(R.string.tts_action_next),
-                    createPendingIntent(ACTION_NEXT)
-                )
-            )
-            .addAction(
-                NotificationCompat.Action(
-                    android.R.drawable.ic_menu_close_clear_cancel,
-                    context.getString(R.string.tts_action_stop),
-                    createPendingIntent(ACTION_STOP)
-                )
-            )
-            .setStyle(
-                MediaNotificationCompat.MediaStyle()
-                    .setMediaSession(MediaSessionCompat.Token.fromToken(mediaSession.sessionToken))
-                    .setShowActionsInCompactView(0, 1, 2)
-            )
-
-        return builder.build()
-    }
-
-    private fun createOpenAppPendingIntent(): PendingIntent? {
-        val launchIntent = context.packageManager
-            .getLaunchIntentForPackage(context.packageName)
-            ?.apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-            ?: return null
-        return PendingIntent.getActivity(
-            context,
-            0,
-            launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-    private fun createPendingIntent(action: String): PendingIntent {
-        val intent = Intent(context, TtsService::class.java).apply {
-            this.action = action
-        }
-        return PendingIntent.getService(
-            context,
-            action.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
+    /** Vô hiệu hóa và giải phóng MediaSession khi service bị hủy. */
     fun release() {
         mediaSession.isActive = false
         mediaSession.release()
     }
 
-    companion object {
-        const val CHANNEL_ID = "tts_service_channel"
-        const val NOTIFICATION_ID = 2001
-        const val ACTION_PLAY = "com.epubpro.tts.ACTION_PLAY"
-        const val ACTION_PAUSE = "com.epubpro.tts.ACTION_PAUSE"
-        const val ACTION_NEXT = "com.epubpro.tts.ACTION_NEXT"
-        const val ACTION_PREV = "com.epubpro.tts.ACTION_PREV"
-        const val ACTION_STOP = "com.epubpro.tts.ACTION_STOP"
-    }
 }

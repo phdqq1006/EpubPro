@@ -11,17 +11,15 @@ import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.R as ReaderR
 import com.epubpro.core.reader.filter.ContentSanitizer
 import com.epubpro.core.reader.tts.bubble.TtsBubbleCommand
-import com.epubpro.core.reader.tts.bubble.TtsBubblePlaybackStatus
 import com.epubpro.core.reader.tts.bubble.TtsBubbleRuntime
 import com.epubpro.core.reader.tts.bubble.TtsBubbleUiModel
-import com.epubpro.core.reader.tts.bubble.toBubblePlaybackStatus
+import com.epubpro.core.reader.tts.notification.TtsPlaybackNotificationManager
+import com.epubpro.core.reader.tts.notification.TtsPlaybackNotificationModel
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsBubblePreferencesManager
 import com.epubpro.core.storage.TtsBubblePowerMode
@@ -88,6 +86,7 @@ class TtsService : Service() {
     private lateinit var nativeTtsEngine: AndroidNativeTtsEngine
     private lateinit var currentEngine: TtsEngine
     private lateinit var mediaSessionManager: TtsMediaSessionManager
+    private lateinit var playbackNotificationManager: TtsPlaybackNotificationManager
     private lateinit var audioFocusController: TtsAudioFocusController
 
     private var chunks: List<TtsChunk> = emptyList()
@@ -109,9 +108,9 @@ class TtsService : Service() {
     private var remainingSleepSeconds: Int = 0
     private var playbackGeneration: Long = 0
     private var pausedBySystem: Boolean = false
+    private var chapterTransitionPlayWhenReady: Boolean = true
+    private var hasPlaybackStartedInSession: Boolean = false
     private var startedSession: Boolean = false
-    private var isForeground: Boolean = false
-    private var foregroundServiceTypes: Int = 0
     private var isRestoringSnapshot: Boolean = false
     private var pendingSnapshotMove: Int = 0
     private var snapshotRestoreJob: Job? = null
@@ -141,6 +140,10 @@ class TtsService : Service() {
             onSkipNext = { nextChunk() },
             onSkipPrevious = { previousChunk() },
             onStop = { stopSession() }
+        )
+        playbackNotificationManager = TtsPlaybackNotificationManager(
+            service = this,
+            mediaSessionToken = mediaSessionManager.sessionToken
         )
         audioFocusController = TtsAudioFocusController(
             context = applicationContext,
@@ -195,11 +198,11 @@ class TtsService : Service() {
             null,
             ACTION_SYNC_BUBBLE -> syncBubbleLifecycle()
             ACTION_START_SESSION -> Unit
-            TtsMediaSessionManager.ACTION_PLAY -> resume()
-            TtsMediaSessionManager.ACTION_PAUSE -> pause()
-            TtsMediaSessionManager.ACTION_NEXT -> nextChunk()
-            TtsMediaSessionManager.ACTION_PREV -> previousChunk()
-            TtsMediaSessionManager.ACTION_STOP -> stopSession()
+            TtsPlaybackNotificationManager.ACTION_PLAY -> resume()
+            TtsPlaybackNotificationManager.ACTION_PAUSE -> pause()
+            TtsPlaybackNotificationManager.ACTION_NEXT -> nextChunk()
+            TtsPlaybackNotificationManager.ACTION_PREV -> previousChunk()
+            TtsPlaybackNotificationManager.ACTION_STOP -> stopSession()
             ACTION_WIDGET_PLAY_PAUSE -> handleWidgetPlayPause(startId)
             ACTION_WIDGET_PREVIOUS -> handleWidgetPrevious(startId)
             ACTION_WIDGET_NEXT -> handleWidgetNext(startId)
@@ -246,7 +249,7 @@ class TtsService : Service() {
             stopSelf(startId)
             return
         }
-        if (!isForeground) {
+        if (!playbackNotificationManager.isForeground) {
             showForegroundNotification(
                 text = currentNotificationText(),
                 isPlaying = false
@@ -326,6 +329,7 @@ class TtsService : Service() {
         bubblePreferencesManager.beginNewPlaybackSession()
         invalidatePlayback()
         currentEngine.stop()
+        hasPlaybackStartedInSession = false
 
         bookId = id
         bookTitle = title
@@ -358,6 +362,10 @@ class TtsService : Service() {
         playCurrentChunk()
     }
 
+    /**
+     * Chuẩn bị và phát đoạn văn bản hiện tại, đồng thời duy trì trạng thái MediaSession liên tục sau
+     * khi đoạn đọc đầu tiên đã bắt đầu.
+     */
     fun playCurrentChunk() {
         if (chunks.isEmpty() || currentIndex !in chunks.indices) return
         ensureStartedSession()
@@ -426,7 +434,7 @@ class TtsService : Service() {
             currentSnippet = chunkToSpeak.text,
             durationMs = estimatedTotalDurationMs
         )
-        mediaSessionManager.updatePreparingState(currentChunkStartPositionMs)
+        updateMediaSessionForPreparation(currentChunkStartPositionMs)
         publishBubbleModel()
         // Keep the technical Preparing state for transport controls, but do not
         // expose a loading message between every two consecutive chunks.
@@ -456,6 +464,7 @@ class TtsService : Service() {
                         readerPreferencesManager = readerPreferencesManager
                     )
                     playbackStartedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                    hasPlaybackStartedInSession = true
                     _playerState.value = TtsPlayerState.Playing(
                         bookId = bookId,
                         chapterIndex = currentChapterIndex,
@@ -527,6 +536,7 @@ class TtsService : Service() {
         chapterPlaybackCoordinator.clear()
         playbackStartedAtElapsedRealtimeMs = null
         pausedBySystem = false
+        hasPlaybackStartedInSession = false
         _playerState.value = TtsPlayerState.Idle
         publishWidgetState()
         mediaSessionManager.updateStoppedState(currentTimelinePositionMs)
@@ -547,11 +557,19 @@ class TtsService : Service() {
         )
     }
 
+    /**
+     * Xử lý yêu cầu tạm dừng từ người dùng hoặc hệ thống, đồng thời lưu ý định phát mà không hủy
+     * quá trình chuyển chương đang chạy.
+     */
     private fun pauseInternal(
         autoResumeOnFocusGain: Boolean,
         abandonAudioFocus: Boolean
     ) {
         val state = _playerState.value
+        if (state == TtsPlayerState.Loading) {
+            pauseChapterTransition(autoResumeOnFocusGain, abandonAudioFocus)
+            return
+        }
         if (state !is TtsPlayerState.Playing && state !is TtsPlayerState.Preparing) return
 
         currentTimelinePositionMs = currentPlaybackPositionMs()
@@ -582,10 +600,36 @@ class TtsService : Service() {
         )
     }
 
+    /**
+     * Đánh dấu quá trình tải chương hiện tại là tạm dừng nhưng vẫn cho coroutine hoàn tất, để chương
+     * mới ổn định tại vị trí có thể tiếp tục phát.
+     */
+    private fun pauseChapterTransition(
+        autoResumeOnFocusGain: Boolean,
+        abandonAudioFocus: Boolean
+    ) {
+        if (!chapterTransitionPlayWhenReady) return
+        chapterTransitionPlayWhenReady = false
+        pausedBySystem = autoResumeOnFocusGain
+        if (abandonAudioFocus) audioFocusController.abandonFocus()
+        publishWidgetState()
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = false,
+            positionMs = currentTimelinePositionMs
+        )
+        publishBubbleModel()
+        showForegroundNotification(
+            text = currentNotificationText(),
+            isPlaying = false
+        )
+    }
+
+    /** Tiếp tục phiên phát đang dừng, quá trình tải chương hoặc snapshot phát gần nhất đã lưu. */
     fun resume() {
         if (pausedBySystem) return
         pausedBySystem = false
         when (_playerState.value) {
+            TtsPlayerState.Loading -> resumeChapterTransition()
             is TtsPlayerState.Paused,
             is TtsPlayerState.Error -> {
                 if (chunks.isNotEmpty()) playCurrentChunk() else restoreSnapshotAndPlay(0)
@@ -594,6 +638,26 @@ class TtsService : Service() {
             is TtsPlayerState.Completed -> restoreSnapshotAndPlay(0)
             else -> Unit
         }
+    }
+
+    /**
+     * Khôi phục ý định phát trong lúc tải chương và giữ progress trên notification đứng yên cho tới
+     * khi giọng đọc thực sự bắt đầu.
+     */
+    private fun resumeChapterTransition() {
+        if (chapterTransitionPlayWhenReady) return
+        chapterTransitionPlayWhenReady = true
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = true,
+            positionMs = currentTimelinePositionMs,
+            playbackSpeed = 0f
+        )
+        publishWidgetState()
+        publishBubbleModel()
+        showForegroundNotification(
+            text = currentNotificationText(),
+            isPlaying = true
+        )
     }
 
     fun stop() {
@@ -625,6 +689,7 @@ class TtsService : Service() {
 
         playbackStartedAtElapsedRealtimeMs = null
         pausedBySystem = false
+        hasPlaybackStartedInSession = false
         isRestoringSnapshot = false
 
         _playerState.value = TtsPlayerState.Idle
@@ -718,6 +783,7 @@ class TtsService : Service() {
             invalidatePlayback()
             currentEngine.stop()
             audioFocusController.abandonFocus()
+            hasPlaybackStartedInSession = false
             isRestoringSnapshot = true
             pendingSnapshotMove = relativeMove
             mediaSessionManager.updatePreparingState(snapshot.timelinePositionMs)
@@ -1228,7 +1294,7 @@ class TtsService : Service() {
                     currentChapterIndex,
                     0
                 )
-                playCurrentChunk()
+                completeChapterTransition()
                 return
             }
             nextChapterIndex++
@@ -1291,7 +1357,7 @@ class TtsService : Service() {
                     currentChapterIndex,
                     chunks[currentIndex].paragraphIndex
                 )
-                playCurrentChunk()
+                completeChapterTransition()
                 return
             }
             previousChapterIndex--
@@ -1300,16 +1366,73 @@ class TtsService : Service() {
         // No readable previous chapter: resume the current chunk instead of
         // leaving the service stuck in Loading.
         currentIndex = originalIndex
-        playCurrentChunk()
+        completeChapterTransition()
     }
 
+    /**
+     * Chuyển sang trạng thái kỹ thuật đang tải chương nhưng giữ MediaSession ở trạng thái đang phát
+     * với progress đứng yên, để SystemUI giữ nút pause thay vì hiển thị vòng xoay buffering.
+     */
     private fun enterChapterTransitionState() {
+        chapterTransitionPlayWhenReady = true
         _playerState.value = TtsPlayerState.Loading
         publishWidgetState()
-        mediaSessionManager.updatePreparingState(currentTimelinePositionMs)
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = true,
+            positionMs = currentTimelinePositionMs,
+            playbackSpeed = 0f
+        )
         publishBubbleModel()
         showForegroundNotification(
             text = currentNotificationText(),
+            isPlaying = isPlaybackRunning()
+        )
+    }
+
+    /** Hoàn tất tải chương theo ý định phát hoặc tạm dừng gần nhất của người dùng. */
+    private fun completeChapterTransition() {
+        if (chapterTransitionPlayWhenReady) {
+            playCurrentChunk()
+        } else {
+            settlePausedChapterTransition()
+        }
+    }
+
+    /**
+     * Đưa chương vừa tải về trạng thái tạm dừng tại đoạn đã xác định, sau đó cập nhật đồng bộ
+     * snapshot, metadata, progress và notification tương ứng.
+     */
+    private fun settlePausedChapterTransition() {
+        val currentChunk = chunks.getOrNull(currentIndex) ?: run {
+            showPlaybackError("Chapter does not contain readable content")
+            return
+        }
+        currentChunkStartPositionMs =
+            estimatedChunkStartPositionsMs.getOrElse(currentIndex) { 0L }
+        currentTimelinePositionMs = currentChunkStartPositionMs
+        playbackStartedAtElapsedRealtimeMs = null
+        _playerState.value = TtsPlayerState.Paused(
+            bookId = bookId,
+            chapterIndex = currentChapterIndex,
+            currentChunkIndex = currentIndex,
+            totalChunks = chunks.size,
+            currentChunk = currentChunk
+        )
+        saveCurrentSnapshot(currentTimelinePositionMs)
+        publishWidgetState()
+        mediaSessionManager.updateMetadata(
+            bookTitle = bookTitle,
+            author = author,
+            currentSnippet = currentChunk.text,
+            durationMs = estimatedTotalDurationMs
+        )
+        mediaSessionManager.updatePlaybackState(
+            isPlaying = false,
+            positionMs = currentTimelinePositionMs
+        )
+        publishBubbleModel()
+        showForegroundNotification(
+            text = currentChunk.text,
             isPlaying = false
         )
     }
@@ -1323,6 +1446,7 @@ class TtsService : Service() {
         audioFocusController.abandonFocus()
         chapterPlaybackCoordinator.clear()
         playbackStartedAtElapsedRealtimeMs = null
+        hasPlaybackStartedInSession = false
         isRestoringSnapshot = false
 
         _playerState.value = TtsPlayerState.Completed(
@@ -1513,6 +1637,7 @@ class TtsService : Service() {
         chapterPlaybackCoordinator.clear()
         playbackStartedAtElapsedRealtimeMs = null
         pausedBySystem = false
+        hasPlaybackStartedInSession = false
         isRestoringSnapshot = false
         _playerState.value = TtsPlayerState.Idle
         publishWidgetState()
@@ -1565,51 +1690,28 @@ class TtsService : Service() {
         )
     }
 
+    /**
+     * Chuyển việc hiển thị notification cho [TtsPlaybackNotificationManager] và dùng luồng dừng an
+     * toàn hiện có nếu Android từ chối đưa service lên foreground.
+     */
     private fun showForegroundNotification(
         text: String,
         isPlaying: Boolean,
         forceForegroundEpisodeRestart: Boolean = false
     ) {
-        val notification = mediaSessionManager.buildNotification(
-            bookTitle = bookTitle,
-            currentSnippet = text,
-            isPlaying = isPlaying,
-            openIntent = createOpenBookPendingIntent()
-        )
-        promoteForeground(
-            notification = notification,
+        val updated = playbackNotificationManager.showOrUpdate(
+            model = TtsPlaybackNotificationModel(
+                bookTitle = bookTitle,
+                currentSnippet = text,
+                isPlaying = isPlaying,
+                openIntent = createOpenBookPendingIntent()
+            ),
             serviceTypes = requiredForegroundServiceTypes(),
-            forceForegroundEpisodeRestart = forceForegroundEpisodeRestart
+            forceRestart = forceForegroundEpisodeRestart
         )
-    }
-
-    private fun promoteForeground(
-        notification: android.app.Notification,
-        serviceTypes: Int,
-        forceForegroundEpisodeRestart: Boolean
-    ) {
-        val shouldRestart = TtsForegroundEpisodePolicy.shouldRestart(
-            isForeground = isForeground,
-            currentTypes = foregroundServiceTypes,
-            requestedTypes = serviceTypes,
-            force = forceForegroundEpisodeRestart
-        )
-        try {
-            if (shouldRestart) {
-                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
-                isForeground = false
-                foregroundServiceTypes = 0
-            }
-            ServiceCompat.startForeground(
-                this,
-                TtsMediaSessionManager.NOTIFICATION_ID,
-                notification,
-                serviceTypes
-            )
-            isForeground = true
-            foregroundServiceTypes = serviceTypes
+        if (updated) {
             startedSession = true
-        } catch (_: RuntimeException) {
+        } else {
             handleForegroundPromotionFailure()
         }
     }
@@ -1629,6 +1731,7 @@ class TtsService : Service() {
 
         playbackStartedAtElapsedRealtimeMs = null
         pausedBySystem = false
+        hasPlaybackStartedInSession = false
         isRestoringSnapshot = false
         pendingSnapshotMove = 0
         _playerState.value = TtsPlayerState.Idle
@@ -1664,10 +1767,15 @@ class TtsService : Service() {
             (!bubbleRuntime.isBubbleAvailable() && state is TtsPlayerState.Error)
     }
 
+    /** Trả về trạng thái giao diện dùng chung tương ứng với trạng thái phát kỹ thuật mới nhất. */
+    private fun currentPlaybackPresentation(): TtsPlaybackPresentation =
+        _playerState.value.toPlaybackPresentation(
+            isRestoringSnapshot = isRestoringSnapshot,
+            loadingPlayWhenReady = chapterTransitionPlayWhenReady
+        )
+
     private fun isPlaybackRunning(): Boolean =
-        isRestoringSnapshot ||
-            _playerState.value is TtsPlayerState.Preparing ||
-            _playerState.value is TtsPlayerState.Playing
+        currentPlaybackPresentation().isPlaybackRunning
 
     private fun isPlaybackSessionActive(): Boolean = when (_playerState.value) {
         TtsPlayerState.Idle,
@@ -1675,16 +1783,9 @@ class TtsService : Service() {
         else -> true
     }
 
+    /** Gỡ trạng thái foreground và notification thông qua manager chuyên trách. */
     private fun stopForegroundAndRemove() {
-        runCatching {
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        }
-        runCatching {
-            NotificationManagerCompat.from(this)
-                .cancel(TtsMediaSessionManager.NOTIFICATION_ID)
-        }
-        isForeground = false
-        foregroundServiceTypes = 0
+        playbackNotificationManager.remove()
     }
 
     private fun handleBubbleCommand(command: TtsBubbleCommand) {
@@ -1714,7 +1815,7 @@ class TtsService : Service() {
 
     private fun publishWidgetState() {
         if (!::widgetStateStore.isInitialized) return
-        val playerState = _playerState.value
+        val presentation = currentPlaybackPresentation()
         val positionMs = currentPlaybackPositionMs()
         val progress = if (estimatedTotalDurationMs > 0L) {
             (positionMs.coerceAtLeast(0L).toFloat() / estimatedTotalDurationMs.toFloat())
@@ -1724,21 +1825,11 @@ class TtsService : Service() {
         } else {
             0f
         }
-        val status = when {
-            isRestoringSnapshot -> TtsWidgetPlaybackStatus.PREPARING
-            playerState is TtsPlayerState.Loading ||
-                playerState is TtsPlayerState.Preparing -> TtsWidgetPlaybackStatus.PREPARING
-            playerState is TtsPlayerState.Playing -> TtsWidgetPlaybackStatus.PLAYING
-            playerState is TtsPlayerState.Paused -> TtsWidgetPlaybackStatus.PAUSED
-            playerState is TtsPlayerState.Error -> TtsWidgetPlaybackStatus.ERROR
-            playerState is TtsPlayerState.Completed -> TtsWidgetPlaybackStatus.COMPLETED
-            else -> TtsWidgetPlaybackStatus.IDLE
-        }
         val changed = widgetStateStore.saveState(
             TtsWidgetState(
                 bookTitle = bookTitle,
                 chapterTitle = currentChapterTitle,
-                playbackStatus = status,
+                playbackStatus = presentation.widgetStatus,
                 progress = progress,
                 positionMs = positionMs.coerceAtLeast(0L),
                 durationMs = estimatedTotalDurationMs.coerceAtLeast(0L),
@@ -1788,6 +1879,7 @@ class TtsService : Service() {
 
     private fun publishBubbleModel() {
         if (!::bubbleRuntime.isInitialized) return
+        val presentation = currentPlaybackPresentation()
         val state = _playerState.value
         val positionMs = currentPlaybackPositionMs()
         val progress = if (estimatedTotalDurationMs > 0L) {
@@ -1797,11 +1889,7 @@ class TtsService : Service() {
         }
         bubbleRuntime.updateModel(
             TtsBubbleUiModel(
-                playbackStatus = if (isRestoringSnapshot) {
-                    TtsBubblePlaybackStatus.PREPARING
-                } else {
-                    state.toBubblePlaybackStatus()
-                },
+                playbackStatus = presentation.bubbleStatus,
                 bookTitle = bookTitle,
                 currentText = chunks.getOrNull(currentIndex)?.text.orEmpty(),
                 progress = progress,
@@ -1984,6 +2072,22 @@ class TtsService : Service() {
             .coerceIn(0L, estimatedTotalDurationMs.coerceAtLeast(0L))
     }
 
+    /**
+     * Hiển thị lần chuẩn bị đầu tiên là buffering; với phiên đã phát, giữ trạng thái đang phát và
+     * đóng băng tại vị trí được cung cấp trong lúc chuẩn bị đoạn tiếp theo.
+     */
+    private fun updateMediaSessionForPreparation(positionMs: Long) {
+        if (TtsMediaPlaybackContinuityPolicy.shouldShowBuffering(hasPlaybackStartedInSession)) {
+            mediaSessionManager.updatePreparingState(positionMs)
+        } else {
+            mediaSessionManager.updatePlaybackState(
+                isPlaying = true,
+                positionMs = positionMs,
+                playbackSpeed = 0f
+            )
+        }
+    }
+
     private fun bubbleUpdateIntervalMs(): Long =
         if (bubbleRuntime.isExpanded()) {
             BUBBLE_EXPANDED_UPDATE_INTERVAL_MS
@@ -1991,6 +2095,10 @@ class TtsService : Service() {
             BUBBLE_COLLAPSED_UPDATE_INTERVAL_MS
         }
 
+    /**
+     * Cập nhật vị trí MediaSession mỗi giây, đồng thời giới hạn tần suất cập nhật widget và bubble
+     * một cách độc lập; notification không được tạo lại theo từng nhịp progress.
+     */
     private fun startNotificationProgressUpdates(
         playbackId: Long,
         expectedChapterIndex: Int,
@@ -2062,8 +2170,7 @@ class TtsService : Service() {
         serviceJob.cancel()
         mediaSessionManager.release()
         currentCoverBitmap = null
-        isForeground = false
-        foregroundServiceTypes = 0
+        playbackNotificationManager.resetState()
         startedSession = false
         _playerState.value = TtsPlayerState.Idle
         super.onDestroy()

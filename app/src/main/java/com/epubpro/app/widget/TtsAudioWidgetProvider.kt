@@ -14,21 +14,22 @@ import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.TtsWidgetPlaybackStatus
 import com.epubpro.core.storage.TtsWidgetState
 import com.epubpro.core.storage.TtsWidgetStateStore
-import dagger.hilt.android.AndroidEntryPoint
 import kotlin.math.roundToInt
 
-@AndroidEntryPoint
 class TtsAudioWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
         val state = TtsWidgetStateStore(context).getState()
         appWidgetIds.forEach { updateWidget(context, manager, it, state) }
     }
 
+    /**
+     * Xử lý broadcast trạng thái phát trong phạm vi ứng dụng và chỉ cập nhật các audio widget;
+     * reading widget tự nhận và hiển thị cùng broadcast một cách độc lập.
+     */
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == TtsWidgetContract.ACTION_STATE_CHANGED) {
             updateAll(context)
-            TtsReadingWidgetProvider.updateAll(context)
         }
     }
 
