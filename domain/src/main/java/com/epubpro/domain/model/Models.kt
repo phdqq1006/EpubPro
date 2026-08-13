@@ -7,7 +7,8 @@ data class Book(
     val coverPath: String?,
     val filePath: String,
     val addedAt: Long,
-    val lastReadAt: Long
+    val lastReadAt: Long,
+    val totalChapters: Int = 0
 )
 
 data class ReadingProgress(
@@ -15,7 +16,8 @@ data class ReadingProgress(
     val currentCfi: String,
     val chapterIndex: Int,
     val pageIndex: Int = 1,
-    val progressPercentage: Float
+    val progressPercentage: Float,
+    val totalChapters: Int = 0
 )
 
 data class Bookmark(

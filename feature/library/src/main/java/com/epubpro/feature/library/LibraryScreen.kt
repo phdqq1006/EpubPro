@@ -21,12 +21,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import com.epubpro.core.designsystem.R
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.epubpro.domain.model.Book
+import com.epubpro.core.designsystem.R
+import com.epubpro.feature.library.components.GeneratedBookCover
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,11 +130,11 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(bottom = 88.dp, top = 8.dp)
                 ) {
-                    items(uiState.books, key = { it.id }) { book ->
+                    items(uiState.books, key = { it.book.id }) { item ->
                         BookCard(
-                            book = book,
-                            onClick = { onBookClick(book.id) },
-                            onDelete = { viewModel.deleteBook(book) }
+                            item = item,
+                            onClick = { onBookClick(item.book.id) },
+                            onDelete = { viewModel.deleteBook(item) }
                         )
                     }
                 }
@@ -145,7 +145,7 @@ fun LibraryScreen(
 
 @Composable
 fun BookCard(
-    book: Book,
+    item: BookItemUiState,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -164,22 +164,38 @@ fun BookCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Book,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                GeneratedBookCover(
+                    title = item.book.title,
+                    author = item.book.author
+                )
+                // Smooth top gradient scrim for icon legibility without ugly background shapes
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(
+                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.25f),
+                                    androidx.compose.ui.graphics.Color.Transparent
+                                )
+                            )
+                        )
                 )
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(4.dp)
                 ) {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.action_menu))
+                    IconButton(
+                        onClick = { showMenu = true }
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = stringResource(R.string.action_menu),
+                            tint = androidx.compose.ui.graphics.Color.White
+                        )
                     }
                     DropdownMenu(
                         expanded = showMenu,
@@ -202,21 +218,52 @@ fun BookCard(
                     }
                 }
             }
+
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
-                    text = book.title,
+                    text = item.book.title,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = book.author,
+                    text = item.book.author,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val progress = item.progressPercentage.coerceIn(0f, 1f)
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primaryContainer
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                val progressText = when {
+                    item.currentChapter > 0 && item.totalChapters > 0 ->
+                        "${item.currentChapter}/${item.totalChapters} chương (${(progress * 100).toInt()}%)"
+                    item.totalChapters > 0 ->
+                        "0/${item.totalChapters} chương (0%)"
+                    else ->
+                        "Chưa đọc"
+                }
+
+                Text(
+                    text = progressText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

@@ -493,7 +493,8 @@ class ReaderViewModel @Inject constructor(
                     currentCfi = state.currentCfi,
                     chapterIndex = state.currentChapterIndex,
                     pageIndex = state.currentPageInChapter,
-                    progressPercentage = overallProgress
+                    progressPercentage = overallProgress,
+                    totalChapters = state.chapters.size
                 )
             )
 

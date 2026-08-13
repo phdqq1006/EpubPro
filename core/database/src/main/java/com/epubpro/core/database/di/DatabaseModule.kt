@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.epubpro.core.database.AppDatabase
 import com.epubpro.core.database.MIGRATION_2_3
+import com.epubpro.core.database.MIGRATION_3_4
 import com.epubpro.core.database.dao.AiChapterDao
 import com.epubpro.core.database.dao.AiRuleDao
 import com.epubpro.core.database.dao.BookDao
@@ -29,7 +30,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "epubpro.db"
-        ).addMigrations(MIGRATION_2_3).build()
+        ).addMigrations(MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build()
     }
 
     @Provides

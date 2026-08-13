@@ -24,11 +24,12 @@ data class BookEntity(
     val coverPath: String?,
     val filePath: String,
     val addedAt: Long,
-    val lastReadAt: Long
+    val lastReadAt: Long,
+    @ColumnInfo(defaultValue = "0") val totalChapters: Int = 0
 ) {
-    fun toDomain() = Book(id, title, author, coverPath, filePath, addedAt, lastReadAt)
+    fun toDomain() = Book(id, title, author, coverPath, filePath, addedAt, lastReadAt, totalChapters)
     companion object {
-        fun fromDomain(book: Book) = BookEntity(book.id, book.title, book.author, book.coverPath, book.filePath, book.addedAt, book.lastReadAt)
+        fun fromDomain(book: Book) = BookEntity(book.id, book.title, book.author, book.coverPath, book.filePath, book.addedAt, book.lastReadAt, book.totalChapters)
     }
 }
 
@@ -38,11 +39,12 @@ data class ReadingProgressEntity(
     val currentCfi: String,
     val chapterIndex: Int,
     val pageIndex: Int = 1,
-    val progressPercentage: Float
+    val progressPercentage: Float,
+    @ColumnInfo(defaultValue = "0") val totalChapters: Int = 0
 ) {
-    fun toDomain() = ReadingProgress(bookId, currentCfi, chapterIndex, pageIndex, progressPercentage)
+    fun toDomain() = ReadingProgress(bookId, currentCfi, chapterIndex, pageIndex, progressPercentage, totalChapters)
     companion object {
-        fun fromDomain(rp: ReadingProgress) = ReadingProgressEntity(rp.bookId, rp.currentCfi, rp.chapterIndex, rp.pageIndex, rp.progressPercentage)
+        fun fromDomain(rp: ReadingProgress) = ReadingProgressEntity(rp.bookId, rp.currentCfi, rp.chapterIndex, rp.pageIndex, rp.progressPercentage, rp.totalChapters)
     }
 }
 

@@ -37,6 +37,9 @@ class BookRepositoryImpl @Inject constructor(
     override fun getReadingProgress(bookId: String): Flow<ReadingProgress?> =
         bookDao.getReadingProgress(bookId).map { it?.toDomain() }
 
+    override fun getAllReadingProgress(): Flow<List<ReadingProgress>> =
+        bookDao.getAllReadingProgress().map { list -> list.map { it.toDomain() } }
+
     override suspend fun saveReadingProgress(progress: ReadingProgress) =
         bookDao.saveReadingProgress(ReadingProgressEntity.fromDomain(progress))
 }

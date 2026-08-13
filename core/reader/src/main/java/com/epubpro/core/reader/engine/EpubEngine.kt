@@ -53,6 +53,12 @@ class EpubEngine @Inject constructor(
             e.printStackTrace()
         }
 
+        val totalChapters = try {
+            extractChapterHeaders(file).size
+        } catch (e: Exception) {
+            0
+        }
+
         Book(
             id = file.name,
             title = title,
@@ -60,7 +66,8 @@ class EpubEngine @Inject constructor(
             coverPath = null,
             filePath = file.absolutePath,
             addedAt = System.currentTimeMillis(),
-            lastReadAt = System.currentTimeMillis()
+            lastReadAt = System.currentTimeMillis(),
+            totalChapters = totalChapters
         )
     }
 

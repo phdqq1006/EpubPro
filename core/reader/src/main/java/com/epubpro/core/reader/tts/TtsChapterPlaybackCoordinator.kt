@@ -92,7 +92,8 @@ class TtsChapterPlaybackCoordinator @Inject constructor(
                 chapterIndex = chapterIndex,
                 pageIndex = 1,
                 progressPercentage =
-                    ((chapterIndex + 1f) / totalChapters).coerceIn(0f, 1f)
+                    ((chapterIndex + 1f) / totalChapters).coerceIn(0f, 1f),
+                totalChapters = totalChapters
             )
         )
     }

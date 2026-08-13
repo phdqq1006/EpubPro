@@ -13,8 +13,15 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+data class BookItemUiState(
+    val book: Book,
+    val currentChapter: Int = 0,
+    val totalChapters: Int = 0,
+    val progressPercentage: Float = 0f
+)
+
 data class LibraryUiState(
-    val books: List<Book> = emptyList(),
+    val books: List<BookItemUiState> = emptyList(),
     val isLoading: Boolean = false,
     val searchQuery: String = ""
 )
@@ -31,10 +38,28 @@ class LibraryViewModel @Inject constructor(
 
     val uiState: StateFlow<LibraryUiState> = combine(
         bookRepository.getAllBooks(),
+        bookRepository.getAllReadingProgress(),
         _searchQuery
-    ) { books, query ->
-        val filtered = if (query.isBlank()) books else books.filter {
-            it.title.contains(query, ignoreCase = true) || it.author.contains(query, ignoreCase = true)
+    ) { books, progressList, query ->
+        val progressMap = progressList.associateBy { it.bookId }
+        val items = books.map { book ->
+            val progress = progressMap[book.id]
+            val currentChapter = if (progress != null) progress.chapterIndex + 1 else 0
+            val totalChapters = if (progress != null && progress.totalChapters > 0) {
+                progress.totalChapters
+            } else {
+                book.totalChapters
+            }
+            val pct = progress?.progressPercentage ?: 0f
+            BookItemUiState(
+                book = book,
+                currentChapter = currentChapter,
+                totalChapters = totalChapters,
+                progressPercentage = pct
+            )
+        }
+        val filtered = if (query.isBlank()) items else items.filter {
+            it.book.title.contains(query, ignoreCase = true) || it.book.author.contains(query, ignoreCase = true)
         }
         LibraryUiState(books = filtered, searchQuery = query)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LibraryUiState(isLoading = true))
@@ -58,11 +83,11 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    fun deleteBook(book: Book) {
+    fun deleteBook(item: BookItemUiState) {
         viewModelScope.launch {
-            storageManager.deleteBookFile(book.filePath)
-            storageManager.deleteAiBookCache(book.id)
-            bookRepository.deleteBook(book.id)
+            storageManager.deleteBookFile(item.book.filePath)
+            storageManager.deleteAiBookCache(item.book.id)
+            bookRepository.deleteBook(item.book.id)
         }
     }
 }

@@ -11,6 +11,7 @@ interface BookRepository {
     suspend fun updateLastRead(id: String, timestamp: Long)
 
     fun getReadingProgress(bookId: String): Flow<ReadingProgress?>
+    fun getAllReadingProgress(): Flow<List<ReadingProgress>>
     suspend fun saveReadingProgress(progress: ReadingProgress)
 }
 
