@@ -161,12 +161,6 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(uiState.ttsPlayerState, uiState.isLoading, uiState.displayedChapterHtml) {
-        if (uiState.ttsPlayerState == TtsPlayerState.Loading && !uiState.isLoading && uiState.displayedChapterHtml.isNotEmpty()) {
-            ttsService?.let { viewModel.startTtsServicePlayback(it) }
-        }
-    }
-
     val (readerBgColor, readerBarBgColor, readerContentColor) = when (uiState.settings.themeMode) {
         ReaderThemeMode.LIGHT -> Triple(
             Color(0xFFFFFFFF),

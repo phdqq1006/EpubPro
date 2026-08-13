@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-11
+> Cập nhật lần cuối: 2026-08-13
 
 ---
 
@@ -65,8 +65,20 @@
 - **Chi tiết**: Bubble dùng `TYPE_APPLICATION_OVERLAY` nhưng không tạo playback stack riêng. UI overlay chỉ gửi command và render model bất biến từ `TtsService`; reducer quyết định Disabled/Hidden/Collapsed/Expanded dựa trên toggle, quyền, foreground app, khóa màn hình và cờ ẩn phiên hiện tại. Preference vị trí cùng snapshot playback được lưu private, atomic; snapshot chỉ chứa cursor và timeline, không lưu text/HTML. Quyền overlay được theo dõi bằng `AppOpsManager`, không dùng polling khi Idle.
 - **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleRuntime.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleOverlayController.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt
 
+### Service Owns Chapter Transition Commands
+- **Ngày**: 2026-08-13
+- **Chi tiết**: `TtsService` là chủ sở hữu duy nhất của việc chuyển chunk/chapter và `playbackGeneration`. `ReaderViewModel` chỉ đồng bộ chapter hiển thị sau khi service phát `Preparing`/`Playing` của chapter mới. UI không được suy diễn một command Play từ state chuyển tiếp như `Loading`; nếu cần auto-start theo ý định người dùng, phải dùng event/pending intent riêng, có thể consume đúng một lần.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
 ---
 ## Bugs & Solutions
+
+### Đoạn cuối chapter bị phát lặp và không chuyển sang chapter kế tiếp
+- **Ngày**: 2026-08-13
+- **Vấn đề**: Khi Reader đang mở, TTS đôi lúc phát lặp vô hạn đoạn cuối của chapter cũ.
+- **Root cause**: `TtsService` phát `TtsPlayerState.Loading` trong lúc tự chuyển chapter. `ReaderScreen` có `LaunchedEffect` coi mọi `Loading` là yêu cầu gọi `startTtsServicePlayback()`, nên nạp lại HTML chapter cũ. `loadContent()` tăng `playbackGeneration`, khiến coroutine chuyển chapter mới tự loại bỏ và vòng lặp tái diễn.
+- **Fix**: Xóa side effect phát lại dựa trên `TtsPlayerState.Loading`. Các nút người dùng gọi command trực tiếp; UI chỉ gọi `onChapterSelected(nextChapter)` để đồng bộ WebView khi service phát `Preparing`/`Playing` của chapter mới.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ### Highlight TTS bị lệch đoạn văn so với âm thanh đang đọc
 - **Ngày**: 2026-07-31
@@ -196,6 +208,16 @@
 ---
 ## How-To
 
+### Chẩn đoán vòng lặp state-effect giữa Reader và TTS Service
+- **Ngày**: 2026-08-13
+- **Bước thực hiện**:
+  1. Lập timeline từ callback `onChunkDone` qua `advanceToNextChapter`, state phát ra và observer UI.
+  2. Tìm mọi `LaunchedEffect`/collector phản ứng với state chuyển tiếp và kiểm tra chúng có phát command ngược về service hay không.
+  3. Theo dõi nơi tăng `playbackGeneration`; nếu command UI tăng generation trong lúc transition đang await, coroutine hợp lệ sẽ bị loại.
+  4. Kiểm tra boundary khi Reader foreground, background và service chưa bind vì feedback loop thường phụ thuộc lifecycle UI.
+  5. Test final chunk → `Loading` → chapter mới; xác nhận `loadContent()` không bị gọi lại với chapter cũ.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
+
 ### Đồng bộ vị trí bắt đầu nghe TTS với đoạn đang đọc dở trên màn hình
 - **Ngày**: 2026-07-31
 - **Bước thực hiện**:
@@ -252,6 +274,11 @@
 
 ---
 ## Patterns
+
+### Observable State Must Not Implicitly Reissue Playback Commands
+- **Ngày**: 2026-08-13
+- **Chi tiết**: State từ service (`Loading`, `Preparing`, `Playing`) là projection để UI render, không phải one-shot command. `LaunchedEffect(state)` không được gọi lại `loadContent()`/Play nếu state đó cũng có thể do service tự phát trong lifecycle nội bộ. Command phải bắt nguồn từ thao tác người dùng hoặc event riêng có identity/consume semantics; state observer chỉ đồng bộ giao diện. Pattern này tránh feedback loop, duplicate command và vô hiệu hóa generation token hợp lệ.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ### DOM-Aligned Jsoup Parsing & Auto-Save Last TTS Paragraph Position
 - **Ngày**: 2026-07-31
