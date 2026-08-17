@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="tts_bubble_notification_idle">Bong bóng audio đang bật</string>
-    <string name="tts_bubble_restore_error">Không thể khôi phục phiên đọc gần nhất</string>
-</resources>

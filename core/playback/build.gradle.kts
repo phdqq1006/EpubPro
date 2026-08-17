@@ -1,13 +1,3 @@
-import java.util.Properties
-
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localPropertiesFile.inputStream().use(::load)
-    }
-}
-val defaultGeminiApiKey = localProperties.getProperty("GEMINI_API_KEY", "")
-val defaultGeminiApiKeyLiteral = 34.toChar() + defaultGeminiApiKey + 34.toChar()
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -16,14 +6,14 @@ plugins {
 }
 
 android {
-    namespace = "com.epubpro.feature.reader"
+    namespace = "com.epubpro.core.playback"
     compileSdk = 34
 
     defaultConfig {
         minSdk = 26
-        buildConfigField("String", "DEFAULT_GEMINI_API_KEY", defaultGeminiApiKeyLiteral)
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -32,7 +22,6 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.11"
@@ -40,14 +29,25 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":domain"))
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
+    implementation(project(":core:tts"))
     implementation(project(":core:epub"))
-    implementation(project(":core:reader-renderer"))
-    implementation(project(":core:playback"))
-    implementation(project(":core:ai"))
+
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
+
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
+
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
+    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -55,12 +55,15 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.androidx.hilt.navigation.compose)
 
-    implementation(libs.hilt.android)
-    kapt(libs.hilt.compiler)
+    // AndroidX Media
+    implementation("androidx.media:media:1.7.0")
 
-    implementation(libs.androidx.appcompat)
+    // Jsoup for TTS Text Parsing
+    implementation("org.jsoup:jsoup:1.17.2")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.mockito:mockito-core:5.11.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1")
 }

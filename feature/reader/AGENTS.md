@@ -40,7 +40,7 @@ devices and chapter sizes.
 After a relevant change, run at minimum:
 
 ```text
-./gradlew :core:reader:testDebugUnitTest :feature:reader:testDebugUnitTest :app:assembleDebug
+./gradlew :core:epub:testDebugUnitTest :core:reader-renderer:testDebugUnitTest :core:playback:testDebugUnitTest :feature:reader:testDebugUnitTest :app:assembleDebug
 ```
 
 Also verify on a real device in both directions:

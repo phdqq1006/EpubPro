@@ -32,7 +32,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
-    implementation(project(":core:reader"))
+    implementation(project(":core:playback"))
     implementation(project(":core:tts"))
 
     implementation(platform(libs.androidx.compose.bom))
