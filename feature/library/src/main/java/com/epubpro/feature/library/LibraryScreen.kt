@@ -34,10 +34,20 @@ fun LibraryScreen(
     onBookClick: (bookId: String) -> Unit,
     onNavigateToBookmarks: () -> Unit,
     onNavigateToSearch: () -> Unit,
+    onNavigateToOnlineLibrary: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showAddBookBottomSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(uiState.message) {
+        uiState.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -45,7 +55,23 @@ fun LibraryScreen(
         uri?.let { viewModel.importEpub(it, "book.epub") }
     }
 
+    val uploadPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.uploadEpubToServer(it, "upload.epub") }
+    }
+
+    if (showAddBookBottomSheet) {
+        AddBookBottomSheet(
+            onDismissRequest = { showAddBookBottomSheet = false },
+            onNavigateToOnlineLibrary = onNavigateToOnlineLibrary,
+            onPickLocalEpub = { filePickerLauncher.launch("application/epub+zip") },
+            onUploadEpubToServer = { uploadPickerLauncher.launch("application/epub+zip") }
+        )
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -56,6 +82,9 @@ fun LibraryScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = onNavigateToOnlineLibrary) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = stringResource(R.string.add_book_online))
+                    }
                     IconButton(onClick = onNavigateToSearch) {
                         Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search))
                     }
@@ -70,7 +99,7 @@ fun LibraryScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { filePickerLauncher.launch("application/epub+zip") },
+                onClick = { showAddBookBottomSheet = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             ) {

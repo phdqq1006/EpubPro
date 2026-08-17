@@ -36,6 +36,22 @@ class EpubStorageManager @Inject constructor(
         return targetFile
     }
 
+    /**
+     * Save downloaded EPUB stream directly into internal app storage
+     */
+    fun importDownloadedEpub(inputStream: InputStream, originalFileName: String?): File {
+        val fileId = UUID.randomUUID().toString()
+        val extension = originalFileName?.substringAfterLast('.', "epub") ?: "epub"
+        val targetFile = File(booksDir, "$fileId.$extension")
+
+        inputStream.use { input ->
+            FileOutputStream(targetFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+        return targetFile
+    }
+
     fun saveCoverImage(bookId: String, inputStream: InputStream): String {
         val coverFile = File(coversDir, "$bookId.jpg")
         FileOutputStream(coverFile).use { output ->

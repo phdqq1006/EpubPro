@@ -86,20 +86,72 @@ fun AppNavHost(
                     },
                     onNavigateToSearch = {
                         navController.navigate(Screen.Search.createRoute("global"))
+                    },
+                    onNavigateToOnlineLibrary = {
+                        navController.navigate(Screen.OnlineLibrary.route)
                     }
                 )
             }
 
             composable(Screen.Browse.route) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_browse)))
-                }
+                com.epubpro.feature.library.online.OnlineLibraryScreen(
+                    onNovelClick = { novelId ->
+                        navController.navigate(Screen.OnlineNovelDetail.createRoute(novelId))
+                    },
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToServerSettings = { navController.navigate(Screen.Profile.route) }
+                )
+            }
+
+            composable(Screen.OnlineLibrary.route) {
+                com.epubpro.feature.library.online.OnlineLibraryScreen(
+                    onNovelClick = { novelId ->
+                        navController.navigate(Screen.OnlineNovelDetail.createRoute(novelId))
+                    },
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToServerSettings = { navController.navigate(Screen.Profile.route) }
+                )
+            }
+
+            composable(
+                route = Screen.OnlineNovelDetail.route,
+                arguments = listOf(navArgument("novelId") { type = NavType.StringType })
+            ) {
+                com.epubpro.feature.library.online.OnlineNovelDetailScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onReadChapter = { novelId, chapterIndex ->
+                        navController.navigate(Screen.OnlineChapterReader.createRoute(novelId, chapterIndex))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.OnlineChapterReader.route,
+                arguments = listOf(
+                    navArgument("novelId") { type = NavType.StringType },
+                    navArgument("chapterIndex") { type = NavType.StringType }
+                )
+            ) {
+                com.epubpro.feature.library.online.OnlineChapterReaderScreen(
+                    onNavigateBack = { navController.popBackStack() }
+                )
             }
 
             composable(Screen.Bookshelf.route) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_library)))
-                }
+                LibraryScreen(
+                    onBookClick = { bookId ->
+                        navController.navigate(Screen.Reader.createRoute(bookId))
+                    },
+                    onNavigateToBookmarks = {
+                        navController.navigate(Screen.Bookmark.createRoute("global"))
+                    },
+                    onNavigateToSearch = {
+                        navController.navigate(Screen.Search.createRoute("global"))
+                    },
+                    onNavigateToOnlineLibrary = {
+                        navController.navigate(Screen.OnlineLibrary.route)
+                    }
+                )
             }
 
             composable(Screen.Notebook.route) {
@@ -192,6 +244,14 @@ sealed class Screen(val route: String) {
     }
 
     object Browse : Screen("browse")
+    object OnlineLibrary : Screen("online_library")
+    object OnlineNovelDetail : Screen("online_novel_detail/{novelId}") {
+        fun createRoute(novelId: String) = "online_novel_detail/$novelId"
+    }
+    object OnlineChapterReader : Screen("online_chapter_reader/{novelId}/{chapterIndex}") {
+        fun createRoute(novelId: String, chapterIndex: Int) = "online_chapter_reader/$novelId/$chapterIndex"
+    }
+
     object Bookshelf : Screen("bookshelf")
     object Notebook : Screen("notebook")
     object Profile : Screen("profile")

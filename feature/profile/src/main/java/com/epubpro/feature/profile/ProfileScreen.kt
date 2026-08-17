@@ -21,13 +21,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.epubpro.core.designsystem.R
 
+import androidx.hilt.navigation.compose.hiltViewModel
+
 @Composable
 fun ProfileScreen(
     onNavigateToAudioSettings: () -> Unit = {},
     onNavigateToReadingDefaults: () -> Unit = {},
-    onNavigateToContentFilter: () -> Unit = {}
+    onNavigateToContentFilter: () -> Unit = {},
+    viewModel: ProfileViewModel = hiltViewModel()
 ) {
     var notificationsEnabled by remember { mutableStateOf(true) }
+    var showServerSettingsDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -133,6 +137,23 @@ fun ProfileScreen(
                 onClick = onNavigateToContentFilter
             )
         }
+
+        item {
+            ProfileItem(
+                title = stringResource(R.string.server_settings_title),
+                subtitle = stringResource(R.string.server_settings_subtitle),
+                icon = Icons.Default.Dns,
+                onClick = { showServerSettingsDialog = true }
+            )
+        }
+    }
+
+    if (showServerSettingsDialog) {
+        ServerSettingsDialog(
+            onDismissRequest = { showServerSettingsDialog = false },
+            serverPreferencesManager = viewModel.serverPreferencesManager,
+            onlineNovelRepository = viewModel.onlineNovelRepository
+        )
     }
 }
 
