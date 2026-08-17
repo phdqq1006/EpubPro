@@ -130,4 +130,26 @@ class PiperTtsEngineWrapperTest {
         assertTrue(sherpaTtsEngine.isInitialized)
         assertTrue(chunkStarted)
     }
+
+    @Test
+    fun `initialize with incompatible language returns error without crash`() {
+        downloader.isDownloaded = true
+        piperWrapper.setVoice("ngoc_ngan") // ngoc_ngan is "vi"
+        piperWrapper.setLanguage("en")     // Change language to English, voiceId becomes null
+
+        var errorReported: String? = null
+        piperWrapper.initialize(
+            onReady = {},
+            onError = { error -> errorReported = error }
+        )
+
+        assertEquals("Chưa chọn giọng AI Offline", errorReported)
+    }
+
+    @Test
+    fun `stop and shutdown cleanly without exceptions`() {
+        piperWrapper.stop()
+        piperWrapper.shutdown()
+        assertFalse(sherpaTtsEngine.isInitialized)
+    }
 }
