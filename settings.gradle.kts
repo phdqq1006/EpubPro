@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("build-logic")
     repositories {
         google()
         mavenCentral()
@@ -11,6 +12,13 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = java.net.URI("https://jitpack.io") }
+        maven {
+            name = "LocalVendorMaven"
+            url = java.net.URI(rootDir.resolve("third_party/maven").toURI().toString())
+            content {
+                includeGroup("com.epubpro.vendor")
+            }
+        }
     }
 }
 

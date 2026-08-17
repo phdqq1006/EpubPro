@@ -2,7 +2,10 @@
 agp = "8.3.2"
 kotlin = "1.9.23"
 coreKtx = "1.13.1"
+appcompat = "1.6.1"
 lifecycleRuntimeKtx = "2.7.0"
+lifecycle = "2.7.0"
+savedstate = "1.2.1"
 activityCompose = "1.9.0"
 composeBom = "2024.05.00"
 navigationCompose = "2.7.7"
@@ -17,13 +20,23 @@ mlkitTextRecognition = "16.0.0"
 mlkitTranslate = "17.0.2"
 desugarJdkLibs = "2.0.4"
 media = "1.7.0"
+jsoup = "1.17.2"
+junit = "4.13.2"
+json = "20240303"
+mockito = "5.11.0"
+mockitoKotlin = "5.2.1"
+javaxInject = "1"
+sherpaOnnx = "1.13.4"
 
 [libraries]
+javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version = "1.6.1" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
+androidx-savedstate-ktx = { group = "androidx.savedstate", name = "savedstate-ktx", version.ref = "savedstate" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
@@ -46,7 +59,6 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 
-
 # Coil
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
@@ -61,9 +73,22 @@ kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 mlkit-text-recognition = { group = "com.google.android.gms", name = "play-services-mlkit-text-recognition", version.ref = "mlkitTextRecognition" }
 mlkit-translate = { group = "com.google.android.gms", name = "play-services-mlkit-language-id", version.ref = "mlkitTranslate" }
 
+# EPUB & Text Parsing
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+
+# Local Vendor Libraries
+sherpa-onnx = { group = "com.epubpro.vendor", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
+
+# Testing
+junit4 = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
 hilt-android = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
