@@ -4,14 +4,17 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.PixelCopy
 import android.view.View
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -35,11 +38,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import com.epubpro.core.reader.bridge.ReaderJsBridge
+import com.epubpro.core.reader.filter.EpubHtmlSanitizer
 import com.epubpro.core.reader.style.CssInjector
 import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.ReaderSettings
 import kotlinx.coroutines.delay
 import org.json.JSONObject
+import java.util.Locale
 
 private const val CHAPTER_TRANSITION_TIMEOUT_MS = 2_500L
 
@@ -70,18 +75,6 @@ internal fun ReaderSettings.contentReloadKey(): Int = listOf(
     textAlignment,
     showScrollBar
 ).hashCode()
-
-private fun sanitizeEpubHtml(html: String): String {
-    return html
-        .replace("""(?i)<meta\s+name=["']viewport["'][^>]*>""".toRegex(), "")
-        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*/>""".toRegex(), "")
-        .replace("""(?i)<link[^>]*rel=["']stylesheet["'][^>]*>""".toRegex(), "")
-        .replace("""(?is)<style[^>]*>.*?</style>""".toRegex(), "")
-        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
-        .replace("""(?i)(<body[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
-        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*"[^"]*"""".toRegex(), "$1")
-        .replace("""(?i)(<html[^>]*?)\s+style\s*=\s*'[^']*'""".toRegex(), "$1")
-}
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -345,11 +338,18 @@ fun EpubProWebView(
                     webViewRef = this
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     this.settings.javaScriptEnabled = true
-                    this.settings.domStorageEnabled = true
+                    this.settings.domStorageEnabled = false
                     this.settings.useWideViewPort = false
                     this.settings.loadWithOverviewMode = false
                     this.settings.textZoom = 100
                     this.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    this.settings.allowFileAccess = false
+                    this.settings.allowContentAccess = false
+                    this.settings.allowFileAccessFromFileURLs = false
+                    this.settings.allowUniversalAccessFromFileURLs = false
+                    this.settings.javaScriptCanOpenWindowsAutomatically = false
+                    this.settings.setSupportMultipleWindows(false)
+                    this.settings.mediaPlaybackRequiresUserGesture = true
                     isFocusable = true
                     isFocusableInTouchMode = true
                     requestFocus()
@@ -362,6 +362,24 @@ fun EpubProWebView(
                                 "if (typeof epubproUpdateMetrics === 'function') { epubproUpdateMetrics(); }",
                                 null
                             )
+                        }
+
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean {
+                            val uri = request?.url ?: return true
+                            val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return true
+
+                            if (scheme in listOf("http", "https")) {
+                                runCatching {
+                                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    view?.context?.startActivity(intent)
+                                }
+                            }
+                            return true
                         }
                     }
                 }
@@ -424,9 +442,9 @@ fun EpubProWebView(
                 if (loadedHtmlKey != newHtmlKey) {
                     loadedHtmlKey = newHtmlKey
                     val loadGeneration = generationTracker.nextLoadGeneration()
-                    val cleanHtml = sanitizeEpubHtml(htmlContent)
-                    val previousPreviewHtml = previousChapterHtml?.let(::sanitizeEpubHtml)
-                    val nextPreviewHtml = nextChapterHtml?.let(::sanitizeEpubHtml)
+                    val cleanHtml = EpubHtmlSanitizer.sanitize(htmlContent)
+                    val previousPreviewHtml = previousChapterHtml?.let(EpubHtmlSanitizer::sanitize)
+                    val nextPreviewHtml = nextChapterHtml?.let(EpubHtmlSanitizer::sanitize)
                     val statusFooterHeightDp = if (settings.showStatusBar) 20 else 0
                     val css = CssInjector.generateCss(settings, statusFooterHeightDp)
                     val jsScript = CssInjector.generateJsBridgeScript(
@@ -477,7 +495,6 @@ fun EpubProWebView(
                         "Loading HTML, generation=${loadGeneration}, length=${preparedHtml.length}, " +
                             "isHorizontal=${settings.isHorizontalPagination}"
                     )
-                    Log.d("EpubPro_HTML", "First 1000 chars: ${preparedHtml.take(1000)}")
 
                     webView.loadDataWithBaseURL(
                         "file:///android_asset/",

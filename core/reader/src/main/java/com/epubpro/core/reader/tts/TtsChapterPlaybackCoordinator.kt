@@ -85,14 +85,36 @@ class TtsChapterPlaybackCoordinator @Inject constructor(
     suspend fun saveChapterProgress(chapterIndex: Int) {
         val activeSession = session ?: return
         val totalChapters = activeSession.headers.size.coerceAtLeast(1)
+        saveReadingProgress(
+            activeSession = activeSession,
+            chapterIndex = chapterIndex,
+            progressPercentage = chapterStartProgress(chapterIndex, totalChapters)
+        )
+    }
+
+    suspend fun saveBookCompletedProgress() {
+        val activeSession = session ?: return
+        val totalChapters = activeSession.headers.size.coerceAtLeast(1)
+        saveReadingProgress(
+            activeSession = activeSession,
+            chapterIndex = totalChapters - 1,
+            progressPercentage = 1f
+        )
+    }
+
+    private suspend fun saveReadingProgress(
+        activeSession: Session,
+        chapterIndex: Int,
+        progressPercentage: Float
+    ) {
+        val totalChapters = activeSession.headers.size.coerceAtLeast(1)
         bookRepository.saveReadingProgress(
             ReadingProgress(
                 bookId = activeSession.book.id,
                 currentCfi = "",
                 chapterIndex = chapterIndex,
                 pageIndex = 1,
-                progressPercentage =
-                    ((chapterIndex + 1f) / totalChapters).coerceIn(0f, 1f),
+                progressPercentage = progressPercentage.coerceIn(0f, 1f),
                 totalChapters = totalChapters
             )
         )
@@ -118,4 +140,10 @@ class TtsChapterPlaybackCoordinator @Inject constructor(
         MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
+}
+
+internal fun chapterStartProgress(chapterIndex: Int, totalChapters: Int): Float {
+    if (totalChapters <= 0) return 0f
+    val normalizedChapterIndex = chapterIndex.coerceIn(0, totalChapters - 1)
+    return normalizedChapterIndex.toFloat() / totalChapters.toFloat()
 }

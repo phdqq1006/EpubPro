@@ -82,7 +82,7 @@ class EpubEngine @Inject constructor(
 
                 orderedEntries.forEachIndexed { index, entry ->
                     // Read header sample to extract chapter title
-                    val title = try {
+                    val rawTitle = try {
                         val buffer = ByteArray(8192)
                         val readBytes = zip.getInputStream(entry).use { it.read(buffer, 0, buffer.size) }
                         if (readBytes > 0) {
@@ -97,6 +97,9 @@ class EpubEngine @Inject constructor(
                     } catch (e: Exception) {
                         "Chương ${index + 1}"
                     }
+
+                    val title = sanitizeChapterTitle(rawTitle)
+                        .ifBlank { "Chương ${index + 1}" }
 
                     headers.add(
                         EpubChapterHeader(
@@ -260,5 +263,27 @@ class EpubEngine @Inject constructor(
         return html.replace("<[^>]*>".toRegex(), " ")
             .replace("\\s+".toRegex(), " ")
             .trim()
+    }
+
+    private fun sanitizeChapterTitle(rawTitle: String): String {
+        if (rawTitle.isBlank()) return rawTitle
+
+        var title = rawTitle.trim()
+
+        // 1. Remove software watermarks / author generator tags
+        title = title.replace("(?i)\\s*[-|–—]\\s*(Created|Written|Converted|Generated)(\\s+with|\\s+by).*$".toRegex(), "")
+        title = title.replace("(?i)\\s*(Created|Written|Converted|Generated)(\\s+with|\\s+by).*$".toRegex(), "")
+        title = title.replace("(?i)\\s*[-|–—]\\s*(truyenfull|metruyenchu|wikidich|tangthuvien|vbooks|mkbyme).*$".toRegex(), "")
+
+        // 2. Remove appended Book Title / Series Title in parentheses or suffix after dash
+        val parts = title.split(" - ")
+        if (parts.size >= 2) {
+            val lastPart = parts.last().trim()
+            if (lastPart.contains("(") && lastPart.contains(")")) {
+                title = parts.dropLast(1).joinToString(" - ").trim()
+            }
+        }
+
+        return title.trim().removeSuffix("-").removeSuffix("|").trim()
     }
 }

@@ -45,33 +45,26 @@ class TtsPlaybackSnapshotStore @Inject constructor(
 
     fun getSnapshot(): TtsPlaybackSnapshot? = _snapshotFlow.value
 
-    /**
-     * Writes a complete snapshot as one synchronously committed preference value.
-     * Returns false for an invalid book id or if the platform could not persist the update.
-     */
+    /** Writes a complete snapshot to memory immediately and schedules disk persistence. */
     @Synchronized
     fun saveSnapshot(snapshot: TtsPlaybackSnapshot): Boolean {
         val normalized = snapshot.normalizedOrNull() ?: return false
         if (normalized == _snapshotFlow.value) return true
 
-        val committed = prefs.edit()
+        prefs.edit()
             .putString(KEY_SNAPSHOT, TtsPlaybackSnapshotCodec.encode(normalized))
-            .commit()
-        if (committed) {
-            _snapshotFlow.value = normalized
-        }
-        return committed
+            .apply()
+        _snapshotFlow.value = normalized
+        return true
     }
 
     @Synchronized
     fun clearSnapshot(): Boolean {
         if (_snapshotFlow.value == null && !prefs.contains(KEY_SNAPSHOT)) return true
 
-        val committed = prefs.edit().remove(KEY_SNAPSHOT).commit()
-        if (committed) {
-            _snapshotFlow.value = null
-        }
-        return committed
+        prefs.edit().remove(KEY_SNAPSHOT).apply()
+        _snapshotFlow.value = null
+        return true
     }
 
     private fun readSnapshot(): TtsPlaybackSnapshot? {

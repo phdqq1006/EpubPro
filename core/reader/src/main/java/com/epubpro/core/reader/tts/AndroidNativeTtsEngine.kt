@@ -47,6 +47,9 @@ class AndroidNativeTtsEngine(
     override fun onInit(status: Int) {
         if (status != TextToSpeech.SUCCESS) {
             isInitialized = false
+            pendingSpeech = null
+            tts?.shutdown()
+            tts = null
             onErrorCallback?.invoke("Không thể khởi tạo Android TextToSpeech Engine (mã lỗi: $status).")
             return
         }
@@ -89,6 +92,10 @@ class AndroidNativeTtsEngine(
     ) {
         if (!isInitialized || tts == null) {
             pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone, onError)
+            initialize(
+                onReady = {},
+                onError = onError
+            )
             return
         }
         currentOnChunkStart = onChunkStart

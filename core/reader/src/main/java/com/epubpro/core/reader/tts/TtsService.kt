@@ -114,6 +114,9 @@ class TtsService : Service() {
     private var isRestoringSnapshot: Boolean = false
     private var pendingSnapshotMove: Int = 0
     private var snapshotRestoreJob: Job? = null
+    private var readingWidgetMoveJob: Job? = null
+    private val readingWidgetMoveQueue = TtsReadingWidgetMoveQueue(MAX_QUEUED_SNAPSHOT_MOVES)
+    private var latestReadingWidgetStartId: Int = 0
     private var idleEpisodeId: Long = 0L
     private var isShuttingDownIdle: Boolean = false
     private var currentCoverBitmap: Bitmap? = null
@@ -165,6 +168,10 @@ class TtsService : Service() {
         activeSettings = preferencesManager.getSettings().normalizedForPlayback()
         currentEngine = engineFor(activeSettings)
         applySettingsToEngines(activeSettings)
+        nativeTtsEngine.initialize(
+            onReady = {},
+            onError = ::handleEngineInitializationError
+        )
 
 
         bubbleRuntime = TtsBubbleRuntime(
@@ -245,7 +252,7 @@ class TtsService : Service() {
     }
 
     private fun handleReadingWidgetMove(startId: Int, relativeMove: Int) {
-        val snapshot = playbackSnapshotStore.getSnapshot() ?: run {
+        if (playbackSnapshotStore.getSnapshot() == null) {
             stopSelf(startId)
             return
         }
@@ -255,63 +262,77 @@ class TtsService : Service() {
                 isPlaying = false
             )
         }
-        val expectedGeneration = playbackGeneration
-        serviceScope.launch {
-            val projection = runCatching {
-                loadReadingWidgetProjection(snapshot, relativeMove, expectedGeneration)
-            }.getOrElse {
-                if (!isPlaybackSessionActive() && !bubbleRuntime.isBubbleAvailable()) {
-                    stopForegroundAndRemove()
-                    startedSession = false
-                    stopSelf(startId)
-                }
-                return@launch
-            }
+        latestReadingWidgetStartId = startId
+        readingWidgetMoveQueue.enqueue(relativeMove)
+        if (readingWidgetMoveJob?.isActive == true) return
 
-            playbackSnapshotStore.saveSnapshot(
-                TtsPlaybackSnapshot(
-                    bookId = projection.book.id,
-                    chapterIndex = projection.chapter.content.chapterIndex,
-                    paragraphIndex = projection.paragraphIndex,
-                    sentenceIndex = 0,
-                    preferAiContent = snapshot.preferAiContent,
-                    timelinePositionMs = 0L
+        readingWidgetMoveJob = serviceScope.launch { processReadingWidgetMoves() }
+    }
+
+    private suspend fun processReadingWidgetMoves() {
+        try {
+            while (true) {
+                val relativeMove = readingWidgetMoveQueue.drain()
+                if (relativeMove == 0) break
+                val snapshot = playbackSnapshotStore.getSnapshot() ?: break
+                val expectedGeneration = playbackGeneration
+                val projection = loadReadingWidgetProjection(
+                    snapshot = snapshot,
+                    relativeMove = relativeMove,
+                    expectedGeneration = expectedGeneration
                 )
-            )
 
-            val changed = widgetStateStore.saveState(
-                TtsWidgetState(
-                    bookTitle = projection.book.title,
-                    chapterTitle = projection.chapter.content.chapterTitle,
-                    playbackStatus = if (isPlaybackRunning()) {
-                        TtsWidgetPlaybackStatus.PLAYING
-                    } else {
-                        TtsWidgetPlaybackStatus.IDLE
-                    },
-                    progress = if (projection.totalParagraphs > 0) {
-                        ((projection.paragraphIndex + 1).toFloat() / projection.totalParagraphs.toFloat())
-                            .coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    },
-                    hasSnapshot = true,
-                    coverPath = projection.book.coverPath,
-                    paragraphIndex = projection.paragraphIndex,
-                    totalParagraphs = projection.totalParagraphs,
-                    paragraphText = buildReadingWidgetText(
-                        chunks = projection.chapter.chunks,
+                playbackSnapshotStore.saveSnapshot(
+                    TtsPlaybackSnapshot(
+                        bookId = projection.book.id,
+                        chapterIndex = projection.chapter.content.chapterIndex,
                         paragraphIndex = projection.paragraphIndex,
-                        maxChars = WIDGET_READING_TEXT_MAX_CHARS
+                        sentenceIndex = 0,
+                        preferAiContent = snapshot.preferAiContent,
+                        timelinePositionMs = 0L
                     )
                 )
-            )
-            if (changed) {
-                sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(packageName))
+
+                val changed = widgetStateStore.saveState(
+                    TtsWidgetState(
+                        bookTitle = projection.book.title,
+                        chapterTitle = projection.chapter.content.chapterTitle,
+                        playbackStatus = if (isPlaybackRunning()) {
+                            TtsWidgetPlaybackStatus.PLAYING
+                        } else {
+                            TtsWidgetPlaybackStatus.IDLE
+                        },
+                        progress = if (projection.totalParagraphs > 0) {
+                            ((projection.paragraphIndex + 1).toFloat() / projection.totalParagraphs.toFloat())
+                                .coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
+                        hasSnapshot = true,
+                        coverPath = projection.book.coverPath,
+                        paragraphIndex = projection.paragraphIndex,
+                        totalParagraphs = projection.totalParagraphs,
+                        paragraphText = buildReadingWidgetText(
+                            chunks = projection.chapter.chunks,
+                            paragraphIndex = projection.paragraphIndex,
+                            maxChars = WIDGET_READING_TEXT_MAX_CHARS
+                        )
+                    )
+                )
+                if (changed) {
+                    sendBroadcast(Intent(TtsWidgetContract.ACTION_STATE_CHANGED).setPackage(packageName))
+                }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            readingWidgetMoveQueue.clear()
+        } finally {
+            readingWidgetMoveJob = null
             if (!isPlaybackSessionActive() && !bubbleRuntime.isBubbleAvailable()) {
                 stopForegroundAndRemove()
                 startedSession = false
-                stopSelf(startId)
+                stopSelf(latestReadingWidgetStartId)
             }
         }
     }
@@ -1273,6 +1294,8 @@ class TtsService : Service() {
             }
 
             if (nextChapter == null) {
+                chapterPlaybackCoordinator.saveBookCompletedProgress()
+                if (navigationGeneration != playbackGeneration) return
                 finishPlayback()
                 return
             }
@@ -2163,6 +2186,8 @@ class TtsService : Service() {
         idleTimeoutJob?.cancel()
         chapterPreparation?.cancel()
         snapshotRestoreJob?.cancel()
+        readingWidgetMoveJob?.cancel()
+        readingWidgetMoveQueue.clear()
         audioFocusController.abandonFocus()
         nativeTtsEngine.shutdown()
         piperTtsEngineWrapper.shutdown()
