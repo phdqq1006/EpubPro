@@ -22,7 +22,7 @@ import java.io.FileNotFoundException
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
-class SherpaTtsEngine @Inject constructor(
+open class SherpaTtsEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private var tts: OfflineTts? = null
@@ -37,7 +37,7 @@ class SherpaTtsEngine @Inject constructor(
     /**
      * Khởi tạo engine với file model từ bộ nhớ thiết bị.
      */
-    suspend fun initialize(
+    open suspend fun initialize(
         onnxPath: String,
         tokensPath: String = "",
         lexiconPath: String = "",
@@ -117,7 +117,7 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    suspend fun synthesize(
+    open suspend fun synthesize(
         text: String,
         speed: Float = 1.0f
     ): ByteArray = withContext(Dispatchers.IO) {
@@ -150,7 +150,7 @@ class SherpaTtsEngine @Inject constructor(
         pcm
     }
 
-    suspend fun speak(
+    open suspend fun speak(
         text: String,
         speed: Float = 1.0f,
         onAudioStarted: () -> Unit = {}
@@ -159,7 +159,7 @@ class SherpaTtsEngine @Inject constructor(
         playPcm(pcm, onAudioStarted)
     }
 
-    suspend fun playPcm(
+    open suspend fun playPcm(
         pcm: ByteArray,
         onAudioStarted: () -> Unit = {}
     ) = withContext(Dispatchers.IO) {
@@ -191,7 +191,7 @@ class SherpaTtsEngine @Inject constructor(
     /**
      * Dừng phát âm thanh ngay lập tức và xả buffer AudioTrack.
      */
-    fun stop() {
+    open fun stop() {
         Log.d(TAG, "stop() called")
         try {
             audioTrack?.pause()
@@ -201,7 +201,7 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    fun release() {
+    open fun release() {
         Log.d(TAG, "release()")
         stop()
         try { audioTrack?.release() } catch (t: Throwable) { Log.e(TAG, "release audioTrack", t) }

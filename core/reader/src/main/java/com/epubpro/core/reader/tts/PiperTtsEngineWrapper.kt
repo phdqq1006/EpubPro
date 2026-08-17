@@ -16,6 +16,15 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * Lớp bọc bộ đọc TTS Piper / Sherpa-ONNX AI Offline.
+ *
+ * Quản lý vòng đời khởi tạo engine, đồng bộ hóa quá trình tổng hợp âm thanh PCM,
+ * prefetch đoạn văn tiếp theo và xử lý an toàn các lỗi khởi tạo hoặc hủy tác vụ.
+ *
+ * @property sherpaTtsEngine Engine Sherpa-ONNX thực hiện tổng hợp PCM native.
+ * @property downloader Trình tải và quản lý tệp giọng đọc AI offline.
+ */
 class PiperTtsEngineWrapper @Inject constructor(
     private val sherpaTtsEngine: SherpaTtsEngine,
     private val downloader: VoiceModelDownloader
@@ -49,11 +58,19 @@ class PiperTtsEngineWrapper @Inject constructor(
         val onError: (String) -> Unit
     )
 
+    /**
+     * Khởi tạo engine Piper TTS với tệp model AI offline đã tải về.
+     *
+     * @param onReady Callback được gọi khi engine đã sẵn sàng phát âm thanh.
+     * @param onError Callback được gọi khi có lỗi trong quá trình khởi tạo (ví dụ thiếu model).
+     */
     override fun initialize(onReady: () -> Unit, onError: (String) -> Unit) {
-        onReadyCallback = onReady
-        onErrorCallback = onError
+        val passedReady = onReady
+        val passedError = onError
+        onReadyCallback = passedReady
+        onErrorCallback = passedError
         if (isEngineReady) {
-            onReady()
+            passedReady()
             playPendingSpeech()
             return
         }
@@ -61,11 +78,19 @@ class PiperTtsEngineWrapper @Inject constructor(
 
         val voiceId = currentVoiceId
         if (voiceId == null) {
+            val pending = pendingSpeech
             pendingSpeech = null
+            val errorMsg = "Chưa chọn giọng AI Offline"
+            passedError(errorMsg)
+            pending?.onError?.invoke(errorMsg)
             return
         }
         if (TtsVoiceCatalog.find(voiceId)?.language != currentLanguage) {
+            val pending = pendingSpeech
             pendingSpeech = null
+            val errorMsg = "Giọng AI không hỗ trợ ngôn ngữ: $currentLanguage"
+            passedError(errorMsg)
+            pending?.onError?.invoke(errorMsg)
             return
         }
 
@@ -73,8 +98,11 @@ class PiperTtsEngineWrapper @Inject constructor(
         initializeJob = engineScope.launch {
             try {
                 if (!downloader.isModelDownloaded(voiceId)) {
+                    val pending = pendingSpeech
                     pendingSpeech = null
-                    onErrorCallback?.invoke("Voice model not downloaded yet: $voiceId")
+                    val errorMsg = "Voice model not downloaded yet: $voiceId"
+                    onErrorCallback?.invoke(errorMsg)
+                    pending?.onError?.invoke(errorMsg)
                     return@launch
                 }
                 if (!downloader.isEspeakDataReady()) {
@@ -90,8 +118,11 @@ class PiperTtsEngineWrapper @Inject constructor(
                 playPendingSpeech()
             } catch (error: Exception) {
                 if (error !is CancellationException) {
+                    val pending = pendingSpeech
                     pendingSpeech = null
-                    onErrorCallback?.invoke("Failed to initialize Piper TTS: ${error.message}")
+                    val errorMsg = "Failed to initialize Piper TTS: ${error.message}"
+                    onErrorCallback?.invoke(errorMsg)
+                    pending?.onError?.invoke(errorMsg)
                 }
             } finally {
                 isInitializing = false
@@ -100,6 +131,11 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
     }
 
+    /**
+     * Nạp trước (prefetch) dữ liệu PCM âm thanh cho đoạn văn bản tiếp theo để phát liền mạch.
+     *
+     * @param chunk Đoạn văn bản TTS cần nạp trước.
+     */
     override fun prefetch(chunk: TtsChunk) {
         if (!isEngineReady || currentVoiceId == null) return
         val speed = currentSpeed
@@ -114,6 +150,15 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
     }
 
+    /**
+     * Bắt đầu đọc đoạn văn bản TTS. Nếu engine chưa sẵn sàng, yêu cầu phát sẽ được xếp hàng chờ
+     * và tự động phát ngay khi khởi tạo hoàn tất.
+     *
+     * @param chunk Đoạn văn bản TTS cần phát.
+     * @param onChunkStart Callback gọi khi bắt đầu phát âm thanh đoạn văn.
+     * @param onChunkDone Callback gọi khi đoạn văn đã đọc xong hoàn tất.
+     * @param onError Callback gọi khi gặp lỗi trong quá trình tổng hợp hoặc phát.
+     */
     override fun speak(
         chunk: TtsChunk,
         onChunkStart: (Int) -> Unit,
@@ -126,7 +171,19 @@ class PiperTtsEngineWrapper @Inject constructor(
         }
         if (!isEngineReady) {
             pendingSpeech = PendingSpeech(chunk, onChunkStart, onChunkDone, onError)
-            initialize(onReadyCallback ?: {}, onErrorCallback ?: {})
+            val currentOnReady = onReadyCallback
+            val currentOnError = onErrorCallback
+            initialize(
+                onReady = {
+                    currentOnReady?.invoke()
+                },
+                onError = { errorMsg ->
+                    currentOnError?.invoke(errorMsg)
+                    val pending = pendingSpeech
+                    pendingSpeech = null
+                    pending?.onError?.invoke(errorMsg)
+                }
+            )
             return
         }
 
@@ -184,10 +241,13 @@ class PiperTtsEngineWrapper @Inject constructor(
         speak(speech.chunk, speech.onChunkStart, speech.onChunkDone, speech.onError)
     }
 
+    /** Tạm dừng đọc sách và dừng phát âm thanh ngay lập tức. */
     override fun pause() = stopPlayback()
 
+    /** Tiếp tục phát âm thanh (không áp dụng cho AI Offline vì phát từ vị trí dừng). */
     override fun resume() = Unit
 
+    /** Dừng hẳn việc phát âm thanh và dọn dẹp hàng chờ phát. */
     override fun stop() = stopPlayback()
 
     private fun stopPlayback() {
@@ -201,18 +261,38 @@ class PiperTtsEngineWrapper @Inject constructor(
         sherpaTtsEngine.stop()
     }
 
+    /**
+     * Cài đặt ngôn ngữ đọc cho engine TTS.
+     *
+     * @param language Mã ngôn ngữ (mặc định "vi").
+     */
     override fun setLanguage(language: String) {
         currentLanguage = if (language.equals("vi", ignoreCase = true)) "vi" else language.lowercase()
         if (currentLanguage != "vi") setVoice(null)
     }
 
+    /**
+     * Cài đặt tốc độ đọc.
+     *
+     * @param speed Tốc độ phát âm thanh (ví dụ: 1.0f là tốc độ chuẩn).
+     */
     override fun setSpeed(speed: Float) {
         if (currentSpeed != speed) clearPrefetch()
         currentSpeed = speed
     }
 
+    /**
+     * Cài đặt cao độ giọng đọc (không hỗ trợ trên Piper AI, giữ cố định 1.0f).
+     *
+     * @param pitch Cao độ âm thanh.
+     */
     override fun setPitch(pitch: Float) = Unit
 
+    /**
+     * Cài đặt ID giọng đọc AI Offline từ catalog.
+     *
+     * @param voiceId ID giọng đọc AI offline (ví dụ: "ngoc_ngan"). Pass `null` để xóa lựa chọn.
+     */
     override fun setVoice(voiceId: String?) {
         val supportedVoiceId = TtsVoiceCatalog.find(voiceId)
             ?.takeIf { it.language == currentLanguage }
@@ -231,6 +311,12 @@ class PiperTtsEngineWrapper @Inject constructor(
         isEngineReady = false
     }
 
+    /**
+     * Trả về danh sách các giọng đọc AI Offline hỗ trợ cho ngôn ngữ chỉ định.
+     *
+     * @param language Mã ngôn ngữ cần lấy danh sách giọng đọc.
+     * @return Danh sách [TtsVoice] kèm trạng thái đã nạp/tải về máy hay chưa.
+     */
     override fun getAvailableVoices(language: String): List<TtsVoice> =
         TtsVoiceCatalog.forLanguage(language).map { model ->
             TtsVoice(
@@ -242,6 +328,7 @@ class PiperTtsEngineWrapper @Inject constructor(
             )
         }
 
+    /** Giải phóng hoàn toàn bộ nhớ, hủy các coroutine job và dừng native C++ engine. */
     override fun shutdown() {
         clearPrefetch()
         pendingSpeech = null

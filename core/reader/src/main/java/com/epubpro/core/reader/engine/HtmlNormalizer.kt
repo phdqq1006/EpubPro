@@ -1,13 +1,29 @@
 package com.epubpro.core.reader.engine
 
 import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 
 object HtmlNormalizer {
+
+    private val BLOCK_TAGS = setOf(
+        "address", "article", "aside", "blockquote", "body", "center", "dd", "details",
+        "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer",
+        "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "li",
+        "main", "menu", "nav", "ol", "p", "pre", "section", "summary", "table", "tbody",
+        "td", "tfoot", "th", "thead", "tr", "ul"
+    )
+
+    private val RECURSIVE_CONTAINERS = setOf(
+        "body", "section", "article", "main", "div", "blockquote", "li", "td", "th", "center", "aside", "figure"
+    )
 
     /**
      * Normalizes EPUB HTML content that lacks <p> tags for individual paragraphs
      * (such as books converted via GetTextFromHtml or raw TXT dumps).
-     * Automatically wraps text chunks separated by <br> or newlines into proper <p> elements.
+     * Automatically wraps text chunks separated by <br> or newlines into proper <p> elements
+     * without breaking block container semantics (lists, tables, pre, headers).
      */
     fun normalize(htmlContent: String): String {
         if (htmlContent.isBlank()) return htmlContent
@@ -27,34 +43,39 @@ object HtmlNormalizer {
                 return htmlContent
             }
 
-            val blockTagsSet = setOf("body", "section", "article", "main", "center", "td", "th", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "figure")
+            fun isBlock(element: Element): Boolean {
+                val tag = element.tagName().lowercase()
+                return tag in BLOCK_TAGS || element.tag().isBlock
+            }
 
-            fun wrapInP(parent: org.jsoup.nodes.Element) {
+            fun wrapInP(parent: Element) {
                 val children = parent.childNodes().toList()
                 if (children.isEmpty()) return
-                
-                val currentGroup = mutableListOf<org.jsoup.nodes.Node>()
-                
+
+                val currentGroup = mutableListOf<Node>()
+
                 fun flushGroup() {
                     if (currentGroup.isNotEmpty()) {
                         val shouldWrap = currentGroup.any { node ->
-                            node is org.jsoup.nodes.Element || (node is org.jsoup.nodes.TextNode && node.text().isNotBlank())
+                            node is Element || (node is TextNode && node.text().isNotBlank())
                         }
                         if (shouldWrap) {
-                            val p = org.jsoup.nodes.Element("p")
+                            val p = Element("p")
                             currentGroup.first().before(p)
                             currentGroup.forEach { p.appendChild(it) }
                         }
                         currentGroup.clear()
                     }
                 }
-                
+
                 for (node in children) {
-                    if (node is org.jsoup.nodes.Element) {
+                    if (node is Element) {
                         val tag = node.tagName().lowercase()
-                        if (blockTagsSet.contains(tag)) {
+                        if (isBlock(node)) {
                             flushGroup()
-                            wrapInP(node)
+                            if (tag in RECURSIVE_CONTAINERS) {
+                                wrapInP(node)
+                            }
                         } else if (tag == "br") {
                             flushGroup()
                             node.remove()
@@ -67,9 +88,9 @@ object HtmlNormalizer {
                 }
                 flushGroup()
             }
-            
+
             wrapInP(body)
-            
+
             return doc.outerHtml()
         } catch (e: Exception) {
             e.printStackTrace()

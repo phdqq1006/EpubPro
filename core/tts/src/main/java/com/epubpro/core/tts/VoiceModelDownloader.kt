@@ -55,7 +55,7 @@ private const val ESPEAK_NG_BASE_URL =
     "https://huggingface.co/csukuangfj/vits-piper-vi_VN-vais1000-medium/resolve/main"
 
 @Singleton
-class VoiceModelDownloader @Inject constructor(
+open class VoiceModelDownloader @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -66,7 +66,7 @@ class VoiceModelDownloader @Inject constructor(
      * Tải mô hình giọng đọc ONNX và tokens.txt vào bộ nhớ trong của ứng dụng (context.filesDir).
      * Đồng thời tự động tải espeak-ng-data nếu chưa có.
      */
-    suspend fun downloadModel(
+    open suspend fun downloadModel(
         modelName: String,
         onnxUrl: String,
         tokensUrl: String,
@@ -98,9 +98,9 @@ class VoiceModelDownloader @Inject constructor(
             if (!finalOnnx.exists() || finalOnnx.length() < 5_000_000L) {
                 Log.d(TAG, "Downloading model.onnx...")
                 val tempOnnx = File(ttsDir, "model.onnx.tmp")
-                downloadDirect(onnxUrl, tempOnnx) { progress ->
-                    onProgress(progress * 0.95f)  // 0..95%
-                }
+                downloadDirect(onnxUrl, tempOnnx, onProgress = { progress ->
+                    onProgress(progress * 0.95f)
+                })
                 if (!tempOnnx.renameTo(finalOnnx)) {
                     tempOnnx.copyTo(finalOnnx, overwrite = true)
                     tempOnnx.delete()
@@ -108,34 +108,32 @@ class VoiceModelDownloader @Inject constructor(
                 Log.d(TAG, "model.onnx done (${finalOnnx.length()} bytes)")
             }
 
-            onProgress(0.95f)
-
-            // 3. Tải espeak-ng-data (5% cuối)
-            downloadEspeakNgDataIfNeeded { progress ->
-                onProgress(0.95f + progress * 0.05f)
+            // 3. Tải espeak-ng-data nếu chưa sẵn sàng
+            if (!isEspeakDataReady()) {
+                Log.d(TAG, "Downloading espeak-ng-data...")
+                downloadEspeakNgDataIfNeeded { progress ->
+                    onProgress(0.95f + progress * 0.05f)
+                }
             }
 
             onProgress(1.0f)
             true
-        } catch (t: Throwable) {
-            Log.e(TAG, "Exception in downloadModel() for '$modelName'", t)
-            File(ttsDir, "model.onnx.tmp").delete()
-            File(ttsDir, "tokens.txt.tmp").delete()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download model $modelName: ${e.message}", e)
             false
         }
     }
 
     /**
-     * Tải các file espeak-ng-data cần thiết cho Sherpa-ONNX VITS Piper tiếng Việt.
-     * Giữ đúng cấu trúc thư mục con (lang/aav/vi, voices/!v/m1...).
-     * Tự động liên kết file vi sang voices/vi và voices/!v/vi để eSpeak-ng set voice không bị lỗi.
+     * Tải tệp espeak-ng-data cơ bản phục vụ cho eSpeak-ng phát âm tiếng Việt.
      */
-    suspend fun downloadEspeakNgDataIfNeeded(onProgress: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
+    open suspend fun downloadEspeakNgDataIfNeeded(onProgress: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
         val espeakRootDir = File(context.filesDir, "espeak-ng-data")
+        if (!espeakRootDir.exists()) espeakRootDir.mkdirs()
 
-        Log.d(TAG, "downloadEspeakNgDataIfNeeded: checking readiness...")
         if (isEspeakDataReady()) {
-            Log.d(TAG, "espeak-ng-data already complete, skipping download")
+            Log.d(TAG, "espeak-ng-data core files already exist. Skipping download.")
+            onProgress(1.0f)
             return@withContext
         }
 
@@ -193,7 +191,7 @@ class VoiceModelDownloader @Inject constructor(
         }
     }
 
-    fun getEspeakDataDir(): String {
+    open fun getEspeakDataDir(): String {
         return File(context.filesDir, "espeak-ng-data").absolutePath
     }
 
@@ -201,7 +199,7 @@ class VoiceModelDownloader @Inject constructor(
      * Kiểm tra sự hiện diện của các file eSpeak-ng quan trọng:
      * phondata (core) + vi_dict (từ điển tiếng Việt) + lang/aav/vi và voices/vi (voice tiếng Việt)
      */
-    fun isEspeakDataReady(): Boolean {
+    open fun isEspeakDataReady(): Boolean {
         val base = File(context.filesDir, "espeak-ng-data")
         val phondata = File(base, "phondata")
         val viDict = File(base, "vi_dict")
@@ -247,7 +245,7 @@ class VoiceModelDownloader @Inject constructor(
         }
     }
 
-    fun isModelDownloaded(modelName: String): Boolean {
+    open fun isModelDownloaded(modelName: String): Boolean {
         val ttsDir = File(context.filesDir, "tts_models/$modelName")
         val onnx = File(ttsDir, "model.onnx")
         val tokens = File(ttsDir, "tokens.txt")
@@ -259,9 +257,9 @@ class VoiceModelDownloader @Inject constructor(
         return downloaded
     }
 
-    fun getModelPath(modelName: String) =
+    open fun getModelPath(modelName: String) =
         File(context.filesDir, "tts_models/$modelName/model.onnx").absolutePath
 
-    fun getTokensPath(modelName: String) =
+    open fun getTokensPath(modelName: String) =
         File(context.filesDir, "tts_models/$modelName/tokens.txt").absolutePath
 }

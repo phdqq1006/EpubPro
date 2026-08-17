@@ -26,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -41,18 +42,30 @@ import com.epubpro.core.reader.bridge.ReaderJsBridge
 import com.epubpro.core.reader.filter.EpubHtmlSanitizer
 import com.epubpro.core.reader.style.CssInjector
 import com.epubpro.domain.model.ContentFilterPreferences
+import kotlinx.coroutines.Dispatchers
 import com.epubpro.domain.model.ReaderSettings
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Locale
 
+/** Thời gian chờ tối đa (ms) trước khi tự động giải phóng màn che chuyển chương. */
 private const val CHAPTER_TRANSITION_TIMEOUT_MS = 2_500L
 
+/** Hướng chuyển chương EPUB (tiến hoặc lùi). */
 private enum class ChapterTransitionDirection {
     NEXT,
     PREVIOUS
 }
 
+/**
+ * Dữ liệu màn che chuyển chương hiển thị khung hình Bitmap chụp từ WebView trước khi nạp trang mới.
+ *
+ * @property token Token xác định duy nhất lần chuyển cảnh.
+ * @property expectedLoadGeneration Mã thế hệ nạp HTML mục tiêu.
+ * @property direction Hướng chuyển chương (kế tiếp hoặc trước đó).
+ * @property image Khung hình Bitmap chuyển cảnh dạng [ImageBitmap].
+ */
 private data class ChapterTransitionCover(
     val token: Long,
     val expectedLoadGeneration: Int,
@@ -60,6 +73,33 @@ private data class ChapterTransitionCover(
     val image: ImageBitmap
 )
 
+/**
+ * Gói dữ liệu HTML chương hiện tại và hai chương xem trước đã được làm sạch an toàn.
+ *
+ * @property current Mã HTML chương hiện tại.
+ * @property previous Mã HTML xem trước của chương trước đó.
+ * @property next Mã HTML xem trước của chương kế tiếp.
+ */
+private data class SanitizedEpubHtmlBundle(
+    val current: String,
+    val previous: String?,
+    val next: String?
+)
+
+/**
+ * Làm sạch chuỗi mã HTML EPUB bằng [EpubHtmlSanitizer], trả về chuỗi rỗng nếu có lỗi.
+ *
+ * @param html Chuỗi HTML nguyên bản cần làm sạch.
+ * @return Chuỗi HTML đã được lọc bỏ các thẻ active script/style nguy hiểm.
+ */
+private fun sanitizeEpubHtmlOrEmpty(html: String): String =
+    runCatching { EpubHtmlSanitizer.sanitize(html) }.getOrDefault("")
+
+/**
+ * Tạo mã hash khóa nạp lại nội dung WebView dựa trên các thuộc tính giao diện cần render lại.
+ *
+ * @return Giá trị hash mã khóa nạp lại HTML.
+ */
 internal fun ReaderSettings.contentReloadKey(): Int = listOf(
     fontSizeSp,
     fontFamily,
@@ -76,6 +116,11 @@ internal fun ReaderSettings.contentReloadKey(): Int = listOf(
     showScrollBar
 ).hashCode()
 
+/**
+ * Tìm đối tượng [Activity] từ [Context] hiện tại.
+ *
+ * @return Đối tượng [Activity] nếu tìm thấy, hoặc `null` nếu context không thuộc Activity.
+ */
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
@@ -83,10 +128,10 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 /**
- * Regression invariant: this must capture composited pixels with PixelCopy.
- * WebView.draw(Canvas) misses hardware-rendered fixed/transform preview layers and
- * previously produced about 270 ms of theme-only frames at chapter boundaries.
- * See docs/reader-chapter-transition-snapshot-design.md.
+ * Chụp khung hình giao diện WebView hiện tại thành [Bitmap] thông qua API [PixelCopy].
+ *
+ * @param callbackHandler Handler xử lý callback trên Main Looper.
+ * @param onCaptured Callback trả về [Bitmap] đã chụp hoặc `null` nếu thất bại.
  */
 private fun WebView.captureTransitionFrame(
     callbackHandler: Handler,
@@ -141,6 +186,27 @@ private fun WebView.captureTransitionFrame(
     }
 }
 
+/**
+ * Thành phần Composable hiển thị tệp sách EPUB bằng Android WebView với cơ chế phân trang CSS Multi-Column,
+ * làm sạch dữ liệu HTML an toàn ngầm (background sanitization), hỗ trợ lật trang mượt không chớp trắng
+ * qua [PixelCopy] và đồng bộ highlight TTS.
+ *
+ * @param modifier Modifier tùy chỉnh layout cho WebView.
+ * @param htmlContent Mã HTML nguyên bản của chương sách hiện tại.
+ * @param previousChapterHtml Mã HTML xem trước của chương trước đó.
+ * @param nextChapterHtml Mã HTML xem trước của chương kế tiếp.
+ * @param initialPage Trang bắt đầu hiển thị khi mở chương.
+ * @param initialVisibleParagraphIndex Chỉ số đoạn văn bắt đầu hiển thị khi mở chương.
+ * @param settings Cấu hình cài đặt đọc sách [ReaderSettings].
+ * @param filterPreferences Cấu hình bộ lọc từ ngữ nhạy cảm.
+ * @param activeTtsParagraphIndex Chỉ số đoạn văn đang được TTS đọc và tô màu highlight.
+ * @param onPageTapped Callback gọi khi người dùng nhấp chạm vào vùng giữa màn hình để ẩn/hiện thanh công cụ.
+ * @param onPageChanged Callback báo chỉ số trang hiện tại, tổng số trang và index đoạn văn hiển thị đầu tiên.
+ * @param onNextChapter Callback yêu cầu chuyển sang chương kế tiếp.
+ * @param onPreviousChapter Callback yêu cầu chuyển về chương trước đó.
+ * @param onTextSelected Callback khi người dùng bôi đen chọn đoạn văn bản.
+ * @param onCfiChanged Callback báo mã vị trí CFI thay đổi.
+ */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
 @Composable
 fun EpubProWebView(
@@ -173,6 +239,20 @@ fun EpubProWebView(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var transitionCover by remember { mutableStateOf<ChapterTransitionCover?>(null) }
     var isTransitionCapturePending by remember { mutableStateOf(false) }
+    val sanitizedHtmlBundle by produceState<SanitizedEpubHtmlBundle?>(
+        initialValue = null,
+        htmlContent,
+        previousChapterHtml,
+        nextChapterHtml
+    ) {
+        value = withContext(Dispatchers.Default) {
+            SanitizedEpubHtmlBundle(
+                current = sanitizeEpubHtmlOrEmpty(htmlContent),
+                previous = previousChapterHtml?.let(::sanitizeEpubHtmlOrEmpty),
+                next = nextChapterHtml?.let(::sanitizeEpubHtmlOrEmpty)
+            )
+        }
+    }
 
     val requestChapterTransition by rememberUpdatedState<(ChapterTransitionDirection) -> Unit> {
         direction ->
@@ -384,7 +464,8 @@ fun EpubProWebView(
                     }
                 }
             },
-            update = { webView ->
+            update = update@{ webView ->
+                val sanitized = sanitizedHtmlBundle ?: return@update
                 webView.isVerticalScrollBarEnabled =
                     settings.showScrollBar && !settings.isHorizontalPagination
                 webView.isHorizontalScrollBarEnabled =
@@ -438,13 +519,13 @@ fun EpubProWebView(
                 )
 
                 val newHtmlKey =
-                    "${htmlContent.hashCode()}_${previousChapterHtml?.hashCode()}_${nextChapterHtml?.hashCode()}_${settings.contentReloadKey()}"
+                    "${sanitized.current.hashCode()}_${sanitized.previous?.hashCode()}_${sanitized.next?.hashCode()}_${settings.contentReloadKey()}"
                 if (loadedHtmlKey != newHtmlKey) {
                     loadedHtmlKey = newHtmlKey
                     val loadGeneration = generationTracker.nextLoadGeneration()
-                    val cleanHtml = EpubHtmlSanitizer.sanitize(htmlContent)
-                    val previousPreviewHtml = previousChapterHtml?.let(EpubHtmlSanitizer::sanitize)
-                    val nextPreviewHtml = nextChapterHtml?.let(EpubHtmlSanitizer::sanitize)
+                    val cleanHtml = sanitized.current
+                    val previousPreviewHtml = sanitized.previous
+                    val nextPreviewHtml = sanitized.next
                     val statusFooterHeightDp = if (settings.showStatusBar) 20 else 0
                     val css = CssInjector.generateCss(settings, statusFooterHeightDp)
                     val jsScript = CssInjector.generateJsBridgeScript(

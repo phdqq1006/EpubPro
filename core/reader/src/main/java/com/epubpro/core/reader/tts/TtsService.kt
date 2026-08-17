@@ -1009,41 +1009,40 @@ class TtsService : Service() {
         chapterPlaybackCoordinator.prepare(snapshot.bookId, snapshot.preferAiContent)
         ensureRestoreCurrent(expectedGeneration)
 
-        var chapter = loadSegmentedChapter(snapshot.chapterIndex, expectedGeneration)
+        val loadedChapters = mutableMapOf<Int, RestoredChapter>()
+        val totalChapters = book.totalChapters.coerceAtLeast(1)
+
+        suspend fun getOrLoadChapter(cIndex: Int): RestoredChapter? {
+            if (cIndex < 0 || cIndex >= totalChapters) return null
+            if (loadedChapters.containsKey(cIndex)) return loadedChapters[cIndex]
+            val loaded = loadSegmentedChapter(cIndex, expectedGeneration)
+            if (loaded != null) {
+                loadedChapters[cIndex] = loaded
+            }
+            return loaded
+        }
+
+        val targetPos = TtsReadingWidgetParagraphNavigator.calculateTargetPosition(
+            currentChapterIndex = snapshot.chapterIndex,
+            currentParagraphIndex = snapshot.paragraphIndex,
+            relativeMove = relativeMove,
+            totalChapters = totalChapters,
+            getParagraphCount = { cIndex ->
+                val ch = getOrLoadChapter(cIndex)
+                if (ch != null) totalParagraphCount(ch.chunks) else 0
+            }
+        )
+
+        var chapter = getOrLoadChapter(targetPos.chapterIndex)
             ?: loadSegmentedChapter(0, expectedGeneration)
             ?: error("Book has no readable chapter")
+
         if (chapter.chunks.isEmpty()) {
             chapter = findNonEmptyChapter(chapter.content.chapterIndex, expectedGeneration)
                 ?: error("Book has no readable content")
         }
 
-        var targetParagraph = snapshot.paragraphIndex + relativeMove
-        while (targetParagraph < 0) {
-            val previous = findPreviousNonEmptyChapter(
-                startChapterIndex = chapter.content.chapterIndex - 1,
-                expectedGeneration = expectedGeneration
-            )
-            if (previous == null) {
-                targetParagraph = 0
-                break
-            }
-            chapter = previous
-            targetParagraph = lastParagraphIndex(chapter.chunks)
-        }
-
-        while (targetParagraph > lastParagraphIndex(chapter.chunks)) {
-            val next = findNextNonEmptyChapter(
-                startChapterIndex = chapter.content.chapterIndex + 1,
-                expectedGeneration = expectedGeneration
-            )
-            if (next == null) {
-                targetParagraph = lastParagraphIndex(chapter.chunks)
-                break
-            }
-            chapter = next
-            targetParagraph = 0
-        }
-
+        val targetParagraph = targetPos.paragraphIndex
         val currentIndex = chapter.chunks.indexOfFirst { it.paragraphIndex >= targetParagraph }
             .takeIf { it >= 0 }
             ?: chapter.chunks.lastIndex

@@ -1,12 +1,17 @@
 package com.epubpro.core.reader.engine
 
 import android.content.Context
+import com.epubpro.core.reader.engine.EpubReadLimits.readBoundedText
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jsoup.Jsoup
+import org.jsoup.parser.Parser
 import java.io.File
+import java.net.URLDecoder
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,23 +35,28 @@ class EpubEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     /**
-     * Parses metadata from EPUB file
+     * Parses metadata from EPUB file with memory safety boundaries.
      */
     suspend fun parseEpubMetadata(file: File): Book = withContext(Dispatchers.IO) {
+        if (file.length() > EpubReadLimits.MAX_EPUB_FILE_SIZE) {
+            throw IllegalStateException("File EPUB vượt quá kích thước tối đa cho phép (${EpubReadLimits.MAX_EPUB_FILE_SIZE / (1024 * 1024)}MB)")
+        }
+
         var title = file.nameWithoutExtension
         var author = "Unknown Author"
 
         try {
             ZipFile(file).use { zip ->
-                val entries = zip.entries()
-                while (entries.hasMoreElements()) {
-                    val entry = entries.nextElement()
-                    if (entry.name.endsWith(".opf", ignoreCase = true)) {
-                        val content = zip.getInputStream(entry).bufferedReader().use { it.readText() }
-                        title = extractXmlTag(content, "dc:title") ?: title
-                        author = extractXmlTag(content, "dc:creator") ?: author
-                        break
-                    }
+                val allEntries = zip.entries().toList()
+                val opfEntry = findOpfEntry(zip, allEntries)
+                if (opfEntry != null) {
+                    EpubReadLimits.validateZipEntry(opfEntry)
+                    val content = zip.getInputStream(opfEntry).use { it.readBoundedText() }
+                    val opfDoc = Jsoup.parse(content, "", Parser.xmlParser())
+                    val dcTitle = opfDoc.select("dc|title, title").text().trim()
+                    val dcCreator = opfDoc.select("dc|creator, creator").text().trim()
+                    if (dcTitle.isNotBlank()) title = dcTitle
+                    if (dcCreator.isNotBlank()) author = dcCreator
                 }
             }
         } catch (e: Exception) {
@@ -72,7 +82,7 @@ class EpubEngine @Inject constructor(
     }
 
     /**
-     * Extracts lightweight chapter headers without loading HTML text into memory
+     * Extracts lightweight chapter headers without loading full HTML text into memory.
      */
     suspend fun extractChapterHeaders(file: File): List<EpubChapterHeader> = withContext(Dispatchers.IO) {
         val headers = mutableListOf<EpubChapterHeader>()
@@ -117,25 +127,26 @@ class EpubEngine @Inject constructor(
     }
 
     /**
-     * Loads single chapter HTML on demand
+     * Loads single chapter HTML on demand with bounded stream reading.
      */
     suspend fun loadChapterHtml(file: File, entryName: String): String = withContext(Dispatchers.IO) {
         try {
             ZipFile(file).use { zip ->
                 val entry = zip.getEntry(entryName)
                 if (entry != null) {
-                    val rawHtml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                    EpubReadLimits.validateZipEntry(entry)
+                    val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
                     return@withContext HtmlNormalizer.normalize(rawHtml)
                 }
             }
         } catch (e: Exception) {
-            throw IllegalStateException("Không thể tải nội dung chương", e)
+            throw IllegalStateException("Không thể tải nội dung chương: $entryName", e)
         }
         throw IllegalStateException("Không tìm thấy nội dung chương: $entryName")
     }
 
     /**
-     * Streams chapters one by one into FTS index without keeping them in memory
+     * Streams chapters one by one into FTS index without keeping them in memory.
      */
     suspend fun indexBookContent(file: File, bookId: String, searchRepository: SearchRepository) = withContext(Dispatchers.IO) {
         try {
@@ -145,17 +156,22 @@ class EpubEngine @Inject constructor(
                 val indexedChapters = mutableListOf<Pair<Int, Pair<String, String>>>()
 
                 orderedEntries.forEachIndexed { index, entry ->
-                    val rawHtml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
-                    val plainText = stripHtmlTags(rawHtml)
-                    val title = extractXmlTag(rawHtml, "title")
-                        ?: extractXmlTag(rawHtml, "h1")
-                        ?: "Chương ${index + 1}"
-                    indexedChapters.add(index to (title to plainText))
+                    try {
+                        EpubReadLimits.validateZipEntry(entry)
+                        val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
+                        val plainText = stripHtmlTags(rawHtml)
+                        val title = extractXmlTag(rawHtml, "title")
+                            ?: extractXmlTag(rawHtml, "h1")
+                            ?: "Chương ${index + 1}"
+                        indexedChapters.add(index to (title to plainText))
 
-                    // Batch index every 5 chapters to keep memory usage low
-                    if (indexedChapters.size >= 5) {
-                        searchRepository.indexBookContent(bookId, indexedChapters.toList())
-                        indexedChapters.clear()
+                        // Batch index every 5 chapters to keep memory usage low
+                        if (indexedChapters.size >= 5) {
+                            searchRepository.indexBookContent(bookId, indexedChapters.toList())
+                            indexedChapters.clear()
+                        }
+                    } catch (e: Exception) {
+                        // Skip corrupted/invalid entry in indexer
                     }
                 }
 
@@ -169,39 +185,72 @@ class EpubEngine @Inject constructor(
         }
     }
 
-    private fun getOrderedHtmlEntries(zip: ZipFile): List<java.util.zip.ZipEntry> {
+    private fun findOpfEntry(zip: ZipFile, allEntries: List<ZipEntry>): ZipEntry? {
+        val entryMap = allEntries.associateBy { it.name }
+
+        // 1. Try reading META-INF/container.xml (EPUB specification)
+        val containerEntry = entryMap["META-INF/container.xml"]
+            ?: allEntries.find { it.name.equals("META-INF/container.xml", ignoreCase = true) }
+
+        if (containerEntry != null) {
+            try {
+                EpubReadLimits.validateZipEntry(containerEntry)
+                val containerXml = zip.getInputStream(containerEntry).use { it.readBoundedText() }
+                val doc = Jsoup.parse(containerXml, "", Parser.xmlParser())
+                val rootfile = doc.select("rootfile").firstOrNull()
+                val fullPath = rootfile?.attr("full-path")?.trim()
+                if (!fullPath.isNullOrBlank()) {
+                    val decodedPath = URLDecoder.decode(fullPath, "UTF-8")
+                    val opf = entryMap[decodedPath]
+                        ?: entryMap[fullPath]
+                        ?: allEntries.find { it.name.equals(decodedPath, ignoreCase = true) || it.name.equals(fullPath, ignoreCase = true) }
+                    if (opf != null) return opf
+                }
+            } catch (e: Exception) {
+                // Fallback to scanning first .opf
+            }
+        }
+
+        // 2. Fallback: Search for first .opf file in the archive
+        return allEntries.find { it.name.endsWith(".opf", ignoreCase = true) }
+    }
+
+    private fun getOrderedHtmlEntries(zip: ZipFile): List<ZipEntry> {
         val allEntries = zip.entries().toList()
         val entryMap = allEntries.associateBy { it.name }
 
         // 1. Try OPF spine parsing for exact author-intended chapter sequence
-        val opfEntry = allEntries.find { it.name.endsWith(".opf", ignoreCase = true) }
+        val opfEntry = findOpfEntry(zip, allEntries)
         if (opfEntry != null) {
             try {
-                val opfContent = zip.getInputStream(opfEntry).bufferedReader().use { it.readText() }
+                EpubReadLimits.validateZipEntry(opfEntry)
+                val opfContent = zip.getInputStream(opfEntry).use { it.readBoundedText() }
                 val opfDir = opfEntry.name.substringBeforeLast('/', "")
                 val dirPrefix = if (opfDir.isNotEmpty()) "$opfDir/" else ""
 
+                val opfDoc = Jsoup.parse(opfContent, "", Parser.xmlParser())
                 val manifestMap = mutableMapOf<String, String>()
-                val itemRegex = "(?i)<item\\s+[^>]*id=[\"']([^\"']+)[\"'][^>]*href=[\"']([^\"']+)[\"']".toRegex()
-                val itemRegexAlt = "(?i)<item\\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*id=[\"']([^\"']+)[\"']".toRegex()
-
-                itemRegex.findAll(opfContent).forEach { match ->
-                    manifestMap[match.groupValues[1]] = match.groupValues[2]
-                }
-                itemRegexAlt.findAll(opfContent).forEach { match ->
-                    manifestMap[match.groupValues[2]] = match.groupValues[1]
+                opfDoc.select("manifest > item").forEach { item ->
+                    val id = item.attr("id").trim()
+                    val href = item.attr("href").trim()
+                    if (id.isNotEmpty() && href.isNotEmpty()) {
+                        manifestMap[id] = href
+                    }
                 }
 
                 val spineIds = mutableListOf<String>()
-                val itemrefRegex = "(?i)<itemref\\s+[^>]*idref=[\"']([^\"']+)[\"']".toRegex()
-                itemrefRegex.findAll(opfContent).forEach { match ->
-                    spineIds.add(match.groupValues[1])
+                opfDoc.select("spine > itemref").forEach { itemref ->
+                    val idref = itemref.attr("idref").trim()
+                    if (idref.isNotEmpty()) {
+                        spineIds.add(idref)
+                    }
                 }
 
-                val orderedEntries = mutableListOf<java.util.zip.ZipEntry>()
+                val orderedEntries = mutableListOf<ZipEntry>()
                 for (id in spineIds) {
                     val href = manifestMap[id] ?: continue
-                    val decodedHref = java.net.URLDecoder.decode(href, "UTF-8")
+                    val cleanHref = href.substringBefore('#') // Strip fragment identifier if present
+                    val decodedHref = URLDecoder.decode(cleanHref, "UTF-8")
                     val fullPath = if (dirPrefix.isNotEmpty() && !decodedHref.startsWith("/")) "$dirPrefix$decodedHref" else decodedHref
 
                     val entry = entryMap[fullPath]

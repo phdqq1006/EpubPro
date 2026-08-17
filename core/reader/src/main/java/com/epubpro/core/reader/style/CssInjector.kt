@@ -1258,19 +1258,20 @@ object CssInjector {
                             }
                         }
                         if (activePatterns.length === 0) return;
-                        var combinedRegex = new RegExp(activePatterns.join('|'), 'gi');
+                        var detectRegex = new RegExp(activePatterns.join('|'), 'i');
+                        var replaceRegex = new RegExp(activePatterns.join('|'), 'gi');
 
                         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
                         var node;
                         var nodesToProcess = [];
                         while (node = walker.nextNode()) {
-                            if (combinedRegex.test(node.nodeValue)) {
+                            if (detectRegex.test(node.nodeValue)) {
                                 nodesToProcess.push(node);
                             }
                         }
                         for (var j = 0; j < nodesToProcess.length; j++) {
                             var n = nodesToProcess[j];
-                            n.nodeValue = n.nodeValue.replace(combinedRegex, '').replace(/\s+/g, ' ');
+                            n.nodeValue = n.nodeValue.replace(replaceRegex, '').replace(/\s+/g, ' ');
                         }
                         document.body.normalize();
                     } catch(e) {
