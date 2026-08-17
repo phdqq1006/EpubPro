@@ -123,6 +123,11 @@
     <string name="reader_use_ai_voice_desc">Giọng đọc AI tự nhiên offline chất lượng cao</string>
     <string name="reader_config_voice_detail">Cấu hình giọng đọc &amp; ngôn ngữ chi tiết...</string>
     <string name="reader_minimize">Thu nhỏ</string>
+    <string name="reader_brightness">Độ sáng</string>
+    <string name="reader_brightness_percent_format">Độ sáng: %1$d%%</string>
+    <string name="reader_brightness_extra_dim_format">Độ sáng: %1$d%% • Siêu tối</string>
+    <string name="reader_brightness_extra_dim_badge">Siêu tối</string>
+    <string name="reader_brightness_hud_format">%1$d%%</string>
 
 
     <!-- Reading Defaults Screen -->
@@ -154,6 +159,7 @@
     <string name="reading_defaults_theme_paper">Giấy</string>
     <string name="reading_defaults_theme_night">Đêm</string>
     <string name="reading_defaults_custom_color">Màu tùy chỉnh</string>
+    <string name="reading_defaults_brightness_section">ĐỘ SÁNG ĐỌC SÁCH</string>
     <!-- Layout -->
     <string name="reading_defaults_section_layout">Bố cục</string>
     <string name="reading_defaults_page_margin">LỀ TRANG</string>

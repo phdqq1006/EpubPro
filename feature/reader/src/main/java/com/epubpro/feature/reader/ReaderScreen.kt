@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,12 +40,16 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
@@ -73,6 +78,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,16 +96,26 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.tts.TtsService
+import com.epubpro.domain.model.EXTRA_DIM_THRESHOLD
 import com.epubpro.domain.model.MAX_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.MIN_PAGE_TURN_SPEED_MS
 import com.epubpro.domain.model.PAGE_TURN_SPEED_PRESETS_MS
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TtsPlayerState
+import com.epubpro.domain.model.calculateBrightnessOutput
+import com.epubpro.feature.reader.brightness.BrightnessEdgeSensor
+import com.epubpro.feature.reader.brightness.BrightnessHud
+import com.epubpro.feature.reader.brightness.BrightnessWindowEffect
+import com.epubpro.feature.reader.brightness.ExtraDimOverlay
+import com.epubpro.feature.reader.brightness.findActivity
 import com.epubpro.feature.reader.tts.TtsAudioPlayerScreen
 import com.epubpro.feature.reader.tts.TtsMiniPlayerBar
 import com.epubpro.feature.reader.tts.TtsSetupBottomSheet
 import com.epubpro.feature.reader.webview.EpubProWebView
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -116,6 +132,18 @@ fun ReaderScreen(
     val hostView = LocalView.current
     var ttsService by remember { mutableStateOf<TtsService?>(null) }
     val window = (context as? android.app.Activity)?.window
+
+    val currentBrightness = uiState.settings.brightness
+    var draftBrightness by remember(currentBrightness) { mutableFloatStateOf(currentBrightness) }
+    var showBrightnessHud by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var hudHideJob by remember { mutableStateOf<Job?>(null) }
+
+    val brightnessOutput = remember(draftBrightness) { calculateBrightnessOutput(draftBrightness) }
+    BrightnessWindowEffect(
+        activity = context.findActivity(),
+        hardwareBrightness = brightnessOutput.hardwareBrightness
+    )
 
     DisposableEffect(window, uiState.settings.keepScreenOn) {
         if (window != null) {
@@ -189,7 +217,6 @@ fun ReaderScreen(
     val currentStatusBarColor = if (uiState.showControls) readerBarBgColor else readerBgColor
 
     DisposableEffect(currentStatusBarColor, readerBgColor, isDarkTheme) {
-        val window = (context as? android.app.Activity)?.window
         val originalStatusBarColor = window?.statusBarColor
         val originalNavBarColor = window?.navigationBarColor
         val controller =
@@ -277,6 +304,37 @@ fun ReaderScreen(
                 )
             }
         }
+
+        // Lớp phủ siêu tối Extra Dim (Không chặn cảm ứng)
+        ExtraDimOverlay(alpha = brightnessOutput.extraDimAlpha)
+
+        // Cảm biến vuốt mép trái để tăng giảm độ sáng nhanh
+        BrightnessEdgeSensor(
+            onBrightnessDelta = { delta ->
+                val next = (draftBrightness + delta).coerceIn(0.0f, 1.0f)
+                draftBrightness = next
+                showBrightnessHud = true
+                hudHideJob?.cancel()
+                hudHideJob = coroutineScope.launch {
+                    delay(1200)
+                    showBrightnessHud = false
+                }
+            },
+            onDragEnd = {
+                viewModel.updateSettings(uiState.settings.copy(brightness = draftBrightness))
+            },
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(36.dp)
+                .align(Alignment.CenterStart)
+        )
+
+        // HUD thông báo độ sáng nổi ở trung tâm màn hình
+        BrightnessHud(
+            visible = showBrightnessHud,
+            brightness = draftBrightness,
+            modifier = Modifier.align(Alignment.Center)
+        )
 
         // Floating Top Header Bar Overlay
         AnimatedVisibility(
@@ -589,6 +647,7 @@ fun ReaderSettingsContent(
     settings: ReaderSettings,
     onSettingsChanged: (ReaderSettings) -> Unit
 ) {
+    var draftBrightness by remember(settings.brightness) { mutableFloatStateOf(settings.brightness) }
     var draftPageTurnSpeedMs by remember(settings.pageTurnSpeedMs) { mutableIntStateOf(settings.pageTurnSpeedMs) }
     var draftFontSizeSp by remember(settings.fontSizeSp) { mutableFloatStateOf(settings.fontSizeSp) }
     var draftMarginTopDp by remember(settings.marginTopDp) { mutableIntStateOf(settings.marginTopDp) }
@@ -778,6 +837,50 @@ fun ReaderSettingsContent(
             icon = Icons.Default.Palette
         )
         Spacer(modifier = Modifier.height(10.dp))
+
+        // Độ sáng màn hình đọc sách
+        val brightnessPercent = (draftBrightness * 100).toInt()
+        val brightnessLabel = if (draftBrightness < EXTRA_DIM_THRESHOLD) {
+            stringResource(R.string.reader_brightness_extra_dim_format, brightnessPercent)
+        } else {
+            stringResource(R.string.reader_brightness_percent_format, brightnessPercent)
+        }
+        Text(
+            text = brightnessLabel,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                imageVector = if (draftBrightness < EXTRA_DIM_THRESHOLD) Icons.Default.Nightlight else Icons.Default.BrightnessLow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Slider(
+                value = draftBrightness,
+                onValueChange = { draftBrightness = it },
+                onValueChangeFinished = {
+                    onSettingsChanged(settings.copy(brightness = draftBrightness))
+                },
+                valueRange = 0.0f..1.0f,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.BrightnessHigh,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),

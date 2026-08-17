@@ -22,7 +22,9 @@ class ReaderContentReloadKeyTest {
             base.copy(enableVolumeKeyNavigation = true),
             base.copy(showStatusBar = false),
             base.copy(keepScreenOn = true),
-            base.copy(tapZoneActions = List(9) { TapZoneAction.NEXT_PAGE })
+            base.copy(tapZoneActions = List(9) { TapZoneAction.NEXT_PAGE }),
+            base.copy(brightness = 0.85f),
+            base.copy(brightness = 0.1f)
         )
 
         runtimeVariants.forEach { settings ->

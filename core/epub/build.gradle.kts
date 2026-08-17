@@ -5,9 +5,15 @@ plugins {
 
 android {
     namespace = "com.epubpro.core.epub"
+
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":domain"))
     implementation(libs.kotlinx.coroutines.core)
 

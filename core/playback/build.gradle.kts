@@ -6,9 +6,15 @@ plugins {
 
 android {
     namespace = "com.epubpro.core.playback"
+
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":domain"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))

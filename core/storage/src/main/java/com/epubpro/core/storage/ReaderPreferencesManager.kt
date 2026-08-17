@@ -69,7 +69,8 @@ class ReaderPreferencesManager @Inject constructor(
             readingMode = readingMode,
             isHorizontalPagination = readingMode == ReadingMode.FLIP,
             tapZoneActions = tapZoneActions,
-            pageTurnSpeedMs = normalizePageTurnSpeed(settings.pageTurnSpeedMs)
+            pageTurnSpeedMs = normalizePageTurnSpeed(settings.pageTurnSpeedMs),
+            brightness = settings.brightness.coerceIn(0.0f, 1.0f)
         )
 
         prefs.edit()
@@ -96,6 +97,7 @@ class ReaderPreferencesManager @Inject constructor(
             .putBoolean(KEY_ENABLE_KEYBOARD_NAV, normalized.enableKeyboardNavigation)
             .putBoolean(KEY_ENABLE_VOLUME_KEY_NAV, normalized.enableVolumeKeyNavigation)
             .putInt(KEY_PAGE_TURN_SPEED_MS, normalized.pageTurnSpeedMs)
+            .putFloat(KEY_READER_BRIGHTNESS, normalized.brightness)
             .apply()
         _settings.value = normalized
     }
@@ -136,7 +138,8 @@ class ReaderPreferencesManager @Inject constructor(
             enablePageAnimation = prefs.getBoolean(KEY_ENABLE_PAGE_ANIMATION, true),
             enableKeyboardNavigation = prefs.getBoolean(KEY_ENABLE_KEYBOARD_NAV, true),
             enableVolumeKeyNavigation = prefs.getBoolean(KEY_ENABLE_VOLUME_KEY_NAV, false),
-            pageTurnSpeedMs = normalizePageTurnSpeed(prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220))
+            pageTurnSpeedMs = normalizePageTurnSpeed(prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220)),
+            brightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 0.5f).coerceIn(0.0f, 1.0f)
         )
     }
 
@@ -231,6 +234,7 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_ENABLE_KEYBOARD_NAV = "enable_keyboard_nav"
         private const val KEY_ENABLE_VOLUME_KEY_NAV = "enable_volume_key_nav"
         private const val KEY_PAGE_TURN_SPEED_MS = "page_turn_speed_ms"
+        private const val KEY_READER_BRIGHTNESS = "reader_brightness"
         private const val KEY_FILTER_ENABLED = "content_filter_enabled"
         private const val KEY_FILTER_RULES = "content_filter_rules"
     }

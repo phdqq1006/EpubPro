@@ -81,6 +81,11 @@
 - **Ngày**: 2026-08-06
 - **Chi tiết**: Để TopAppBar và BottomBar phân biệt rõ ràng với văn bản khi hiển thị nhưng vẫn giữ thẩm mỹ cao cấp: Định nghĩa cặp màu `(readerBgColor, readerBarBgColor, readerContentColor)` cho từng theme mode (ví dụ Sepia: nền đọc `#FBF0D9`, nền bar `#EFE0C2` đậm hơn, chữ `#3B2F23`). Gắn `shadowElevation = 4.dp` và chuyển `statusBarColor` sang `readerBarBgColor` khi `showControls` bật.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+### Independent Reader Brightness & Extra Dim Architecture
+- **Ngày**: 2026-08-17
+- **Chi tiết**: Điều chỉnh độ sáng màn hình đọc sách độc lập hoàn toàn với thiết bị mà không cần quyền hệ thống `WRITE_SETTINGS`: (1) Sử dụng `WindowManager.LayoutParams.screenBrightness` trên `Activity.window` cho dải sáng `20%..100%`; (2) Dưới ngưỡng `20%` kích hoạt cơ chế Extra Dim: giữ đèn nền ở mức tối thiểu `0.01f` và phủ một lớp `ExtraDimOverlay` (`Color.Black.copy(alpha = ...)`) tăng dần lên tối đa `75%`; (3) Xử lý Lifecycle với `LifecycleEventObserver` để tự động trả về độ sáng hệ thống (`BRIGHTNESS_OVERRIDE_NONE`) khi `onDispose` / `ON_PAUSE` và áp dụng lại khi `ON_RESUME`; (4) Phân loại `brightness` là Runtime Setting độc lập với `contentReloadKey()`, kết hợp cảm biến vuốt mép trái `detectVerticalDragGestures`, HUD nổi và Slider commit-on-release để đạt tốc độ phản hồi 60fps mà không reload WebView hay ghi disk liên tục.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 ---
 
 ## Bugs & Solutions
@@ -239,9 +244,26 @@
 - **Root cause**: Lệnh debug log `Log.d("EpubPro_HTML", "First 1000 chars: ${preparedHtml.take(1000)}")` còn sót lại trong production path.
 - **Fix**: Xóa bỏ lệnh log nội dung chương, chỉ giữ lại log kích thước, generation token và cờ phân trang.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt`
+
+### Lỗi DisposableEffect bị recreate theo từng mức brightness làm nhấp nháy đèn nền
+- **Ngày**: 2026-08-17
+- **Vấn đề**: Khi vuốt mép trái hoặc kéo thanh trượt độ sáng, màn hình bị nhấp nháy hoặc chớp tắt về độ sáng hệ thống ở mỗi frame kéo.
+- **Root cause**: `DisposableEffect(window, hardwareBrightness, lifecycleOwner)` lấy `hardwareBrightness` làm key. Mỗi khi giá trị độ sáng đổi qua từng pixel kéo, effect cũ bị hủy và chạy `onDispose` đặt lại `screenBrightness = BRIGHTNESS_OVERRIDE_NONE` trước khi effect mới kịp áp dụng.
+- **Fix**: Tách `DisposableEffect(window, lifecycleOwner)` theo key ổn định, dùng `val currentBrightness by rememberUpdatedState(hardwareBrightness)` và áp dụng `SideEffect` cập nhật độ sáng tức thì khi `lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)`.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`
 ---
 
 ## How-To
+
+### Cách triển khai điều chỉnh độ sáng độc lập và Extra Dim trong Compose Reader
+- **Ngày**: 2026-08-17
+- **Bước thực hiện**:
+  1. Thêm `brightness: Float = 0.5f` vào `ReaderSettings` và `KEY_READER_BRIGHTNESS` trong `ReaderPreferencesManager`.
+  2. Viết pure function `calculateBrightnessOutput(brightness)` chia ngưỡng: `>= 0.2f` điều chỉnh hardware brightness, `< 0.2f` giữ hardware min và tăng alpha `ExtraDimOverlay`.
+  3. Quản lý `window.attributes.screenBrightness` bằng `BrightnessWindowEffect` ổn định theo `(window, lifecycleOwner)` và xử lý `LifecycleEventObserver` (reset khi `ON_PAUSE`/`onDispose`, reapply khi `ON_RESUME`).
+  4. Đặt `BrightnessEdgeSensor` mép trái với `detectVerticalDragGestures` cập nhật `draftBrightness` real-time và chỉ commit lưu storage khi `onDragEnd` nhấc tay.
+  5. Thêm Unit test `calculateBrightnessOutput` và `ReaderContentReloadKeyTest` để đảm bảo không reload WebView.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 
 ### Cách lưu & khôi phục cấu hình đọc sách bằng ReaderPreferencesManager
 - **Ngày**: 2026-08-05
@@ -379,3 +401,13 @@
 - **Ngày**: 2026-08-17
 - **Chi tiết**: JavaScript RegExp có cờ `g` hoặc `y` thay đổi `lastIndex` khi gọi `test()`/`exec()`. Khi tái sử dụng trên nhiều text node, reset `lastIndex = 0` trước mỗi input hoặc dùng regex non-global để detect và regex global riêng để replace. Pattern này đặc biệt quan trọng với DOM TreeWalker và content filter.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Stable Window Lifecycle Effect Pattern
+- **Ngày**: 2026-08-17
+- **Chi tiết**: Khi điều khiển các thuộc tính Window động (như độ sáng, flags giữ màn hình sáng) trong Jetpack Compose: KHÔNG đưa giá trị thay đổi liên tục vào key của `DisposableEffect`. Sử dụng key ổn định `DisposableEffect(window, lifecycleOwner)`, kết hợp `rememberUpdatedState(value)` và `SideEffect` áp dụng thay đổi khi lifecycle ở trạng thái `RESUMED`.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`
+
+### Live Gesture Drag + Commit-on-Release Storage Pattern
+- **Ngày**: 2026-08-17
+- **Chi tiết**: Đối với các thao tác vuốt kéo real-time 60fps (như vuốt mép chỉnh sáng, chỉnh âm lượng): Cập nhật trạng thái hiển thị và hiệu ứng trực tiếp qua `draftState` trong suốt quá trình vuốt (`onVerticalDrag`). Chỉ thực hiện ghi lưu storage (SharedPreferences / Database) trong callback `onDragEnd` / `onDragCancel` được bảo vệ bởi `rememberUpdatedState` để triệt tiêu tình trạng nghẽn I/O và stale closure.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
