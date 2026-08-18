@@ -6,6 +6,8 @@
     <string name="action_search">Tìm kiếm</string>
     <string name="action_menu">Menu</string>
     <string name="action_close">Đóng</string>
+    <string name="action_cancel">Hủy</string>
+    <string name="action_background">Chạy ngầm</string>
     <string name="action_expand">Mở rộng</string>
     <string name="action_stop">Tắt</string>
     <string name="reader_reading_now">Đang đọc</string>
@@ -227,6 +229,13 @@
     <string name="add_book_local_desc">Mở và nạp file .epub có sẵn trong máy</string>
     <string name="add_book_upload">Tải sách lên Server</string>
     <string name="add_book_upload_desc">Upload file EPUB từ điện thoại lên backend</string>
+    <string name="epub_import_channel_name">Tiến trình nạp truyện</string>
+    <string name="epub_import_channel_desc">Thông báo tiến trình tải và xử lý file EPUB lên máy chủ</string>
+    <string name="epub_import_notification_title">Đang nạp truyện: %1$s</string>
+    <string name="epub_import_notification_starting">Đang khởi tạo tiến trình nạp truyện...</string>
+    <string name="epub_import_notification_success">Đã nạp truyện \"%1$s\" thành công!</string>
+    <string name="epub_import_notification_failed">Nạp truyện thất bại: %1$s</string>
+    <string name="epub_import_dialog_title">Tiến trình nạp truyện lên server</string>
     <string name="online_library_title">Kho Truyện Online</string>
     <string name="online_library_search_hint">Tìm kiếm truyện online, tác giả, thể loại...</string>
     <string name="online_library_empty">Không tìm thấy truyện nào trên server</string>

@@ -164,8 +164,10 @@ class OnlineNovelRepositoryImpl @Inject constructor(
      */
     override suspend fun uploadEpub(
         filePath: String,
-        isTranslated: Boolean
-    ): Result<String> = withContext(Dispatchers.IO) {
+        isTranslated: Boolean,
+        novelId: String?,
+        autoScanCharacters: Boolean
+    ): Result<ImportJobStatus> = withContext(Dispatchers.IO) {
         runCatching {
             val file = File(filePath)
             if (!file.exists()) {
@@ -176,10 +178,39 @@ class OnlineNovelRepositoryImpl @Inject constructor(
             val requestFile = file.asRequestBody(mediaType)
             val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
             val isTranslatedBody = isTranslated.toString().toRequestBody("text/plain".toMediaTypeOrNull())
+            
+            val novelIdBody = novelId?.toRequestBody("text/plain".toMediaTypeOrNull())
+            val autoScanBody = autoScanCharacters.toString().toRequestBody("text/plain".toMediaTypeOrNull())
 
-            val responseBody = apiService.uploadEpub(filePart, isTranslatedBody)
-            responseBody.string().ifBlank { "Upload thành công" }
+            val dto = apiService.uploadEpub(filePart, isTranslatedBody, novelIdBody, autoScanBody)
+            mapToImportJobStatus(dto)
         }
+    }
+
+    /**
+     * Lấy trạng thái của tiến trình upload.
+     */
+    override suspend fun getImportJobStatus(jobId: String): Result<ImportJobStatus> = withContext(Dispatchers.IO) {
+        runCatching {
+            val dto = apiService.getImportJobStatus(jobId)
+            mapToImportJobStatus(dto)
+        }
+    }
+
+    private fun mapToImportJobStatus(dto: ImportJobStatusDto): ImportJobStatus {
+        return ImportJobStatus(
+            jobId = dto.jobId,
+            novelId = dto.novelId,
+            title = dto.title,
+            status = dto.status,
+            currentStep = dto.currentStep,
+            currentChapter = dto.currentChapter,
+            totalChapters = dto.totalChapters,
+            progressPercentage = dto.progressPercentage,
+            errorMessage = dto.errorMessage,
+            createdAt = dto.createdAt,
+            completedAt = dto.completedAt
+        )
     }
 
     /**

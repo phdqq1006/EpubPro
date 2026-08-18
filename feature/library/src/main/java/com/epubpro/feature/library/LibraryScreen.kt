@@ -1,6 +1,9 @@
 package com.epubpro.feature.library
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -24,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.designsystem.R
 import com.epubpro.feature.library.components.GeneratedBookCover
@@ -61,12 +65,98 @@ fun LibraryScreen(
         uri?.let { viewModel.uploadEpubToServer(it, "upload.epub") }
     }
 
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        uploadPickerLauncher.launch("application/epub+zip")
+    }
+
+    val onStartUpload = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            uploadPickerLauncher.launch("application/epub+zip")
+        }
+    }
+
     if (showAddBookBottomSheet) {
         AddBookBottomSheet(
             onDismissRequest = { showAddBookBottomSheet = false },
             onNavigateToOnlineLibrary = onNavigateToOnlineLibrary,
             onPickLocalEpub = { filePickerLauncher.launch("application/epub+zip") },
-            onUploadEpubToServer = { uploadPickerLauncher.launch("application/epub+zip") }
+            onUploadEpubToServer = onStartUpload
+        )
+    }
+
+    uiState.uploadJobStatus?.let { status ->
+        AlertDialog(
+            onDismissRequest = {
+                viewModel.dismissUploadDialog()
+            },
+            title = {
+                Text(
+                    text = stringResource(R.string.epub_import_dialog_title),
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = status.title ?: stringResource(R.string.tts_default_book_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    val progress = (status.progressPercentage / 100f).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = status.currentStep ?: stringResource(R.string.epub_import_notification_starting),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val errorMsg = status.errorMessage
+                    if (status.isFailed && !errorMsg.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = errorMsg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (status.isFailed || status.isCompleted) {
+                    TextButton(onClick = { viewModel.dismissUploadDialog() }) {
+                        Text(stringResource(R.string.action_close))
+                    }
+                } else {
+                    TextButton(onClick = { viewModel.dismissUploadDialog() }) {
+                        Text(stringResource(R.string.action_background))
+                    }
+                }
+            },
+            dismissButton = {
+                if (!status.isFailed && !status.isCompleted) {
+                    TextButton(onClick = { viewModel.cancelUploadWork() }) {
+                        Text(stringResource(R.string.action_cancel), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
         )
     }
 

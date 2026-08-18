@@ -69,12 +69,23 @@ interface OnlineNovelRepository {
      *
      * @param filePath Đường dẫn tuyệt đối của file `.epub` trên thiết bị.
      * @param isTranslated Đánh dấu file này đã được dịch hoàn chỉnh hay là bản gốc thô.
-     * @return [Result] chứa thông điệp phản hồi từ máy chủ nếu upload thành công.
+     * @param novelId (Tùy chọn) ID của truyện.
+     * @param autoScanCharacters (Tùy chọn) Tự động gọi AI scan danh sách nhân vật.
+     * @return [Result] chứa trạng thái [ImportJobStatus] để tiếp tục theo dõi tiến trình.
      */
     suspend fun uploadEpub(
         filePath: String,
-        isTranslated: Boolean
-    ): Result<String>
+        isTranslated: Boolean,
+        novelId: String? = null,
+        autoScanCharacters: Boolean = false
+    ): Result<ImportJobStatus>
+
+    /**
+     * Lấy trạng thái của tiến trình upload.
+     *
+     * @param jobId ID của job nhận được sau khi upload thành công.
+     */
+    suspend fun getImportJobStatus(jobId: String): Result<ImportJobStatus>
 
     /**
      * Lấy luồng phát ra địa chỉ Base URL hiện tại của backend server.

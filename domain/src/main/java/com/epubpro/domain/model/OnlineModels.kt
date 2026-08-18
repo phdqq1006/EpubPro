@@ -59,3 +59,22 @@ sealed class DownloadState {
     data class Success(val filePath: String) : DownloadState()
     data class Error(val message: String) : DownloadState()
 }
+
+data class ImportJobStatus(
+    val jobId: String,
+    val novelId: String?,
+    val title: String?,
+    val status: String,
+    val currentStep: String?,
+    val currentChapter: Int,
+    val totalChapters: Int,
+    val progressPercentage: Int,
+    val errorMessage: String?,
+    val createdAt: String?,
+    val completedAt: String?
+) {
+    val isPending: Boolean get() = status.equals("pending", ignoreCase = true)
+    val isProcessing: Boolean get() = status.equals("processing", ignoreCase = true)
+    val isCompleted: Boolean get() = status.equals("completed", ignoreCase = true)
+    val isFailed: Boolean get() = status.equals("failed", ignoreCase = true)
+}

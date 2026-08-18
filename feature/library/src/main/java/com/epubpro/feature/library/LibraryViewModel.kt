@@ -1,21 +1,38 @@
 package com.epubpro.feature.library
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ReaderResumeSnapshotStore
+import com.epubpro.core.storage.worker.EpubImportWorker
 import com.epubpro.domain.model.Book
+import com.epubpro.domain.model.ImportJobStatus
 import com.epubpro.domain.repository.BookBibleRepository
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
 import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * Trạng thái giao diện biểu diễn một cuốn sách và tiến độ đọc tương ứng.
+ *
+ * @property book Đối tượng sách trong cơ sở dữ liệu.
+ * @property currentChapter Vị trí chương hiện tại (1-indexed).
+ * @property totalChapters Tổng số chương của cuốn sách.
+ * @property progressPercentage Tỷ lệ hoàn thành đọc (0.0 -> 1.0).
+ */
 data class BookItemUiState(
     val book: Book,
     val currentChapter: Int = 0,
@@ -23,15 +40,30 @@ data class BookItemUiState(
     val progressPercentage: Float = 0f
 )
 
+/**
+ * Trạng thái toàn diện của màn hình Thư Viện.
+ *
+ * @property books Danh sách sách sau khi lọc tìm kiếm.
+ * @property isLoading Trạng thái tải dữ liệu ban đầu.
+ * @property searchQuery Từ khóa tìm kiếm hiện tại.
+ * @property message Thông báo tức thời gửi tới người dùng (Snackbar/Toast).
+ * @property uploadJobStatus Trạng thái tiến trình tải sách lên server chạy ngầm.
+ */
 data class LibraryUiState(
     val books: List<BookItemUiState> = emptyList(),
     val isLoading: Boolean = false,
     val searchQuery: String = "",
-    val message: String? = null
+    val message: String? = null,
+    val uploadJobStatus: ImportJobStatus? = null
 )
 
+/**
+ * ViewModel quản lý danh sách sách trong thư viện, tìm kiếm, nhập file EPUB nội bộ
+ * và điều phối tác vụ tải sách lên server chạy ngầm qua [WorkManager].
+ */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val bookRepository: BookRepository,
     private val searchRepository: SearchRepository,
     private val storageManager: EpubStorageManager,
@@ -43,13 +75,20 @@ class LibraryViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     private val _userMessage = MutableStateFlow<String?>(null)
+    private val _uploadJobState = MutableStateFlow<ImportJobStatus?>(null)
+    private var isDialogDismissedByUser = false
+
+    init {
+        observeImportWorkerProgress()
+    }
 
     val uiState: StateFlow<LibraryUiState> = combine(
         bookRepository.getAllBooks(),
         bookRepository.getAllReadingProgress(),
         _searchQuery,
-        _userMessage
-    ) { books, progressList, query, msg ->
+        _userMessage,
+        _uploadJobState
+    ) { books, progressList, query, msg, uploadStatus ->
         val progressMap = progressList.associateBy { it.bookId }
         val items = books.map { book ->
             val progress = progressMap[book.id]
@@ -70,13 +109,94 @@ class LibraryViewModel @Inject constructor(
         val filtered = if (query.isBlank()) items else items.filter {
             it.book.title.contains(query, ignoreCase = true) || it.book.author.contains(query, ignoreCase = true)
         }
-        LibraryUiState(books = filtered, searchQuery = query, message = msg)
+        LibraryUiState(
+            books = filtered,
+            searchQuery = query,
+            message = msg,
+            uploadJobStatus = uploadStatus
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LibraryUiState(isLoading = true))
 
+    /**
+     * Lắng nghe trạng thái và tiến độ từ [EpubImportWorker] để đồng bộ lên UI khi màn hình đang mở.
+     */
+    private fun observeImportWorkerProgress() {
+        viewModelScope.launch {
+            WorkManager.getInstance(context)
+                .getWorkInfosForUniqueWorkFlow(EpubImportWorker.UNIQUE_WORK_NAME)
+                .collect { workInfos ->
+                    val activeWork = workInfos.firstOrNull { !it.state.isFinished }
+                        ?: workInfos.firstOrNull()
+                    if (activeWork != null) {
+                        when (activeWork.state) {
+                            WorkInfo.State.RUNNING -> {
+                                val progress = activeWork.progress.getInt(EpubImportWorker.KEY_PROGRESS, 0)
+                                val currentStep = activeWork.progress.getString(EpubImportWorker.KEY_CURRENT_STEP)
+                                val title = activeWork.progress.getString(EpubImportWorker.KEY_TITLE)
+                                val novelId = activeWork.progress.getString(EpubImportWorker.KEY_NOVEL_ID)
+                                val status = activeWork.progress.getString(EpubImportWorker.KEY_STATUS) ?: "processing"
+                                val error = activeWork.progress.getString(EpubImportWorker.KEY_ERROR_MESSAGE)
+
+                                if (!isDialogDismissedByUser) {
+                                    _uploadJobState.value = ImportJobStatus(
+                                        jobId = "",
+                                        novelId = novelId,
+                                        title = title,
+                                        status = status,
+                                        currentStep = currentStep,
+                                        currentChapter = 0,
+                                        totalChapters = 0,
+                                        progressPercentage = progress,
+                                        errorMessage = error,
+                                        createdAt = null,
+                                        completedAt = null
+                                    )
+                                }
+                            }
+                            WorkInfo.State.SUCCEEDED -> {
+                                isDialogDismissedByUser = false
+                                val title = activeWork.outputData.getString(EpubImportWorker.KEY_TITLE) ?: ""
+                                if (title.isNotBlank()) {
+                                    _userMessage.value = "Đã nạp truyện \"$title\" lên server thành công!"
+                                }
+                                _uploadJobState.value = null
+                            }
+                            WorkInfo.State.FAILED -> {
+                                isDialogDismissedByUser = false
+                                val error = activeWork.outputData.getString(EpubImportWorker.KEY_ERROR_MESSAGE)
+                                if (!error.isNullOrBlank()) {
+                                    _userMessage.value = "Nạp truyện thất bại: $error"
+                                }
+                                _uploadJobState.value = null
+                            }
+                            WorkInfo.State.CANCELLED -> {
+                                isDialogDismissedByUser = false
+                                _uploadJobState.value = null
+                            }
+                            else -> {
+                                // ENQUEUED / BLOCKED: Giữ trạng thái hiện tại hoặc đợi RUNNING
+                            }
+                        }
+                    }
+                }
+        }
+    }
+
+    /**
+     * Cập nhật từ khóa tìm kiếm sách trong thư viện.
+     *
+     * @param query Từ khóa người dùng nhập vào ô tìm kiếm.
+     */
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
     }
 
+    /**
+     * Nạp file EPUB từ bộ nhớ thiết bị vào thư viện sách cục bộ.
+     *
+     * @param uri URI nguồn của file EPUB được chọn từ Storage Access Framework.
+     * @param originalName Tên gốc của file.
+     */
     fun importEpub(uri: Uri, originalName: String?) {
         viewModelScope.launch {
             try {
@@ -94,21 +214,75 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Lập lịch tải file EPUB lên máy chủ backend thông qua [WorkManager] và [EpubImportWorker].
+     * Tác vụ sẽ tự động hiển thị Notification cập nhật tiến trình và tiếp tục chạy ngay cả khi tắt ứng dụng.
+     *
+     * @param uri URI của file EPUB trên thiết bị.
+     * @param originalName Tên hiển thị ban đầu của file.
+     */
     fun uploadEpubToServer(uri: Uri, originalName: String?) {
         viewModelScope.launch {
             try {
+                isDialogDismissedByUser = false
+                // Đọc và sao lưu file tạm thời vào internal storage trước khi chuyển cho Worker
                 val tempFile = storageManager.importEpubFromUri(uri, originalName)
-                onlineNovelRepository.uploadEpub(tempFile.absolutePath, isTranslated = true)
-                    .onSuccess {
-                        _userMessage.value = "Đã tải sách lên server thành công!"
-                    }
-                    .onFailure {
-                        _userMessage.value = "Tải lên server thất bại: ${it.message}"
-                    }
+
+                // Hiển thị trạng thái khởi tạo ảo trên UI
+                _uploadJobState.value = ImportJobStatus(
+                    jobId = "",
+                    novelId = null,
+                    title = originalName,
+                    status = "pending",
+                    currentStep = "Đang khởi tạo tác vụ nền...",
+                    currentChapter = 0,
+                    totalChapters = 0,
+                    progressPercentage = 0,
+                    errorMessage = null,
+                    createdAt = null,
+                    completedAt = null
+                )
+
+                val inputData = workDataOf(
+                    EpubImportWorker.KEY_FILE_PATH to tempFile.absolutePath,
+                    EpubImportWorker.KEY_ORIGINAL_NAME to (originalName ?: "book.epub"),
+                    EpubImportWorker.KEY_IS_TRANSLATED to true,
+                    EpubImportWorker.KEY_AUTO_SCAN_CHARACTERS to true
+                )
+
+                val workRequest = OneTimeWorkRequestBuilder<EpubImportWorker>()
+                    .setInputData(inputData)
+                    .build()
+
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    EpubImportWorker.UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.REPLACE,
+                    workRequest
+                )
+
+                _userMessage.value = "Đã khởi chạy tiến trình nạp truyện ngầm."
             } catch (e: Exception) {
-                _userMessage.value = "Lỗi xử lý file upload: ${e.message}"
+                _userMessage.value = "Lỗi chuẩn bị file upload: ${e.message}"
+                _uploadJobState.value = null
             }
         }
+    }
+
+    /**
+     * Ẩn hộp thoại tiến trình trên giao diện mà không làm hủy tác vụ Worker đang chạy ngầm.
+     */
+    fun dismissUploadDialog() {
+        isDialogDismissedByUser = true
+        _uploadJobState.value = null
+    }
+
+    /**
+     * Hủy bỏ hoàn toàn tác vụ nạp truyện đang chạy ngầm trong [WorkManager].
+     */
+    fun cancelUploadWork() {
+        isDialogDismissedByUser = false
+        WorkManager.getInstance(context).cancelUniqueWork(EpubImportWorker.UNIQUE_WORK_NAME)
+        _uploadJobState.value = null
     }
 
     fun clearMessage() {

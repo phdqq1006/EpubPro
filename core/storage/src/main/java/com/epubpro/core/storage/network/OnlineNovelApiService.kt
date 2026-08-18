@@ -67,6 +67,23 @@ data class TranslateResponseDto(
 )
 
 /**
+ * Data Transfer Object trạng thái tiến trình Import truyện (EPUB).
+ */
+data class ImportJobStatusDto(
+    @SerializedName("job_id") val jobId: String,
+    @SerializedName("novel_id") val novelId: String?,
+    @SerializedName("title") val title: String?,
+    @SerializedName("status") val status: String,
+    @SerializedName("current_step") val currentStep: String?,
+    @SerializedName("current_chapter") val currentChapter: Int = 0,
+    @SerializedName("total_chapters") val totalChapters: Int = 0,
+    @SerializedName("progress_percentage") val progressPercentage: Int = 0,
+    @SerializedName("error_message") val errorMessage: String?,
+    @SerializedName("created_at") val createdAt: String?,
+    @SerializedName("completed_at") val completedAt: String?
+)
+
+/**
  * Retrofit Service Interface định nghĩa 6 REST API endpoints tương tác với máy chủ backend.
  */
 interface OnlineNovelApiService {
@@ -135,11 +152,25 @@ interface OnlineNovelApiService {
      *
      * @param file File multipart body.
      * @param isTranslated Cờ đánh dấu đã dịch.
+     * @param novelId (Tùy chọn) Slug truyện.
+     * @param autoScanCharacters (Tùy chọn) Tự động scan nhân vật.
      */
     @Multipart
     @POST("library/novels/import-epub")
     suspend fun uploadEpub(
         @Part file: MultipartBody.Part,
-        @Part("is_translated") isTranslated: RequestBody
-    ): ResponseBody
+        @Part("is_translated") isTranslated: RequestBody,
+        @Part("novel_id") novelId: RequestBody? = null,
+        @Part("auto_scan_characters") autoScanCharacters: RequestBody? = null
+    ): ImportJobStatusDto
+
+    /**
+     * Lấy trạng thái của tiến trình upload.
+     *
+     * @param jobId ID của job nhận được sau khi upload thành công.
+     */
+    @GET("library/import-jobs/{job_id}")
+    suspend fun getImportJobStatus(
+        @Path("job_id") jobId: String
+    ): ImportJobStatusDto
 }
