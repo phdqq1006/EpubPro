@@ -76,12 +76,12 @@ fun ServerSettingsDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     FilterChip(
-                        selected = urlText.contains("workers.dev"),
+                        selected = urlText.contains("onrender.com"),
                         onClick = {
-                            urlText = ServerPreferencesManager.PRESET_WORKERS_DEV
+                            urlText = ServerPreferencesManager.PRESET_RENDER
                             testResult = null
                         },
-                        label = { Text("Cloud Workers", fontSize = 11.sp) },
+                        label = { Text("Cloud Server (Render)", fontSize = 11.sp) },
                         shape = RoundedCornerShape(8.dp)
                     )
                     FilterChip(

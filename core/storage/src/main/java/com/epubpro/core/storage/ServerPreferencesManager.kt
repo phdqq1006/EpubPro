@@ -28,7 +28,7 @@ class ServerPreferencesManager @Inject constructor(
 
     private fun readBaseUrl(): String {
         val stored = preferences.getString(KEY_BASE_URL, null)
-        if (stored == null || stored.contains("r2.dev") || stored.contains("trycloudflare.com")) {
+        if (stored == null || stored.contains("r2.dev") || stored.contains("trycloudflare.com") || stored.contains("workers.dev")) {
             preferences.edit().putString(KEY_BASE_URL, DEFAULT_BASE_URL).apply()
             return DEFAULT_BASE_URL
         }
@@ -50,8 +50,8 @@ class ServerPreferencesManager @Inject constructor(
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://epubbackend.haiduog.workers.dev/api/v1/"
-        const val PRESET_WORKERS_DEV = "https://epubbackend.haiduog.workers.dev/api/v1/"
+        const val DEFAULT_BASE_URL = "https://epubbackend.onrender.com/api/v1/"
+        const val PRESET_RENDER = "https://epubbackend.onrender.com/api/v1/"
         const val PRESET_EMULATOR = "http://10.0.2.2:8000/api/v1/"
         const val PRESET_LOCALHOST = "http://127.0.0.1:8000/api/v1/"
         private const val KEY_BASE_URL = "server_base_url"
