@@ -1,6 +1,6 @@
 # Online Backend & Library Integration
 
-> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2 và xử lý tải/upload sách trong dự án.
+> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render và xử lý tải/upload sách trong dự án.
 > Cập nhật lần cuối: 2026-08-18
 
 ---
@@ -9,8 +9,13 @@
 
 ### Dynamic Base URL Multi-Environment Architecture
 - **Ngày**: 2026-08-17
-- **Chi tiết**: Sử dụng `DynamicBaseUrlInterceptor` trong OkHttp để định tuyến lại URL động lúc runtime dựa trên `ServerPreferencesManager`. Bóc tách path segments tương đối sau tiền tố `/api/v1` để tránh nhân đôi path segments khi chuyển đổi giữa Cloud (R2/API), Emulator (`10.0.2.2`), Localhost (`127.0.0.1`) và LAN IP.
+- **Chi tiết**: Sử dụng `DynamicBaseUrlInterceptor` trong OkHttp để định tuyến lại URL động lúc runtime dựa trên `ServerPreferencesManager`. Bóc tách path segments tương đối sau tiền tố `/api/v1` để tránh nhân đôi path segments khi chuyển đổi giữa Cloud (Render/API), Emulator (`10.0.2.2`), Localhost (`127.0.0.1`) và LAN IP.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptor.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`
+
+### Production Render Cloud Deployment Integration
+- **Ngày**: 2026-08-18
+- **Chi tiết**: Cấu hình `DEFAULT_BASE_URL` sang máy chủ cố định `https://epubbackend.onrender.com/api/v1/` và tự động làm sạch các URL thử nghiệm tạm thời (`trycloudflare.com`, `workers.dev`, `r2.dev`) trong `readBaseUrl()` để người dùng cập nhật phiên bản mới luôn kết nối tới backend chính thức mà không bị dính cache SharedPreferences cũ.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ServerSettingsDialog.kt`
 
 ### 1-Touch Stream & Offline Storage Pipeline
 - **Ngày**: 2026-08-17
@@ -75,6 +80,16 @@
   3. Điền Environment Variables (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_KEY`, `R2_BUCKET_NAME`).
   4. Lấy link public `https://xxx.onrender.com/api/v1/` cấu hình vào App.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`
+
+### Cách resolve Merge Conflicts giữa nhánh Online Library và Display Settings/Modularization
+- **Ngày**: 2026-08-18
+- **Bước thực hiện**:
+  1. `AndroidManifest.xml`: Kết hợp đầy đủ quyền mạng (Online Library) và quyền TTS Floating Bubble/Notification (`SYSTEM_ALERT_WINDOW`, `POST_NOTIFICATIONS`).
+  2. `strings.xml`: Giữ song song cả nhóm chuỗi Online Library (`online_novel_*`, `server_*`) và nhóm TTS Bubble / Display Settings.
+  3. `LibraryViewModel.kt`: Kết hợp StateFlow kết nối Room reading progress vừa đọc tiến độ `getAllReadingProgress()` vừa hỗ trợ upload sách lên server và dọn dẹp snapshot store khi xóa sách.
+  4. `libs.versions.toml`: Giữ cả Retrofit/OkHttp/Gson và Sherpa-ONNX/Jsoup/Testing harness.
+  5. Chạy `./gradlew compileDebugKotlin` với JDK 17 để đảm bảo build xanh trước khi push merge commit.
+- **Files liên quan**: `app/src/main/AndroidManifest.xml`, `core/designsystem/src/main/res/values/strings.xml`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `gradle/libs.versions.toml`
 
 ---
 
