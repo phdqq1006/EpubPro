@@ -1,7 +1,7 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-07
+> Cập nhật lần cuối: 2026-08-13
 
 ---
 
@@ -39,7 +39,46 @@
 
 ---
 
+### Centralized Offline Voice Catalog
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Metadata giọng AI offline phải có một nguồn duy nhất gồm voiceId, tên hiển thị, ngôn ngữ, dung lượng, tên file ONNX và URL tải. TtsVoiceCatalog được dùng chung bởi màn Cài đặt, Reader, downloader và Piper wrapper để không còn danh sách hoặc mapping riêng bị lệch nhau. Trạng thái đã tải không thuộc catalog tĩnh mà được tính tại runtime.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt
+
+### Capability-Aware Dual Engine Configuration
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Android Native và AI Offline có khả năng khác nhau. Native hỗ trợ locale, system voice, tốc độ và cao độ; Piper/Sherpa hiện chỉ hỗ trợ giọng Việt trong catalog và tốc độ, không hỗ trợ cao độ. Domain normalization, engine API và UI phải dùng cùng ma trận khả năng: AI ép ngôn ngữ vi, cao độ 1.0, ẩn điều khiển không có tác dụng; Native lấy danh sách voice theo locale thật của thiết bị.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt
+
+### Persisted Settings Must Represent a Playable Configuration
+- **Ngày**: 2026-08-10
+- **Chi tiết**: voiceId = null là trạng thái hợp lệ khi người dùng chưa cấu hình AI, nhưng isAiVoice = true chỉ được lưu khi voiceId tồn tại trong catalog. Việc bật tab AI rồi chưa chọn model là draft cục bộ của màn hình, không phải cấu hình playback. Khi đọc dữ liệu cũ không đầy đủ, tự phục hồi về Native với voiceId = null để lần mở sau luôn có cấu hình dùng được.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPreferencesManager.kt
+
+
+### Resilient TTS Foreground Playback Session
+- **Ngày**: 2026-08-11
+- **Chi tiết**: `TtsService` là chủ sở hữu duy nhất của playback, notification và bubble. Khi bubble tắt, Stop dọn phiên như media service thông thường. Khi bubble bật và còn quyền overlay, Stop chỉ giải phóng engine, AudioFocus, timer và chuyển sang Idle nhưng giữ notification/bubble; `START_STICKY` chỉ dùng trong trạng thái này. Null restart không tự phát mà chỉ phục hồi snapshot tối thiểu. Mỗi lần đổi loại foreground phải có fail-safe vì Android 12+ có thể từ chối promote khi ứng dụng ở nền.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsAudioFocusController.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt
+
+### System Overlay Audio Bubble
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Bubble dùng `TYPE_APPLICATION_OVERLAY` nhưng không tạo playback stack riêng. UI overlay chỉ gửi command và render model bất biến từ `TtsService`; reducer quyết định Disabled/Hidden/Collapsed/Expanded dựa trên toggle, quyền, foreground app, khóa màn hình và cờ ẩn phiên hiện tại. Preference vị trí cùng snapshot playback được lưu private, atomic; snapshot chỉ chứa cursor và timeline, không lưu text/HTML. Quyền overlay được theo dõi bằng `AppOpsManager`, không dùng polling khi Idle.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleRuntime.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsBubbleOverlayController.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt
+
+### Service Owns Chapter Transition Commands
+- **Ngày**: 2026-08-13
+- **Chi tiết**: `TtsService` là chủ sở hữu duy nhất của việc chuyển chunk/chapter và `playbackGeneration`. `ReaderViewModel` chỉ đồng bộ chapter hiển thị sau khi service phát `Preparing`/`Playing` của chapter mới. UI không được suy diễn một command Play từ state chuyển tiếp như `Loading`; nếu cần auto-start theo ý định người dùng, phải dùng event/pending intent riêng, có thể consume đúng một lần.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+---
 ## Bugs & Solutions
+
+### Đoạn cuối chapter bị phát lặp và không chuyển sang chapter kế tiếp
+- **Ngày**: 2026-08-13
+- **Vấn đề**: Khi Reader đang mở, TTS đôi lúc phát lặp vô hạn đoạn cuối của chapter cũ.
+- **Root cause**: `TtsService` phát `TtsPlayerState.Loading` trong lúc tự chuyển chapter. `ReaderScreen` có `LaunchedEffect` coi mọi `Loading` là yêu cầu gọi `startTtsServicePlayback()`, nên nạp lại HTML chapter cũ. `loadContent()` tăng `playbackGeneration`, khiến coroutine chuyển chapter mới tự loại bỏ và vòng lặp tái diễn.
+- **Fix**: Xóa side effect phát lại dựa trên `TtsPlayerState.Loading`. Các nút người dùng gọi command trực tiếp; UI chỉ gọi `onChapterSelected(nextChapter)` để đồng bộ WebView khi service phát `Preparing`/`Playing` của chapter mới.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ### Highlight TTS bị lệch đoạn văn so với âm thanh đang đọc
 - **Ngày**: 2026-07-31
@@ -92,12 +131,12 @@
   2. Trong `SherpaTtsEngine.speak()`, thực hiện ghi PCM vào `AudioTrack` theo từng khối nhỏ 4KB (`chunkSize = 4096`) và kiểm tra `coroutineContext.isActive` trong mỗi vòng lặp. Nếu bị cancel, vòng lặp dừng ngay lập tức và xả buffer `AudioTrack.pause() + flush()`.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
 
-### Nút Next không chuyển đúng đoạn trong chương EPUB
-- **Ngày**: 2026-08-06
-- **Vấn đề**: Player chỉ hiện một đoạn hoặc Next vẫn tiếp tục âm thanh cũ, đặc biệt với EPUB dùng `div`/`br` thay cho thẻ `p`.
-- **Root cause**: Parser chỉ chọn nhóm thẻ semantic; khi có một heading, fallback rỗng không chạy dù phần lớn body bị bỏ sót. Đoạn quá dài tạo một request synthesize blocking. Callback hoàn tất của request cũ còn có thể tăng index sau khi người dùng đã Next.
-- **Fix**: Fallback sang toàn bộ body khi độ phủ text của selector quá thấp; chia nội dung tối đa 280 ký tự tại biên câu/từ. Trước Next/Previous/Seek phải stop và vô hiệu hóa lượt phát cũ; gắn generation token cùng expected chunk/index để bỏ callback stale. Dùng `Mutex` ngăn hai lần Sherpa generate chạy đồng thời.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsTextParser.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt`
+### Nút Next/Previous bị kẹt hoặc phát lại đoạn cũ khi qua ranh giới chương
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Next/Previous liên tiếp trong lúc synthesize có thể bị bỏ qua; ở chunk đầu/cuối, lệnh không chuyển được sang chương kế/trước; chunk rỗng còn tạo vòng coroutine và trạng thái không ổn định.
+- **Root cause**: Tác vụ chuyển chương bất đồng bộ vẫn để player ở trạng thái Playing, nhánh index âm trả về sớm, và callback/chuỗi xử lý cũ tiếp tục ghi đè index mới.
+- **Fix**: Đặt Loading trước khi invalidate/await, bỏ qua lệnh điều hướng mới trong lúc chuyển chương, kiểm tra generation sau mỗi suspend boundary. Duyệt và bỏ qua chunk rỗng trong cùng lần phát; xử lý cả hai hướng qua chương kế/trước và khôi phục index cũ nếu không có chương trước hợp lệ.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt`
 
 ### Highlight tô sáng cả trang thay vì từng đoạn văn đang đọc
 - **Ngày**: 2026-08-07
@@ -108,7 +147,76 @@
 
 ---
 
+### AI Offline tự chọn cứng giọng ngoc_ngan
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Mở chế độ AI hoặc tải model khi chưa chọn giọng vẫn ngầm dùng Ngọc Ngạn, trái với yêu cầu mặc định để trống.
+- **Root cause**: Giá trị fallback xuất hiện ở nhiều tầng như settings.voiceId ?: ngoc_ngan và currentVoiceId = ngoc_ngan.
+- **Fix**: Giữ voiceId nullable xuyên suốt từ preferences, ViewModel, service đến engine; không download, preview hoặc playback nếu chưa chọn model. Không gán model đầu tiên trong catalog làm mặc định.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt
+
+### Quay lại màn cài đặt liên tục xuất hiện chưa chọn giọng ở AI Offline
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Người dùng chỉ chuyển sang AI rồi back; lần mở sau ứng dụng khôi phục isAiVoice = true nhưng voiceId = null và hiển thị cấu hình lỗi.
+- **Root cause**: Handler đổi engine tự động lưu ngay một tổ hợp chưa hoàn chỉnh trước khi người dùng chọn model.
+- **Fix**: Không persist draft AI thiếu model. Chỉ lưu khi model hợp lệ; nếu preferences cũ chứa tổ hợp không hợp lệ thì migrate về Native. Nhãn trống dùng lời kêu gọi hành động “Chọn giọng AI” thay vì mô tả lỗi “Chưa chọn giọng”.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt
+
+### UI cho phép chỉnh cao độ và ngôn ngữ mà AI engine không hỗ trợ
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Thanh cao độ và lựa chọn tiếng Anh vẫn xuất hiện trong AI Offline nhưng thay đổi không có tác dụng hoặc dẫn đến cấu hình không thể đọc.
+- **Root cause**: UI dùng chung controls của Native mà không xét capability của engine.
+- **Fix**: Ẩn cao độ ở AI, khóa ngôn ngữ theo catalog hiện có, đồng thời normalize AI pitch về 1.0 và language về vi. Ràng buộc phải tồn tại ở domain/engine, không chỉ ở giao diện.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, feature/reader/src/main/java/com/epubpro/feature/reader/components/TtsSetupBottomSheet.kt
+
+### Danh sách và URL model AI bị lệch giữa các màn hình
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Profile, Reader, downloader và Piper khai báo giọng riêng, gây thiếu model, URL sai hoặc tên hiển thị không đồng nhất.
+- **Root cause**: Metadata model bị sao chép ở nhiều module.
+- **Fix**: Chuyển toàn bộ metadata tĩnh vào TtsVoiceCatalog; các consumer chỉ truy vấn catalog và ghép thêm trạng thái tải runtime. Thêm unit test kiểm tra ID, file ONNX và URL duy nhất/hợp lệ.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/test/java/com/epubpro/core/tts/TtsVoiceCatalogTest.kt
+
+
+### Thanh tiến trình notification đứng yên khi đang phát TTS
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Notification MediaStyle hiển thị thanh thời lượng nhưng vị trí không chạy, đặc biệt với AI Offline.
+- **Root cause**: PlaybackState chỉ được cập nhật khi đổi câu/trạng thái; MediaSession không tự suy ra tiến trình nếu position và update time không được phát lại định kỳ. Callback AI trước đây còn báo Playing trước khi PCM thực sự bắt đầu.
+- **Fix**: Cập nhật PlaybackState mỗi giây trong khi Playing; thêm trạng thái Preparing và chỉ bắt đầu đồng hồ khi AudioTrack chuẩn bị phát PCM. Pause giữ vị trí hiện tại, chuyển câu dựng lại timeline, callback cũ bị loại bằng generation token.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsMediaSessionManager.kt, core/tts/src/main/java/com/epubpro/core/tts/SherpaTtsEngine.kt
+
+
+### Stop xong nhưng coroutine auto-next có thể phát lại
+- **Ngày**: 2026-08-10
+- **Vấn đề**: Người dùng bấm Stop đúng lúc service đang chuẩn bị chương kế tiếp nhưng audio hoặc trạng thái lỗi có thể xuất hiện lại sau đó.
+- **Root cause**: Stop chỉ hủy engine và tăng generation của callback câu; coroutine chuyển chương đã qua điểm await vẫn có thể trả kết quả, ghi chunks mới và gọi Play. Một request prepare sách cũ cũng có thể hoàn tất muộn và ghi đè session mới.
+- **Fix**: Truyền expected generation vào tác vụ auto-next, kiểm tra lại sau mọi suspend boundary trước khi ghi state hoặc phát audio. Coordinator dùng AtomicLong và session volatile để chỉ request prepare mới nhất được commit; clear cũng tăng generation. Stop vì thế vô hiệu hóa cả callback engine lẫn I/O đang bay.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsChapterPlaybackCoordinator.kt
+
+### Stop ở Idle không hủy sleep timer cũ
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Đặt timer khi Idle rồi bấm Stop có thể để job cũ dừng nhầm phiên phát kế tiếp.
+- **Root cause**: `stopSession()` return sớm ở nhánh Idle trước khi gọi `resetSleepTimer()`.
+- **Fix**: Reset timer phải là bước đầu tiên của Stop, trước mọi early-return; finish playback và đường fail-safe foreground cũng phải dùng cùng cleanup.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt
+
+### Quyền và deep-link bị kẹt sau process death
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Toggle bubble có thể hiển thị ON giả, notification mở Reader nhưng không mở full player, hoặc Intent mới bị bỏ qua sau khi Android tạo lại process.
+- **Root cause**: Pending quyền được đặt quá sớm; trạng thái player chỉ nằm trong `UiState`; Activity dùng một Boolean consumed không gắn với nội dung Intent.
+- **Fix**: Chỉ persist pending ở stage overlay và reconcile khi Resume; lưu visibility player vào `SavedStateHandle`; consume request bằng cách dispatch rồi xóa action/extras khỏi Intent. Trạng thái bền và one-shot effect phải được tách riêng.
+- **Files liên quan**: app/src/main/java/com/epubpro/app/MainActivity.kt, feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsScreen.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
+
+---
 ## How-To
+
+### Chẩn đoán vòng lặp state-effect giữa Reader và TTS Service
+- **Ngày**: 2026-08-13
+- **Bước thực hiện**:
+  1. Lập timeline từ callback `onChunkDone` qua `advanceToNextChapter`, state phát ra và observer UI.
+  2. Tìm mọi `LaunchedEffect`/collector phản ứng với state chuyển tiếp và kiểm tra chúng có phát command ngược về service hay không.
+  3. Theo dõi nơi tăng `playbackGeneration`; nếu command UI tăng generation trong lúc transition đang await, coroutine hợp lệ sẽ bị loại.
+  4. Kiểm tra boundary khi Reader foreground, background và service chưa bind vì feedback loop thường phụ thuộc lifecycle UI.
+  5. Test final chunk → `Loading` → chapter mới; xác nhận `loadContent()` không bị gọi lại với chapter cũ.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ### Đồng bộ vị trí bắt đầu nghe TTS với đoạn đang đọc dở trên màn hình
 - **Ngày**: 2026-07-31
@@ -130,7 +238,47 @@
 
 ---
 
+### Thêm một giọng AI Offline mới
+- **Ngày**: 2026-08-10
+- **Bước thực hiện**:
+  1. Thêm đúng một entry vào TtsVoiceCatalog với ID ổn định, ngôn ngữ, tên file và URL.
+  2. Không thêm mapping riêng vào Profile, Reader hay Piper; các lớp này phải tự nhận model từ catalog.
+  3. Bổ sung test uniqueness và mapping URL/file.
+  4. Kiểm tra trạng thái chưa tải, tải model, preview, chọn làm cấu hình và playback trong Reader.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/test/java/com/epubpro/core/tts/TtsVoiceCatalogTest.kt
+
+### Kiểm thử thay đổi cấu hình TTS
+- **Ngày**: 2026-08-10
+- **Bước thực hiện**:
+  1. Chạy unit test domain normalization, catalog và reader parser.
+  2. Compile feature:profile, feature:reader và cuối cùng app để bắt lỗi wiring giữa module.
+  3. Smoke-test Native theo locale/voice thật của máy.
+  4. Với AI, thử cả chưa chọn, chưa tải, đã tải và đổi model.
+  5. Lặp chuỗi mở Settings → chọn tab AI → back → mở lại để chắc chắn draft không bị persist.
+- **Lệnh gợi ý**: ./gradlew :domain:testDebugUnitTest :core:tts:testDebugUnitTest :core:reader:testDebugUnitTest :feature:profile:compileDebugKotlin :feature:reader:compileDebugKotlin :app:compileDebugKotlin
+
+
+### Smoke-test vòng đời playback TTS
+- **Ngày**: 2026-08-11
+- **Bước thực hiện**:
+  1. Phát Native và AI; xác nhận notification chuyển Preparing sang Playing và progress cập nhật mỗi giây.
+  2. Thử Home, khóa màn hình, đổi app và vuốt Recent; âm thanh phải tiếp tục.
+  3. Thử Pause/Resume, mất AudioFocus tạm thời, cuộc gọi và rút tai nghe; chỉ trường hợp hệ thống tạm dừng mới tự resume khi lấy lại focus.
+  4. Đổi tốc độ/giọng khi đang phát; câu hiện tại phải khởi động lại với cấu hình mới.
+  5. Bấm Stop lần lượt trên app và notification; service, audio và notification phải dừng hoàn toàn.
+  6. Để hết chương; kiểm tra tự chuyển chương, AI cache không hợp lệ fallback nội dung gốc và sleep timer cuối chương.
+  7. Bật bubble theo thứ tự notification permission rồi overlay permission; kiểm tra cả grant, deny, process death giữa hai bước và revoke trực tiếp trong Android Settings.
+  8. Kiểm tra Idle Play/Previous/Next khôi phục snapshot, Stop không autoplay, mở sách đúng chương/full player, vuốt Recent và mở app lại sau force-stop/reboot.
+  9. Trên API 26/30/34, thử portrait/landscape, 3-button navigation, lockscreen và trường hợp foreground promotion bị hệ thống từ chối.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
+
+---
 ## Patterns
+
+### Observable State Must Not Implicitly Reissue Playback Commands
+- **Ngày**: 2026-08-13
+- **Chi tiết**: State từ service (`Loading`, `Preparing`, `Playing`) là projection để UI render, không phải one-shot command. `LaunchedEffect(state)` không được gọi lại `loadContent()`/Play nếu state đó cũng có thể do service tự phát trong lifecycle nội bộ. Command phải bắt nguồn từ thao tác người dùng hoặc event riêng có identity/consume semantics; state observer chỉ đồng bộ giao diện. Pattern này tránh feedback loop, duplicate command và vô hiệu hóa generation token hợp lệ.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
 
 ### DOM-Aligned Jsoup Parsing & Auto-Save Last TTS Paragraph Position
 - **Ngày**: 2026-07-31
@@ -160,4 +308,40 @@
 ### Playback Generation Token Pattern
 - **Ngày**: 2026-08-06
 - **Chi tiết**: Mỗi lệnh Play/Next/Previous/Seek tạo một generation mới. Callback hoàn tất chỉ được cập nhật state hoặc tự chuyển đoạn khi generation, expected index và chunk ID vẫn khớp lượt phát hiện tại. Lệnh điều hướng phải invalidate generation và stop engine trước khi đổi index. Pattern này tách ý định mới của người dùng khỏi callback bất đồng bộ đến muộn, tránh nhảy hai đoạn, quay lại đoạn cũ hoặc tự phát tiếp sau khi đã dừng.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
+### Normalize at Persistence and Playback Boundaries
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Cấu hình đọc từ storage và cấu hình trước khi áp dụng vào engine đều phải đi qua cùng hàm normalization. Giới hạn tốc độ/cao độ, language và capability của AI được đặt ở domain để dữ liệu cũ, UI khác hoặc lời gọi trực tiếp không thể tạo trạng thái ngoài miền hợp lệ. Giữ nguyên key/type SharedPreferences để tương thích dữ liệu đã cài đặt.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPreferencesManager.kt
+
+### Nullable Voice Selection End-to-End
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Nếu sản phẩm cho phép mặc định “trống”, nullable phải được bảo toàn qua model, persistence, ViewModel, service và engine. Chỉ một fallback ở tầng thấp cũng tái tạo hành vi tự chọn model. Mỗi action cần kiểm tra điều kiện riêng: có thể xem catalog khi null, nhưng download/preview/playback phải yêu cầu một ID hợp lệ.
+- **Files liên quan**: domain/src/main/java/com/epubpro/domain/model/TtsModels.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt, core/reader/src/main/java/com/epubpro/core/reader/tts/PiperTtsEngineWrapper.kt
+
+### Transactional Draft for Dependent Settings
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Với các field phụ thuộc nhau như engine AI và model AI, không autosave từng thay đổi trung gian nếu tổ hợp đó chưa dùng được. Giữ draft trong UI, commit khi đạt invariant, và rollback/khôi phục cấu hình hợp lệ khi màn hình bị đóng. Pattern này tránh lỗi back/reopen và phù hợp cho mọi form có lựa chọn cha-con.
+- **Files liên quan**: feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt
+
+### Static Catalog Metadata + Runtime Availability
+- **Ngày**: 2026-08-10
+- **Chi tiết**: Catalog chỉ chứa sự thật tĩnh của model; isDownloaded được tính từ filesystem/downloader tại thời điểm hiển thị. Nhờ tách hai lớp, cùng một catalog dùng được ở Settings và Reader nhưng UI vẫn phản ánh model bị xóa, tải dở hoặc vừa tải xong mà không làm biến đổi metadata dùng chung.
+- **Files liên quan**: core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt, core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt
+
+### Preparing/Loading vẫn lộ text “Đang chuẩn bị giọng đọc” khi chuyển đoạn
+- **Ngày**: 2026-08-11
+- **Vấn đề**: Service đã chuyển sang Loading/Preparing nhưng Full Player hoặc Mini Player vẫn hiển thị câu placeholder thay vì đoạn hiện tại trong lúc tải audio của đoạn mới.
+- **Root cause**: UI có nhánh fallback hard-code `tts_preparing_voice` cho mọi state ngoài Playing; vì vậy state chuyển tiếp che mất `currentChunk.text`, dù nội dung đoạn đã sẵn sàng.
+- **Fix**: Giữ Preparing/Loading là trạng thái nội bộ để MediaSession và progress phản ánh việc synthesize; UI dùng `currentChunk.text` cho Preparing/Playing/Paused và projection hiện tại cho các state còn lại. Notification cũng fallback về text chunk hiện tại, không thay bằng placeholder.
+- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/tts/TtsAudioPlayerScreen.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/tts/TtsMiniPlayerBar.kt`
+
+### Event-Driven Overlay Availability and Durable Cursor State
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Không giữ timer chỉ để kiểm tra quyền overlay khi Idle. Theo dõi `OPSTR_SYSTEM_ALERT_WINDOW` bằng `AppOpsManager.OnOpChangedListener`, chuyển thành `StateFlow` và chỉ đồng bộ service khi giá trị thực sự đổi. Playback snapshot dùng một record có version, commit đồng bộ để cập nhật logic nguyên tử; chỉ lưu book/chapter/paragraph/sentence/content-version/timeline. UI one-shot như Intent phải consume riêng, còn visibility cần sống qua process death phải nằm trong `SavedStateHandle`.
+- **Files liên quan**: core/reader/src/main/java/com/epubpro/core/reader/tts/bubble/TtsOverlayPermissionTracker.kt, core/storage/src/main/java/com/epubpro/core/storage/TtsPlaybackSnapshotStore.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt
+
+### Explicit Chapter Transition State
+- **Ngày**: 2026-08-11
+- **Chi tiết**: Mọi chuyển chương phải phát tín hiệu Loading trước khi dừng engine và chờ I/O. State này khóa Previous/Next cạnh tranh, cập nhật MediaSession thành buffering nhưng vẫn giữ tiêu đề và text chunk cuối để notification/bubble không nhấp nháy placeholder. Sau khi load xong, chỉ generation hiện tại mới được commit index/chunk và chuyển sang play.
 - **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`

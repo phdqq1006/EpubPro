@@ -22,7 +22,7 @@ import java.io.FileNotFoundException
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
-class SherpaTtsEngine @Inject constructor(
+open class SherpaTtsEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private var tts: OfflineTts? = null
@@ -37,7 +37,7 @@ class SherpaTtsEngine @Inject constructor(
     /**
      * Khởi tạo engine với file model từ bộ nhớ thiết bị.
      */
-    suspend fun initialize(
+    open suspend fun initialize(
         onnxPath: String,
         tokensPath: String = "",
         lexiconPath: String = "",
@@ -117,71 +117,81 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    suspend fun speak(text: String, speed: Float = 1.0f) = withContext(Dispatchers.IO) {
-        val currentTts = tts ?: run {
-            Log.e(TAG, "speak(): tts is null!")
-            return@withContext
-        }
-        val track = audioTrack ?: run {
-            Log.e(TAG, "speak(): audioTrack is null!")
-            return@withContext
-        }
-
+    open suspend fun synthesize(
+        text: String,
+        speed: Float = 1.0f
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val currentTts = tts
+            ?: throw IllegalStateException("Sherpa TTS chưa được khởi tạo")
         coroutineContext.ensureActive()
-        Log.d(TAG, "speak() text='$text' speed=$speed")
 
         val audio = try {
             synthesisMutex.withLock {
                 currentTts.generate(text, sid = 0, speed = speed)
             }
         } catch (t: Throwable) {
-            Log.e(TAG, "OfflineTts.generate() threw", t); null
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            Log.e(TAG, "OfflineTts.generate() threw", t)
+            null
         }
 
         coroutineContext.ensureActive()
-
         val samples = audio?.samples
         if (samples == null || samples.isEmpty()) {
-            Log.w(TAG, "No audio samples generated")
-            return@withContext
+            throw IllegalStateException("Sherpa không tạo được dữ liệu âm thanh")
         }
-        Log.d(TAG, "Generated ${samples.size} samples, converting to PCM16...")
 
-        // Float32 → PCM16LE
         val pcm = ByteArray(samples.size * 2)
         for (i in samples.indices) {
-            val s = (samples[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
-            pcm[i * 2] = (s.toInt() and 0xFF).toByte()
-            pcm[i * 2 + 1] = ((s.toInt() shr 8) and 0xFF).toByte()
+            val sample = (samples[i].coerceIn(-1f, 1f) * 32767).toInt().toShort()
+            pcm[i * 2] = (sample.toInt() and 0xFF).toByte()
+            pcm[i * 2 + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
         }
+        pcm
+    }
+
+    open suspend fun speak(
+        text: String,
+        speed: Float = 1.0f,
+        onAudioStarted: () -> Unit = {}
+    ) {
+        val pcm = synthesize(text, speed)
+        playPcm(pcm, onAudioStarted)
+    }
+
+    open suspend fun playPcm(
+        pcm: ByteArray,
+        onAudioStarted: () -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        val track = audioTrack
+            ?: throw IllegalStateException("AudioTrack chưa được khởi tạo")
 
         try {
-            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                track.play()
-            }
+            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) track.play()
         } catch (t: Throwable) {
             Log.e(TAG, "Error playing AudioTrack", t)
+            throw IllegalStateException("Không thể bắt đầu AudioTrack", t)
         }
 
-        // Ghi dữ liệu PCM theo từng chunk 4KB để có thể hủy (cancel) ngay lập tức khi tạm dừng
+        coroutineContext.ensureActive()
+        onAudioStarted()
+
         val chunkSize = 4096
         var offset = 0
         while (offset < pcm.size && coroutineContext.isActive) {
             val length = (pcm.size - offset).coerceAtMost(chunkSize)
             val written = track.write(pcm, offset, length)
             if (written <= 0) {
-                Log.e(TAG, "AudioTrack write error or stopped: $written")
-                break
+                throw IllegalStateException("AudioTrack không thể ghi PCM: $written")
             }
             offset += written
         }
-        Log.d(TAG, "Finished writing $offset / ${pcm.size} bytes to AudioTrack (active=${coroutineContext.isActive})")
     }
 
     /**
      * Dừng phát âm thanh ngay lập tức và xả buffer AudioTrack.
      */
-    fun stop() {
+    open fun stop() {
         Log.d(TAG, "stop() called")
         try {
             audioTrack?.pause()
@@ -191,7 +201,7 @@ class SherpaTtsEngine @Inject constructor(
         }
     }
 
-    fun release() {
+    open fun release() {
         Log.d(TAG, "release()")
         stop()
         try { audioTrack?.release() } catch (t: Throwable) { Log.e(TAG, "release audioTrack", t) }

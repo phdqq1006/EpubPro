@@ -19,7 +19,7 @@ import com.epubpro.core.database.entity.*
         AiRuleEntity::class,
         AiChapterCacheEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

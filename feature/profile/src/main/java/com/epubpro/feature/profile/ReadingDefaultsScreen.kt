@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.epubpro.core.designsystem.R
+import com.epubpro.domain.model.EXTRA_DIM_THRESHOLD
 import com.epubpro.domain.model.FontPreset
 import com.epubpro.domain.model.ReadingMode
 import com.epubpro.domain.model.ReaderSettings
@@ -115,7 +118,9 @@ fun ReadingDefaultsScreen(
             item {
                 ThemeSection(
                     currentTheme = settings.themeMode,
+                    brightness = settings.brightness,
                     onThemeSelect = viewModel::setThemeMode,
+                    onBrightnessChange = viewModel::setBrightness,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                 )
             }
@@ -637,7 +642,9 @@ private fun FontPresetChip(
 @Composable
 private fun ThemeSection(
     currentTheme: ReaderThemeMode,
+    brightness: Float,
     onThemeSelect: (ReaderThemeMode) -> Unit,
+    onBrightnessChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -701,6 +708,28 @@ private fun ThemeSection(
                     modifier = Modifier.weight(1f)
                 )
             }
+
+            Spacer(Modifier.height(16.dp))
+
+            val brightnessPercent = (brightness * 100).toInt()
+            val isExtraDim = brightness < EXTRA_DIM_THRESHOLD
+            val brightnessLabel = if (isExtraDim) {
+                stringResource(R.string.reader_brightness_extra_dim_format, brightnessPercent)
+            } else {
+                stringResource(R.string.reader_brightness_percent_format, brightnessPercent)
+            }
+            val hudFormat = stringResource(R.string.reader_brightness_hud_format)
+            SectionLabel(stringResource(R.string.reading_defaults_brightness_section))
+            Spacer(Modifier.height(8.dp))
+
+            SettingSliderRow(
+                icon = if (isExtraDim) Icons.Default.Nightlight else Icons.Default.BrightnessMedium,
+                label = brightnessLabel,
+                value = brightness,
+                valueFormatter = { value -> hudFormat.format((value * 100).toInt()) },
+                range = 0.0f..1.0f,
+                onValueChange = onBrightnessChange
+            )
         }
     }
 }

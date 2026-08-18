@@ -1,5 +1,7 @@
 package com.epubpro.domain.model
 
+import java.util.Locale
+
 data class TtsChunk(
     val id: Int,
     val paragraphIndex: Int,
@@ -10,7 +12,8 @@ data class TtsVoice(
     val id: String,
     val name: String,
     val language: String,
-    val isNetworkRequired: Boolean = false
+    val isNetworkRequired: Boolean = false,
+    val isDownloaded: Boolean = true
 )
 
 data class TtsSettings(
@@ -22,11 +25,33 @@ data class TtsSettings(
     val pitch: Float = 1.0f
 )
 
+fun TtsSettings.normalizedForPlayback(): TtsSettings {
+    val normalizedLanguage = if (isAiVoice) {
+        "vi"
+    } else {
+        language.lowercase(Locale.ROOT).takeIf { it == "vi" || it == "en" } ?: "vi"
+    }
+    return copy(
+        language = normalizedLanguage,
+        voiceId = voiceId?.trim()?.takeIf { it.isNotEmpty() },
+        speed = speed.coerceIn(0.5f, 2.0f),
+        pitch = if (isAiVoice) 1.0f else pitch.coerceIn(0.5f, 1.5f)
+    )
+}
+
 sealed class TtsPlayerState {
     object Idle : TtsPlayerState()
     object Loading : TtsPlayerState()
+    data class Preparing(
+        val bookId: String = "",
+        val chapterIndex: Int = 0,
+        val currentChunkIndex: Int,
+        val totalChunks: Int,
+        val currentChunk: TtsChunk
+    ) : TtsPlayerState()
     data class Playing(
         val bookId: String = "",
+        val chapterIndex: Int = 0,
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk,
@@ -35,11 +60,15 @@ sealed class TtsPlayerState {
     ) : TtsPlayerState()
     data class Paused(
         val bookId: String = "",
+        val chapterIndex: Int = 0,
         val currentChunkIndex: Int,
         val totalChunks: Int,
         val currentChunk: TtsChunk
     ) : TtsPlayerState()
-    data class Completed(val bookId: String = "") : TtsPlayerState()
+    data class Completed(
+        val bookId: String = "",
+        val chapterIndex: Int = 0
+    ) : TtsPlayerState()
     data class Error(val message: String) : TtsPlayerState()
 }
 

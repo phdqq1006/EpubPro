@@ -4,6 +4,7 @@ import com.epubpro.domain.model.ReaderEngineType
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TapZoneAction
+import com.epubpro.feature.reader.webview.contentReloadKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
@@ -21,7 +22,9 @@ class ReaderContentReloadKeyTest {
             base.copy(enableVolumeKeyNavigation = true),
             base.copy(showStatusBar = false),
             base.copy(keepScreenOn = true),
-            base.copy(tapZoneActions = List(9) { TapZoneAction.NEXT_PAGE })
+            base.copy(tapZoneActions = List(9) { TapZoneAction.NEXT_PAGE }),
+            base.copy(brightness = 0.85f),
+            base.copy(brightness = 0.1f)
         )
 
         runtimeVariants.forEach { settings ->

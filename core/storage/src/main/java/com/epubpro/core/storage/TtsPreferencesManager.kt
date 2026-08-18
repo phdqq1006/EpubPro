@@ -3,10 +3,12 @@ package com.epubpro.core.storage
 import android.content.Context
 import android.content.SharedPreferences
 import com.epubpro.domain.model.TtsSettings
+import com.epubpro.domain.model.normalizedForPlayback
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.content.edit
 
 @Singleton
 class TtsPreferencesManager @Inject constructor(
@@ -33,23 +35,24 @@ class TtsPreferencesManager @Inject constructor(
             voiceId = voiceId,
             speed = speed,
             pitch = pitch
-        )
+        ).normalizedForPlayback()
     }
 
     fun saveSettings(settings: TtsSettings) {
-        prefs.edit()
-            .putBoolean(KEY_IS_CONFIGURED, settings.isConfigured)
-            .putBoolean(KEY_IS_AI_VOICE, settings.isAiVoice)
-            .putString(KEY_LANGUAGE, settings.language)
-            .putString(KEY_VOICE_ID, settings.voiceId)
-            .putFloat(KEY_SPEED, settings.speed)
-            .putFloat(KEY_PITCH, settings.pitch)
-            .apply()
-        _settingsFlow.value = settings
+        val normalizedSettings = settings.normalizedForPlayback()
+        prefs.edit {
+            putBoolean(KEY_IS_CONFIGURED, normalizedSettings.isConfigured)
+                .putBoolean(KEY_IS_AI_VOICE, normalizedSettings.isAiVoice)
+                .putString(KEY_LANGUAGE, normalizedSettings.language)
+                .putString(KEY_VOICE_ID, normalizedSettings.voiceId)
+                .putFloat(KEY_SPEED, normalizedSettings.speed)
+                .putFloat(KEY_PITCH, normalizedSettings.pitch)
+        }
+        _settingsFlow.value = normalizedSettings
     }
 
     fun saveLastTtsChunkIndex(bookId: String, chapterIndex: Int, chunkIndex: Int) {
-        prefs.edit().putInt("tts_chunk_${bookId}_$chapterIndex", chunkIndex).apply()
+        prefs.edit { putInt("tts_chunk_${bookId}_$chapterIndex", chunkIndex) }
     }
 
     fun getLastTtsChunkIndex(bookId: String, chapterIndex: Int): Int {

@@ -24,6 +24,9 @@ interface BookDao {
     @Query("SELECT * FROM reading_progress WHERE bookId = :bookId")
     fun getReadingProgress(bookId: String): Flow<ReadingProgressEntity?>
 
+    @Query("SELECT * FROM reading_progress")
+    fun getAllReadingProgress(): Flow<List<ReadingProgressEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveReadingProgress(progress: ReadingProgressEntity)
 }

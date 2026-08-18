@@ -37,12 +37,14 @@ fun TtsMiniPlayerBar(
     val primaryColor = Color(0xFFD97757)
 
     val currentText = when (playerState) {
+        is TtsPlayerState.Preparing -> playerState.currentChunk.text
         is TtsPlayerState.Playing -> playerState.currentChunk.text
         is TtsPlayerState.Paused -> playerState.currentChunk.text
         else -> ""
     }
 
-    val isPlaying = playerState is TtsPlayerState.Playing
+    val isPlaying = playerState is TtsPlayerState.Playing ||
+        playerState is TtsPlayerState.Preparing
 
     Surface(
         modifier = Modifier

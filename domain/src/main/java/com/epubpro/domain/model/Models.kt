@@ -7,7 +7,8 @@ data class Book(
     val coverPath: String?,
     val filePath: String,
     val addedAt: Long,
-    val lastReadAt: Long
+    val lastReadAt: Long,
+    val totalChapters: Int = 0
 )
 
 data class ReadingProgress(
@@ -15,7 +16,8 @@ data class ReadingProgress(
     val currentCfi: String,
     val chapterIndex: Int,
     val pageIndex: Int = 1,
-    val progressPercentage: Float
+    val progressPercentage: Float,
+    val totalChapters: Int = 0
 )
 
 data class Bookmark(
@@ -147,7 +149,60 @@ data class ReaderSettings(
     val enablePageAnimation: Boolean = true,
     val enableKeyboardNavigation: Boolean = true,
     val enableVolumeKeyNavigation: Boolean = false,
-    val pageTurnSpeedMs: Int = 220
+    val pageTurnSpeedMs: Int = 220,
+    val brightness: Float = 0.5f
 ) {
     val marginDp: Int get() = (marginLeftDp + marginRightDp) / 2
+}
+
+/**
+ * Ngưỡng kích hoạt lớp phủ siêu tối (Extra Dim).
+ * Khi độ sáng nhỏ hơn ngưỡng này, đèn nền phần cứng giữ ở mức tối thiểu và kích hoạt lớp phủ đen mờ.
+ */
+const val EXTRA_DIM_THRESHOLD = 0.2f
+
+/**
+ * Độ mờ (alpha) tối đa của lớp phủ siêu tối để đảm bảo nội dung chữ vẫn đọc được trong phòng tối.
+ */
+const val MAX_EXTRA_DIM_ALPHA = 0.75f
+
+/**
+ * Mức độ sáng đèn nền phần cứng tối thiểu của thiết bị.
+ */
+const val MIN_HARDWARE_BRIGHTNESS = 0.01f
+
+/**
+ * Kết quả tính toán độ sáng hybrid cho màn hình đọc sách.
+ *
+ * @property hardwareBrightness Độ sáng đèn nền phần cứng áp dụng cho Window (từ 0.01f đến 1.0f).
+ * @property extraDimAlpha Độ mờ của lớp phủ đen siêu tối (từ 0.0f đến 0.75f).
+ */
+data class BrightnessOutput(
+    val hardwareBrightness: Float,
+    val extraDimAlpha: Float
+)
+
+/**
+ * Tính toán mức độ sáng phần cứng và độ mờ lớp phủ siêu tối dựa trên giá trị độ sáng người dùng thiết lập.
+ *
+ * Hàm thuần túy (pure function) ánh xạ dải giá trị độ sáng:
+ * - Dải 0.2f..1.0f: Ánh xạ tuyến tính sang độ sáng phần cứng (0.01f..1.0f), tắt lớp phủ siêu tối (alpha = 0.0f).
+ * - Dải 0.0f..<0.2f: Giữ đèn nền ở mức tối thiểu (0.01f) và tăng dần độ mờ lớp phủ đen từ 0.0f lên tối đa 0.75f.
+ *
+ * @param brightness Mức độ sáng người dùng chọn trong dải 0.0f đến 1.0f.
+ * @return Đối tượng [BrightnessOutput] chứa độ sáng phần cứng và độ mờ lớp phủ siêu tối.
+ */
+fun calculateBrightnessOutput(brightness: Float): BrightnessOutput {
+    val clamped = brightness.coerceIn(0.0f, 1.0f)
+    return if (clamped >= EXTRA_DIM_THRESHOLD) {
+        val fraction = (clamped - EXTRA_DIM_THRESHOLD) / (1.0f - EXTRA_DIM_THRESHOLD)
+        val hw = MIN_HARDWARE_BRIGHTNESS + fraction * (1.0f - MIN_HARDWARE_BRIGHTNESS)
+        BrightnessOutput(hardwareBrightness = hw, extraDimAlpha = 0.0f)
+    } else {
+        val dimFraction = 1.0f - (clamped / EXTRA_DIM_THRESHOLD)
+        BrightnessOutput(
+            hardwareBrightness = MIN_HARDWARE_BRIGHTNESS,
+            extraDimAlpha = dimFraction * MAX_EXTRA_DIM_ALPHA
+        )
+    }
 }

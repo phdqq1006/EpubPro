@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tts_widget_description">Điều khiển đọc audio TTS</string>
+    <string name="tts_widget_default_title">Chưa chọn sách</string>
+    <string name="tts_widget_idle">Sẵn sàng</string>
+    <string name="tts_widget_preparing">Đang chuẩn bị</string>
+    <string name="tts_widget_playing">Đang phát</string>
+    <string name="tts_widget_paused">Đã tạm dừng</string>
+    <string name="tts_widget_error">Có lỗi</string>
+    <string name="tts_widget_completed">Đã hoàn tất</string>
+    <string name="tts_widget_icon_description">Audio TTS</string>
+    <string name="tts_widget_previous">Câu trước</string>
+    <string name="tts_widget_play_pause">Phát hoặc tạm dừng</string>
+    <string name="tts_widget_next">Câu tiếp theo</string>
+    <string name="tts_widget_open_app">Mở ứng dụng</string>
+    <string name="tts_reading_widget_description">Đọc sách trực tiếp trên màn hình chính</string>
+</resources>

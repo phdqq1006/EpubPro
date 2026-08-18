@@ -1,26 +1,50 @@
 package com.epubpro.feature.reader.tts
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.TtsSettings
 import com.epubpro.domain.model.TtsVoice
 
@@ -35,224 +59,94 @@ fun TtsSetupBottomSheet(
 ) {
     var isAiVoice by remember { mutableStateOf(currentSettings.isAiVoice) }
     var speed by remember { mutableStateOf(currentSettings.speed) }
-    var pitch by remember { mutableStateOf(currentSettings.pitch) }
-    var language by remember { mutableStateOf(currentSettings.language) }
+    var pitch by remember { mutableStateOf(if (currentSettings.isAiVoice) 1.0f else currentSettings.pitch) }
+    var language by remember { mutableStateOf(if (currentSettings.isAiVoice) "vi" else currentSettings.language) }
     var selectedVoiceId by remember { mutableStateOf(currentSettings.voiceId) }
-
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
 
-    val availableVoices = remember(isAiVoice, language) {
-        onGetAvailableVoices(isAiVoice, language)
-    }
-
+    val availableVoices = onGetAvailableVoices(isAiVoice, language)
     LaunchedEffect(isAiVoice, language, availableVoices) {
-        if (isAiVoice) {
-            if (selectedVoiceId == null || availableVoices.none { it.id == selectedVoiceId }) {
-                selectedVoiceId = availableVoices.firstOrNull()?.id
-            }
-        } else {
-            if (selectedVoiceId != null && availableVoices.none { it.id == selectedVoiceId }) {
-                selectedVoiceId = null
-            }
+        if (isAiVoice && language != "vi") language = "vi"
+        if (selectedVoiceId != null && availableVoices.none { it.id == selectedVoiceId }) {
+            selectedVoiceId = null
         }
     }
 
-    val currentSettingsDraft = TtsSettings(
+    val selectedVoice = availableVoices.firstOrNull { it.id == selectedVoiceId }
+    val canUseSelection = !isAiVoice || selectedVoice?.isDownloaded == true
+    val draft = TtsSettings(
         isConfigured = true,
         isAiVoice = isAiVoice,
-        language = language,
+        language = if (isAiVoice) "vi" else language,
         voiceId = selectedVoiceId,
         speed = speed,
-        pitch = pitch
+        pitch = if (isAiVoice) 1.0f else pitch
     )
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color.White,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.RecordVoiceOver,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+            Text("Thiết lập giọng đọc", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Chọn cách EpubPro đọc nội dung. Giọng AI cần được tải trước khi sử dụng.")
 
-                Spacer(modifier = Modifier.width(16.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Thiết lập giọng đọc",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF212121)
-                    )
-                    Text(
-                        text = "Chọn cách EpubPro đọc nội dung. Bạn có thể thay đổi lại bất cứ lúc nào.",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        lineHeight = 16.sp
-                    )
-                }
-
-                IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = stringResource(R.string.action_close), tint = Color.Gray)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Step 1: Voice Engine Selection
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Giọng AI (Đề xuất)
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .border(
-                            width = if (isAiVoice) 2.dp else 1.dp,
-                            color = if (isAiVoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .background(if (isAiVoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                        .clickable { isAiVoice = true }
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "ĐỀ XUẤT",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Giọng AI",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF212121)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Tự nhiên, dùng được ngoại tuyến",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            lineHeight = 14.sp
-                        )
-                    }
-                }
-
-                // Giọng Hệ thống
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .border(
-                            width = if (!isAiVoice) 2.dp else 1.dp,
-                            color = if (!isAiVoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                        .background(if (!isAiVoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                        .clickable { isAiVoice = false }
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = "Giọng hệ thống",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF212121)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Dùng ngay, không cần tải",
-                            fontSize = 11.sp,
-                            color = Color.Gray,
-                            lineHeight = 14.sp
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Step 2: Language & Voice Dropdowns
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = "2", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Chọn ngôn ngữ và giọng",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF212121)
+            Text("1. Công nghệ giọng đọc", fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilterChip(
+                    selected = isAiVoice,
+                    onClick = {
+                        if (!isAiVoice) {
+                            isAiVoice = true
+                            language = "vi"
+                            pitch = 1.0f
+                            selectedVoiceId = null
+                        }
+                    },
+                    label = { Text("Giọng AI") },
+                    leadingIcon = { Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp)) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = !isAiVoice,
+                    onClick = {
+                        if (isAiVoice) {
+                            isAiVoice = false
+                            selectedVoiceId = null
+                        }
+                    },
+                    label = { Text("Giọng hệ thống") },
+                    leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(18.dp)) },
+                    modifier = Modifier.weight(1f)
                 )
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Language Dropdown
-                Box(modifier = Modifier.weight(1f)) {
-                    OutlinedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showLanguageMenu = true },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Box(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = if (language == "vi") "Tiếng Việt" else "English",
-                                fontSize = 14.sp,
-                                color = Color(0xFF212121)
-                            )
-                        }
-                    }
-
+            HorizontalDivider()
+            Text("2. Ngôn ngữ và giọng", fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f)) {
+                    SetupSelector(
+                        text = if (language == "en") "English" else "Tiếng Việt",
+                        enabled = !isAiVoice,
+                        onClick = { showLanguageMenu = true }
+                    )
                     DropdownMenu(
-                        expanded = showLanguageMenu,
+                        expanded = showLanguageMenu && !isAiVoice,
                         onDismissRequest = { showLanguageMenu = false }
                     ) {
                         DropdownMenuItem(
                             text = { Text("Tiếng Việt") },
                             onClick = {
                                 language = "vi"
+                                selectedVoiceId = null
                                 showLanguageMenu = false
                             }
                         )
@@ -260,32 +154,20 @@ fun TtsSetupBottomSheet(
                             text = { Text("English") },
                             onClick = {
                                 language = "en"
+                                selectedVoiceId = null
                                 showLanguageMenu = false
                             }
                         )
                     }
                 }
 
-                // Voice Selection Dropdown
-                Box(modifier = Modifier.weight(1f)) {
-                    val fallbackName = if (isAiVoice) "Chọn giọng đọc" else "Mặc định hệ thống"
-                    val selectedVoiceName = availableVoices.find { it.id == selectedVoiceId }?.name ?: fallbackName
-                    OutlinedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showVoiceMenu = true },
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Box(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = selectedVoiceName,
-                                fontSize = 14.sp,
-                                color = Color(0xFF212121),
-                                maxLines = 1
-                            )
-                        }
-                    }
-
+                Box(Modifier.weight(1f)) {
+                    SetupSelector(
+                        text = selectedVoice?.name
+                            ?: if (isAiVoice) "Chưa chọn giọng" else "Mặc định hệ thống",
+                        enabled = true,
+                        onClick = { showVoiceMenu = true }
+                    )
                     DropdownMenu(
                         expanded = showVoiceMenu,
                         onDismissRequest = { showVoiceMenu = false }
@@ -298,15 +180,23 @@ fun TtsSetupBottomSheet(
                                     showVoiceMenu = false
                                 }
                             )
-                        } else if (availableVoices.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("Chưa có giọng AI. Vào Cài đặt để tải.") },
-                                onClick = { showVoiceMenu = false }
-                            )
                         }
                         availableVoices.forEach { voice ->
                             DropdownMenuItem(
-                                text = { Text(voice.name) },
+                                text = {
+                                    Column {
+                                        Text(voice.name)
+                                        if (isAiVoice) {
+                                            Text(
+                                                if (voice.isDownloaded) "Đã tải" else "Chưa tải · vào Cài đặt âm thanh để tải",
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                },
+                                leadingIcon = if (selectedVoiceId == voice.id) {
+                                    { Icon(Icons.Default.Check, contentDescription = null) }
+                                } else null,
                                 onClick = {
                                     selectedVoiceId = voice.id
                                     showVoiceMenu = false
@@ -317,104 +207,87 @@ fun TtsSetupBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Step 3: Speed & Pitch Sliders
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = "3", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(modifier = Modifier.width(8.dp))
+            if (isAiVoice && selectedVoice != null && !selectedVoice.isDownloaded) {
                 Text(
-                    text = "Điều chỉnh và nghe thử",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF212121)
+                    "Model này chưa được tải. Hãy mở Cài đặt âm thanh để tải trước khi nghe.",
+                    fontSize = 12.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Speed Slider
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Tốc độ đọc", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(text = String.format("%.1fx", speed), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            }
-            Slider(
+            HorizontalDivider()
+            Text("3. Điều chỉnh và nghe thử", fontWeight = FontWeight.SemiBold)
+            SetupSlider(
+                label = "Tốc độ đọc",
+                valueText = String.format("%.1fx", speed),
                 value = speed,
-                onValueChange = { speed = it },
-                valueRange = 0.5f..2.0f,
+                range = 0.5f..2.0f,
                 steps = 15,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary
-                )
+                onValueChange = { speed = it }
             )
-
-            // Pitch Slider
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(text = "Cao độ", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(text = String.format("%.1f", pitch), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            if (!isAiVoice) {
+                SetupSlider(
+                    label = "Cao độ",
+                    valueText = String.format("%.1f", pitch),
+                    value = pitch,
+                    range = 0.5f..1.5f,
+                    steps = 10,
+                    onValueChange = { pitch = it }
+                )
             }
-            Slider(
-                value = pitch,
-                onValueChange = { pitch = it },
-                valueRange = 0.5f..1.5f,
-                steps = 10,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary
-                )
-            )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val isActionEnabled = !isAiVoice || selectedVoiceId != null
-
-            // Preview Button
             OutlinedButton(
-                onClick = { onPreviewVoice(currentSettingsDraft) },
-                enabled = isActionEnabled,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                onClick = { onPreviewVoice(draft) },
+                enabled = canUseSelection,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "Nghe thử", fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Default.VolumeUp, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Nghe thử")
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Start Button
             Button(
-                onClick = { onStartListening(currentSettingsDraft) },
-                enabled = isActionEnabled,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                onClick = { onStartListening(draft) },
+                enabled = canUseSelection,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                colors = ButtonDefaults.buttonColors()
             ) {
-                Text(text = "▶  Bắt đầu nghe", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                Text("Bắt đầu nghe", fontWeight = FontWeight.Bold)
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
         }
+    }
+}
+
+@Composable
+private fun SetupSelector(text: String, enabled: Boolean, onClick: () -> Unit) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text, maxLines = 1, modifier = Modifier.weight(1f))
+            if (enabled) Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun SetupSlider(
+    label: String,
+    valueText: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit
+) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label)
+            Text(valueText, fontWeight = FontWeight.Bold)
+        }
+        Slider(value, onValueChange, valueRange = range, steps = steps)
     }
 }

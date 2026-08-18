@@ -46,6 +46,7 @@ fun TtsAudioPlayerScreen(
     val isPlaying = playerState is TtsPlayerState.Playing
     val (currentChunkIndex, totalChunks, currentChunkText) = remember(playerState) {
         when (playerState) {
+            is TtsPlayerState.Preparing -> Triple(playerState.currentChunkIndex, playerState.totalChunks, playerState.currentChunk.text)
             is TtsPlayerState.Playing -> Triple(playerState.currentChunkIndex, playerState.totalChunks, playerState.currentChunk.text)
             is TtsPlayerState.Paused -> Triple(playerState.currentChunkIndex, playerState.totalChunks, playerState.currentChunk.text)
             else -> Triple(0, 1, "")
@@ -196,12 +197,14 @@ fun TtsAudioPlayerScreen(
                         .padding(20.dp)
                 ) {
                     val currentText = when (playerState) {
+                        is TtsPlayerState.Preparing -> playerState.currentChunk.text
                         is TtsPlayerState.Playing -> playerState.currentChunk.text
                         is TtsPlayerState.Paused -> playerState.currentChunk.text
-                        else -> "Đang chuẩn bị giọng đọc..."
+                        else -> currentChunkText
                     }
 
                     val currentChunkInfo = when (playerState) {
+                        is TtsPlayerState.Preparing -> "Đoạn ${playerState.currentChunkIndex + 1} / ${playerState.totalChunks}"
                         is TtsPlayerState.Playing -> "Đoạn ${playerState.currentChunkIndex + 1} / ${playerState.totalChunks}"
                         is TtsPlayerState.Paused -> "Đoạn ${playerState.currentChunkIndex + 1} / ${playerState.totalChunks}"
                         else -> "Đoạn 0 / 0"
@@ -286,7 +289,8 @@ fun TtsAudioPlayerScreen(
                     )
                 }
 
-                val isPlaying = playerState is TtsPlayerState.Playing
+                val isPlaying = playerState is TtsPlayerState.Playing ||
+                    playerState is TtsPlayerState.Preparing
                 Box(
                     modifier = Modifier
                         .size(72.dp)

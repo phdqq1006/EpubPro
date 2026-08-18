@@ -1,36 +1,92 @@
 package com.epubpro.feature.profile.audio
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.epubpro.core.designsystem.R
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.epubpro.core.designsystem.R
+import com.epubpro.core.storage.TtsBubblePowerMode
+import com.epubpro.core.reader.tts.TtsService
 
-data class VoiceItem(
-    val id: String,
-    val name: String,
-    val size: String
-)
+private fun Context.hasTtsBubbleNotificationPermission(): Boolean {
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,38 +95,99 @@ fun AudioSettingsScreen(
     viewModel: AudioSettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-
-    var language by remember { mutableStateOf("Tiếng Việt") }
-
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var showLanguageMenu by remember { mutableStateOf(false) }
     var showVoiceMenu by remember { mutableStateOf(false) }
+    var showPowerModeMenu by remember { mutableStateOf(false) }
+    var hasNotificationPermission by remember {
+        mutableStateOf(context.hasTtsBubbleNotificationPermission())
+    }
 
-    val mockVoices = remember {
-        listOf(
-            VoiceItem("quang_minh", "Quang Minh", "60.6 MB"),
-            VoiceItem("ngoc_huyen", "Ngọc Huyền", "60.6 MB"),
-            VoiceItem("ngoc_ngan", "Ngọc Ngạn", "60.6 MB"),
-            VoiceItem("phuong_mai", "Phương Mai", "60.6 MB"),
-            VoiceItem("lac_phi", "Lạc Phi", "60.6 MB"),
-            VoiceItem("duy", "Duy", "60.6 MB"),
-            VoiceItem("vais1000", "Vais1000", "20.6 MB")
+    fun completePendingBubbleEnable() {
+        val enabledNow = viewModel.onBubbleOverlayPermissionChecked(
+            isGranted = Settings.canDrawOverlays(context)
         )
+        if (enabledNow) {
+            TtsService.syncBubbleState(context, enabled = true)
+        }
+    }
+
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        completePendingBubbleEnable()
+    }
+
+    fun continueBubbleEnableAfterNotificationPermission() {
+        if (!viewModel.requestBubbleEnable()) return
+        if (Settings.canDrawOverlays(context)) {
+            completePendingBubbleEnable()
+            return
+        }
+
+        val permissionIntent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")
+        )
+        runCatching { overlayPermissionLauncher.launch(permissionIntent) }
+            .onFailure {
+                viewModel.onBubbleOverlayPermissionChecked(isGranted = false)
+            }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+        continueBubbleEnableAfterNotificationPermission()
+    }
+
+    fun beginBubbleEnable() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+            runCatching {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }.onFailure {
+                continueBubbleEnableAfterNotificationPermission()
+            }
+        } else {
+            continueBubbleEnableAfterNotificationPermission()
+        }
+    }
+
+    fun syncOverlayPermissionOnResume() {
+        val state = viewModel.uiState.value
+        if (state.isBubbleEnablePending) {
+            completePendingBubbleEnable()
+        } else if (state.isBubbleEnabled && !Settings.canDrawOverlays(context)) {
+            viewModel.disableBubble()
+            TtsService.syncBubbleState(context, enabled = false)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+                syncOverlayPermissionOnResume()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            hasNotificationPermission = context.hasTtsBubbleNotificationPermission()
+            syncOverlayPermissionOnResume()
+        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.audio_settings_title),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                },
+                title = { Text(stringResource(R.string.audio_settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.action_back)
                         )
                     }
@@ -84,385 +201,138 @@ fun AudioSettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Manage downloaded voices
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { }
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.FormatListBulleted,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = "Quản lý giọng đã tải",
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = "Thiết lập giọng đọc",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Chọn công nghệ, ngôn ngữ, giọng và cách EpubPro đọc nội dung.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Embedded Card (Similar to Bottom Sheet UI)
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 16.dp)
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Handle Indicator
-                    Box(
-                        modifier = Modifier
-                            .width(40.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                            .align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.GraphicEq,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Thiết lập giọng đọc",
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Chọn cách EpubPro đọc nội dung. Bạn có thể thay đổi lại bất cứ lúc nào.",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                lineHeight = 18.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Step 1
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "1", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Chọn công nghệ giọng đọc",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // AI Voice Card
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(16.dp))
-                                .border(
-                                    width = if (uiState.isAiVoice) 2.dp else 1.dp,
-                                    color = if (uiState.isAiVoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                                .background(if (uiState.isAiVoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                                .clickable { viewModel.onAiVoiceToggled(true) }
-                                .padding(16.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxHeight()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    if (uiState.isAiVoice) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "ĐỀ XUẤT",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Giọng AI",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Tự nhiên, dùng được ngoại tuyến",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
-
-                        // System Voice Card
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(16.dp))
-                                .border(
-                                    width = if (!uiState.isAiVoice) 2.dp else 1.dp,
-                                    color = if (!uiState.isAiVoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                                .background(if (!uiState.isAiVoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                                .clickable { viewModel.onAiVoiceToggled(false) }
-                                .padding(16.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxHeight()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhoneAndroid,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    if (!uiState.isAiVoice) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = " ",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Giọng hệ thống",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Dùng ngay, không cần tải",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Step 2
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "2", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Chọn ngôn ngữ và giọng",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
+                    Text("1. Công nghệ giọng đọc", fontWeight = FontWeight.SemiBold)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // Language
-                        OutlinedCard(
-                            modifier = Modifier
-                                .weight(0.4f)
-                                .clickable { showLanguageMenu = true },
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = language,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                        FilterChip(
+                            selected = uiState.isAiVoice,
+                            onClick = { viewModel.onAiVoiceToggled(true) },
+                            label = { Text("Giọng AI offline") },
+                            leadingIcon = { Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp)) },
+                            modifier = Modifier.weight(1f),
+                            colors = FilterChipDefaults.filterChipColors()
+                        )
+                        FilterChip(
+                            selected = !uiState.isAiVoice,
+                            onClick = { viewModel.onAiVoiceToggled(false) },
+                            label = { Text("Giọng hệ thống") },
+                            leadingIcon = { Icon(Icons.Default.PhoneAndroid, null, Modifier.size(18.dp)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    HorizontalDivider()
+                    Text("2. Ngôn ngữ và giọng", fontWeight = FontWeight.SemiBold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(0.4f)) {
+                            SettingSelector(
+                                text = if (uiState.language == "en") "English" else "Tiếng Việt",
+                                enabled = !uiState.isAiVoice,
+                                onClick = { showLanguageMenu = true }
+                            )
                             DropdownMenu(
-                                expanded = showLanguageMenu,
+                                expanded = showLanguageMenu && !uiState.isAiVoice,
                                 onDismissRequest = { showLanguageMenu = false }
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Tiếng Việt") },
                                     onClick = {
-                                        language = "Tiếng Việt"
+                                        viewModel.onLanguageChanged("vi")
                                         showLanguageMenu = false
                                     }
                                 )
                                 DropdownMenuItem(
                                     text = { Text("English") },
                                     onClick = {
-                                        language = "English"
+                                        viewModel.onLanguageChanged("en")
                                         showLanguageMenu = false
                                     }
                                 )
                             }
                         }
 
-                        // Voice
-                        OutlinedCard(
-                            modifier = Modifier
-                                .weight(0.6f)
-                                .clickable { showVoiceMenu = true },
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (uiState.isAiVoice) {
-                                        mockVoices.find { it.id == uiState.selectedVoiceId }?.name ?: uiState.selectedVoiceId
-                                    } else "Mặc định hệ thống",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Box(modifier = Modifier.weight(0.6f)) {
+                            val selectedVoiceName = if (uiState.isAiVoice) {
+                                uiState.aiVoices.firstOrNull { it.id == uiState.selectedVoiceId }?.name
+                                    ?: "Ch\u1ecdn gi\u1ecdng AI"
+                            } else {
+                                uiState.systemVoices.firstOrNull { it.id == uiState.selectedVoiceId }?.name
+                                    ?: "Mặc định hệ thống"
                             }
-                            if (uiState.isAiVoice) {
-                                DropdownMenu(
-                                    expanded = showVoiceMenu,
-                                    onDismissRequest = { showVoiceMenu = false }
-                                ) {
-                                    mockVoices.forEach { voice ->
+                            SettingSelector(
+                                text = selectedVoiceName,
+                                enabled = uiState.isAiVoice || uiState.isSystemTtsReady,
+                                onClick = { showVoiceMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = showVoiceMenu,
+                                onDismissRequest = { showVoiceMenu = false }
+                            ) {
+                                if (uiState.isAiVoice) {
+                                    uiState.aiVoices.forEach { voice ->
                                         DropdownMenuItem(
                                             text = {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    if (uiState.selectedVoiceId == voice.id) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(18.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                    } else {
-                                                        Spacer(modifier = Modifier.width(26.dp))
-                                                    }
-                                                    Text("${voice.name} · ${voice.size}")
+                                                Column {
+                                                    Text(voice.name)
+                                                    Text(
+                                                        text = "${voice.size} · ${if (voice.isDownloaded) "Đã tải" else "Chưa tải"}",
+                                                        fontSize = 12.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
                                                 }
                                             },
+                                            leadingIcon = if (uiState.selectedVoiceId == voice.id) {
+                                                { Icon(Icons.Default.Check, contentDescription = null) }
+                                            } else null,
+                                            onClick = {
+                                                viewModel.onVoiceSelected(voice.id)
+                                                showVoiceMenu = false
+                                            }
+                                        )
+                                    }
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Mặc định hệ thống") },
+                                        onClick = {
+                                            viewModel.onVoiceSelected(null)
+                                            showVoiceMenu = false
+                                        }
+                                    )
+                                    uiState.systemVoices.forEach { voice ->
+                                        DropdownMenuItem(
+                                            text = { Text(voice.name) },
+                                            leadingIcon = if (uiState.selectedVoiceId == voice.id) {
+                                                { Icon(Icons.Default.Check, contentDescription = null) }
+                                            } else null,
                                             onClick = {
                                                 viewModel.onVoiceSelected(voice.id)
                                                 showVoiceMenu = false
@@ -475,234 +345,294 @@ fun AudioSettingsScreen(
                     }
 
                     if (uiState.isAiVoice) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        if (uiState.isModelDownloaded) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
-                                    .padding(16.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Giọng đã sẵn sàng",
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "Có thể sử dụng khi không có mạng",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        } else {
-                            OutlinedCard(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable(enabled = !uiState.isDownloading) { viewModel.downloadCurrentVoice() },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.CloudDownload,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = if (uiState.isDownloading) "Đang tải giọng đọc (${(uiState.downloadProgress * 100).toInt()}%)..." else "Tải giọng đọc",
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = if (uiState.isDownloading) "Vui lòng giữ ứng dụng mở" else "Cần tải khoảng 60MB để dùng ngoại tuyến",
-                                                fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        if (uiState.isDownloading) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                    if (uiState.isDownloading) {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        LinearProgressIndicator(
-                                            progress = { uiState.downloadProgress },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(4.dp)
-                                                .clip(RoundedCornerShape(2.dp)),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                        )
-                                    }
-                                    if (uiState.downloadError != null) {
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = uiState.downloadError!!,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        AiDownloadSection(uiState = uiState, onDownload = viewModel::downloadCurrentVoice)
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Step 3
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(text = "3", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Điều chỉnh và nghe thử",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Speed Slider
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = stringResource(R.string.audio_speech_rate), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                        Text(text = String.format("%.1fx", uiState.speechSpeed), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Slider(
+                    HorizontalDivider()
+                    Text("3. Điều chỉnh và nghe thử", fontWeight = FontWeight.SemiBold)
+                    SettingSlider(
+                        label = stringResource(R.string.audio_speech_rate),
+                        valueLabel = String.format("%.1fx", uiState.speechSpeed),
                         value = uiState.speechSpeed,
-                        onValueChange = { viewModel.onSpeedChanged(it) },
-                        valueRange = 0.5f..2.0f,
+                        range = 0.5f..2.0f,
                         steps = 15,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
+                        onValueChange = viewModel::onSpeedChanged
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Pitch Slider
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = stringResource(R.string.audio_speech_pitch), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                        Text(text = String.format("%.1f", uiState.speechPitch), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Slider(
-                        value = uiState.speechPitch,
-                        onValueChange = { viewModel.onPitchChanged(it) },
-                        valueRange = 0.5f..1.5f,
-                        steps = 10,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
-                    
                     if (!uiState.isAiVoice) {
-                        val localContext = LocalContext.current
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { viewModel.testSystemVoice(localContext) },
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                        ) {
-                            Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = stringResource(R.string.audio_test_play), fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        // AI Voice also has listen button
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = { viewModel.testVoice() },
-                            enabled = uiState.isModelDownloaded && !uiState.isPlaying,
-                            modifier = Modifier.fillMaxWidth().height(48.dp),
-                            shape = RoundedCornerShape(24.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-                        ) {
-                            if (uiState.isPlaying) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = stringResource(R.string.audio_playing), fontWeight = FontWeight.SemiBold)
-                            } else {
-                                Icon(imageVector = Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = stringResource(R.string.audio_test_play), fontWeight = FontWeight.SemiBold)
-                            }
-                        }
+                        SettingSlider(
+                            label = stringResource(R.string.audio_speech_pitch),
+                            valueLabel = String.format("%.1f", uiState.speechPitch),
+                            value = uiState.speechPitch,
+                            range = 0.5f..1.5f,
+                            steps = 10,
+                            onValueChange = viewModel::onPitchChanged
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
-                    
-                    // Save Button
-                    Button(
-                        onClick = { onNavigateBack() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    OutlinedButton(
+                        onClick = if (uiState.isAiVoice) viewModel::testVoice else viewModel::testSystemVoice,
+                        enabled = if (uiState.isAiVoice) {
+                            uiState.selectedVoiceId != null && uiState.isModelDownloaded && !uiState.isPlaying
+                        } else {
+                            uiState.isSystemTtsReady
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = stringResource(R.string.audio_save_settings), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (uiState.isPlaying) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.VolumeUp, contentDescription = null)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (uiState.isPlaying) stringResource(R.string.audio_playing) else stringResource(R.string.audio_test_play))
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(24.dp))
+
+            AudioBubbleSettingsCard(
+                isEnabled = uiState.isBubbleEnabled,
+                isEnablePending = uiState.isBubbleEnablePending,
+                showNotificationWarning = uiState.isBubbleEnabled && !hasNotificationPermission,
+                onEnabledChange = { shouldEnable ->
+                    if (shouldEnable) {
+                        beginBubbleEnable()
+                    } else {
+                        viewModel.disableBubble()
+                        TtsService.syncBubbleState(context, enabled = false)
+                    }
+                }
+            )
+
+            BubblePowerModeCard(
+                mode = uiState.bubblePowerMode,
+                expanded = showPowerModeMenu,
+                onExpandedChange = { showPowerModeMenu = it },
+                onModeSelected = viewModel::setBubblePowerMode
+            )
+
+            Button(
+                onClick = onNavigateBack,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(stringResource(R.string.audio_save_settings), fontWeight = FontWeight.Bold)
+            }
         }
+    }
+}
+
+@Composable
+private fun AudioBubbleSettingsCard(
+    isEnabled: Boolean,
+    isEnablePending: Boolean,
+    showNotificationWarning: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    val title = stringResource(R.string.audio_bubble_settings_title)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(R.string.audio_bubble_settings_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Switch(
+                    checked = isEnabled || isEnablePending,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics { contentDescription = title }
+                )
+            }
+
+            if (isEnablePending) {
+                Text(
+                    text = stringResource(R.string.audio_bubble_permission_pending),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (showNotificationWarning) {
+                HorizontalDivider()
+                Text(
+                    text = stringResource(R.string.audio_bubble_notification_permission_warning),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BubblePowerModeCard(
+    mode: TtsBubblePowerMode,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onModeSelected: (TtsBubblePowerMode) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(stringResource(R.string.audio_bubble_power_mode_title), fontWeight = FontWeight.SemiBold)
+            Text(
+                text = if (mode == TtsBubblePowerMode.ALWAYS_ON) {
+                    stringResource(R.string.audio_bubble_power_mode_always_on_desc)
+                } else {
+                    stringResource(R.string.audio_bubble_power_mode_saver_desc)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Box {
+                SettingSelector(
+                    text = if (mode == TtsBubblePowerMode.ALWAYS_ON) {
+                        stringResource(R.string.audio_bubble_power_mode_always_on)
+                    } else {
+                        stringResource(R.string.audio_bubble_power_mode_saver)
+                    },
+                    enabled = true,
+                    onClick = { onExpandedChange(true) }
+                )
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { onExpandedChange(false) }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.audio_bubble_power_mode_always_on)) },
+                        onClick = {
+                            onModeSelected(TtsBubblePowerMode.ALWAYS_ON)
+                            onExpandedChange(false)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.audio_bubble_power_mode_saver)) },
+                        onClick = {
+                            onModeSelected(TtsBubblePowerMode.BATTERY_SAVER)
+                            onExpandedChange(false)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSelector(text: String, enabled: Boolean, onClick: () -> Unit) {
+    OutlinedCard(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text, maxLines = 1, modifier = Modifier.weight(1f))
+            if (enabled) Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
+        }
+    }
+}
+
+@Composable
+private fun AiDownloadSection(uiState: AudioSettingsUiState, onDownload: () -> Unit) {
+    val selected = uiState.aiVoices.firstOrNull { it.id == uiState.selectedVoiceId }
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                enabled = selected != null && !selected.isDownloaded && !uiState.isDownloading,
+                onClick = onDownload
+            ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (selected?.isDownloaded == true) Icons.Default.Check else Icons.Default.CloudDownload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = when {
+                            selected == null -> "Chọn một giọng AI để tải"
+                            selected.isDownloaded -> "${selected.name} đã sẵn sàng"
+                            uiState.isDownloading -> "Đang tải ${selected.name}..."
+                            else -> "Tải ${selected.name}"
+                        },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = selected?.let { "${it.size} · sử dụng ngoại tuyến" }
+                            ?: "Không có model mặc định",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (uiState.isDownloading) {
+                LinearProgressIndicator(
+                    progress = { uiState.downloadProgress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            uiState.downloadError?.let { error ->
+                Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSlider(
+    label: String,
+    valueLabel: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit
+) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label)
+            Text(valueLabel, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = range,
+            steps = steps
+        )
     }
 }

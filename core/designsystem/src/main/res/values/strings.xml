@@ -61,7 +61,7 @@
     <string name="profile_reader_defaults_title">Mặc định đọc</string>
     <string name="profile_reader_defaults_subtitle">Áp dụng cho EPUB, Chế độ đọc và chế độ Văn bản PDF.</string>
     <string name="profile_audio_settings_title">Cài đặt âm thanh</string>
-    <string name="profile_audio_settings_subtitle">Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp</string>
+    <string name="profile_audio_settings_subtitle">Ngôn ngữ đọc / Chọn giọng đọc / Tốc độ đọc / Tự đọc chương tiếp / Bong bóng audio</string>
     <string name="profile_highlight_tags_title">Tag highlight</string>
     <string name="profile_highlight_tags_subtitle">Sửa nhãn</string>
     <string name="profile_section_advanced">Nâng cao</string>
@@ -85,6 +85,15 @@
     <string name="audio_test_play">Nghe thử</string>
     <string name="audio_playing">Đang phát...</string>
     <string name="audio_save_settings">Lưu cài đặt</string>
+    <string name="audio_bubble_settings_title">4. Bong bóng điều khiển audio</string>
+    <string name="audio_bubble_settings_description">Hiển thị điều khiển TTS nổi trên các ứng dụng khác, kể cả khi audio đã dừng.</string>
+    <string name="audio_bubble_power_mode_title">Chế độ hoạt động nền</string>
+    <string name="audio_bubble_power_mode_always_on_desc">Giữ bubble và dịch vụ nền sẵn sàng.</string>
+    <string name="audio_bubble_power_mode_saver_desc">Tự dừng runtime sau 5 phút khi app ở nền và đang Idle.</string>
+    <string name="audio_bubble_power_mode_always_on">Luôn sẵn sàng</string>
+    <string name="audio_bubble_power_mode_saver">Tiết kiệm pin</string>
+    <string name="audio_bubble_permission_pending">Đang chờ quyền hiển thị trên ứng dụng khác…</string>
+    <string name="audio_bubble_notification_permission_warning">Bạn chưa cấp quyền thông báo. Khi TTS dừng, thông báo bong bóng có thể chỉ xuất hiện trong Trình quản lý tác vụ.</string>
 
     <!-- Search Screen -->
     <string name="search_placeholder">Tìm từ khóa trong nội dung...</string>
@@ -114,6 +123,11 @@
     <string name="reader_use_ai_voice_desc">Giọng đọc AI tự nhiên offline chất lượng cao</string>
     <string name="reader_config_voice_detail">Cấu hình giọng đọc &amp; ngôn ngữ chi tiết...</string>
     <string name="reader_minimize">Thu nhỏ</string>
+    <string name="reader_brightness">Độ sáng</string>
+    <string name="reader_brightness_percent_format">Độ sáng: %1$d%%</string>
+    <string name="reader_brightness_extra_dim_format">Độ sáng: %1$d%% • Siêu tối</string>
+    <string name="reader_brightness_extra_dim_badge">Siêu tối</string>
+    <string name="reader_brightness_hud_format">%1$d%%</string>
 
 
     <!-- Reading Defaults Screen -->
@@ -145,6 +159,7 @@
     <string name="reading_defaults_theme_paper">Giấy</string>
     <string name="reading_defaults_theme_night">Đêm</string>
     <string name="reading_defaults_custom_color">Màu tùy chỉnh</string>
+    <string name="reading_defaults_brightness_section">ĐỘ SÁNG ĐỌC SÁCH</string>
     <!-- Layout -->
     <string name="reading_defaults_section_layout">Bố cục</string>
     <string name="reading_defaults_page_margin">LỀ TRANG</string>
@@ -179,6 +194,30 @@
     <string name="tts_action_pause">Tạm dừng</string>
     <string name="tts_action_prev">Đoạn trước</string>
     <string name="tts_action_next">Đoạn sau</string>
+    <string name="tts_action_stop">Dừng</string>
+    <string name="tts_preparing_voice">Đang chuẩn bị giọng…</string>
+    <string name="tts_audio_focus_error">Không thể sử dụng đầu ra âm thanh</string>
+
+    <!-- TTS Floating Bubble & Runtime -->
+    <string name="tts_bubble_open_controls">Mở điều khiển audio</string>
+    <string name="tts_bubble_collapse">Thu gọn điều khiển audio</string>
+    <string name="tts_bubble_book_cover">Ảnh bìa sách</string>
+    <string name="tts_bubble_previous">Câu trước</string>
+    <string name="tts_bubble_play">Phát</string>
+    <string name="tts_bubble_pause">Tạm dừng</string>
+    <string name="tts_bubble_next">Câu tiếp theo</string>
+    <string name="tts_bubble_stop">Dừng</string>
+    <string name="tts_bubble_open_book">Mở sách</string>
+    <string name="tts_bubble_hide_target">Thả để ẩn bong bóng</string>
+    <string name="tts_bubble_no_book">Chưa chọn sách</string>
+    <string name="tts_bubble_no_session">Mở sách để bắt đầu nghe</string>
+    <string name="tts_bubble_playing">Đang phát</string>
+    <string name="tts_bubble_preparing">Đang chuẩn bị audio</string>
+    <string name="tts_bubble_paused">Đang tạm dừng</string>
+    <string name="tts_bubble_error">Lỗi phát audio</string>
+    <string name="tts_bubble_idle">Audio đã dừng</string>
+    <string name="tts_bubble_notification_idle">Bong bóng audio đang bật</string>
+    <string name="tts_bubble_restore_error">Không thể khôi phục phiên đọc gần nhất</string>
 
     <!-- Online Backend & Library -->
     <string name="add_book_source_title">Thêm sách mới</string>

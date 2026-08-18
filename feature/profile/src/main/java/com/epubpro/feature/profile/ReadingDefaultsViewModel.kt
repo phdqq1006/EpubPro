@@ -93,6 +93,13 @@ class ReadingDefaultsViewModel @Inject constructor(
     fun setPageTurnSpeed(speedMs: Int) = update { it.copy(pageTurnSpeedMs = speedMs) }
     fun setKeyboardNavigation(enabled: Boolean) = update { it.copy(enableKeyboardNavigation = enabled) }
     fun setVolumeKeyNavigation(enabled: Boolean) = update { it.copy(enableVolumeKeyNavigation = enabled) }
+
+    /**
+     * Cập nhật mức độ sáng đọc sách mặc định (từ 0.0f đến 1.0f).
+     *
+     * @param brightness Mức độ sáng người dùng thiết lập trong dải 0.0f đến 1.0f.
+     */
+    fun setBrightness(brightness: Float) = update { it.copy(brightness = brightness.coerceIn(0.0f, 1.0f)) }
 }
 
 enum class ReadingPreset(val label: String) {

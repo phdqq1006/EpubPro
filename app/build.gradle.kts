@@ -2,10 +2,9 @@ import java.io.FileInputStream
 import java.util.Properties
 
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
-    alias(libs.plugins.hilt.android)
+    id("epubpro.android.application")
+    id("epubpro.android.compose")
+    id("epubpro.android.hilt")
 }
 
 val keystorePropertiesFile = rootProject.file("keystore.properties")
@@ -16,11 +15,9 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.epubpro.app"
-    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.epubpro.app"
-        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
@@ -56,20 +53,7 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
-    compileOptions {
-        isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.11"
-    }
+
     lint {
         checkReleaseBuilds = false
         abortOnError = false
@@ -77,14 +61,12 @@ android {
 }
 
 dependencies {
-    coreLibraryDesugaring(libs.desugar.jdk.libs)
-
     implementation(project(":domain"))
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:database"))
     implementation(project(":core:storage"))
-    implementation(project(":core:reader"))
+    implementation(project(":core:playback"))
     implementation(project(":core:ai"))
 
     implementation(project(":feature:library"))
@@ -93,7 +75,6 @@ dependencies {
     implementation(project(":feature:search"))
     implementation(project(":feature:profile"))
     implementation(project(":core:tts"))
-    implementation(files("../core/tts/libs/sherpa-onnx-1.13.4.aar"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -106,7 +87,4 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.media)
     implementation(libs.androidx.hilt.navigation.compose)
-
-    implementation(libs.hilt.android)
-    kapt(libs.hilt.compiler)
 }

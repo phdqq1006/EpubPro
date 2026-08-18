@@ -46,4 +46,11 @@ class ReaderPreferencesMigrationTest {
             )
         }
     }
+
+    @Test
+    fun brightnessValueIsClampedBetweenZeroAndOne() {
+        assertEquals(0.0f, (-0.2f).coerceIn(0.0f, 1.0f), 0.001f)
+        assertEquals(0.65f, (0.65f).coerceIn(0.0f, 1.0f), 0.001f)
+        assertEquals(1.0f, (1.8f).coerceIn(0.0f, 1.0f), 0.001f)
+    }
 }

@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/bg_tts_widget_background">
+
+    <!-- Header Bar -->
+    <LinearLayout
+        android:id="@+id/tts_reading_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
+
+        <ImageView
+            android:id="@+id/tts_reading_cover"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_marginEnd="8dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_widget_book_placeholder"
+            android:contentDescription="@string/tts_widget_icon_description" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tts_reading_book_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/tts_widget_on_surface"
+                android:textStyle="bold"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tts_reading_chapter_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/tts_widget_on_surface_variant"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/tts_reading_open_app"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/ic_widget_next"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/tts_widget_open_app" />
+    </LinearLayout>
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:src="@color/tts_widget_border" />
+
+    <!-- Central Reader Area with Touch Zones -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/tts_reading_content_text"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:textColor="@color/tts_widget_on_surface"
+            android:textSize="14sp"
+            android:lineSpacingExtra="3dp"
+            android:ellipsize="end" />
+
+        <!-- Overlay Touch Zones: Left 35%, Right 65% -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/tts_reading_touch_left"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="35"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@android:color/transparent" />
+
+            <FrameLayout
+                android:id="@+id/tts_reading_touch_right"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="65"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@android:color/transparent" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:src="@color/tts_widget_border" />
+
+    <!-- Footer Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:paddingTop="6dp">
+
+        <ProgressBar
+            android:id="@+id/tts_reading_progress_bar"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:max="100"
+            android:progressDrawable="@drawable/bg_tts_widget_progress" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+
+            <ImageButton
+                android:id="@+id/tts_reading_prev_chapter"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:src="@drawable/ic_widget_previous"
+                android:scaleType="centerInside"
+                android:contentDescription="@string/tts_widget_previous" />
+
+            <TextView
+                android:id="@+id/tts_reading_progress_info"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:textColor="@color/tts_widget_primary"
+                android:textSize="11sp" />
+
+            <ImageButton
+                android:id="@+id/tts_reading_next_chapter"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:background="@android:color/transparent"
+                android:src="@drawable/ic_widget_next"
+                android:scaleType="centerInside"
+                android:contentDescription="@string/tts_widget_next" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
