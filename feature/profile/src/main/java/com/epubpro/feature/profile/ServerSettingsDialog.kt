@@ -69,7 +69,7 @@ fun ServerSettingsDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 // Presets
-                Text("Chọn nhanh:", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.server_preset_label), style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -81,7 +81,7 @@ fun ServerSettingsDialog(
                             urlText = ServerPreferencesManager.PRESET_RENDER
                             testResult = null
                         },
-                        label = { Text("Cloud Server (Render)", fontSize = 11.sp) },
+                        label = { Text(stringResource(R.string.server_preset_cloud_render), fontSize = 11.sp) },
                         shape = RoundedCornerShape(8.dp)
                     )
                     FilterChip(
@@ -114,7 +114,7 @@ fun ServerSettingsDialog(
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Đang kiểm tra...", fontSize = 12.sp)
+                        Text(stringResource(R.string.server_checking_status), fontSize = 12.sp)
                     }
                 } else if (testResult != null) {
                     if (testResult!!.isSuccess) {

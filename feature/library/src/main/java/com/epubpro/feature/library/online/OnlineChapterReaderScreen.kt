@@ -5,7 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -34,14 +34,14 @@ fun OnlineChapterReaderScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Chương ${uiState.chapterIndex}",
+                        text = stringResource(R.string.online_chapter_format, uiState.chapterIndex),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 actions = {
@@ -57,7 +57,11 @@ fun OnlineChapterReaderScreen(
                         },
                         label = {
                             Text(
-                                if (uiState.version == "translated") "Tiếng Việt" else "Bản Gốc",
+                                if (uiState.version == "translated") {
+                                    stringResource(R.string.online_novel_version_vietnamese)
+                                } else {
+                                    stringResource(R.string.online_novel_version_original_btn)
+                                },
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )

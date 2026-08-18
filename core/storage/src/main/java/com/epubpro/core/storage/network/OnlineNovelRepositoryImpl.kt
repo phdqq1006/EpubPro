@@ -18,6 +18,10 @@ import java.io.InputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Triển khai interface [OnlineNovelRepository], xử lý giao tiếp mạng qua Retrofit, bóc tách DTO sang Domain Model
+ * và lưu trữ trực tiếp file EPUB vào bộ nhớ ứng dụng.
+ */
 @Singleton
 class OnlineNovelRepositoryImpl @Inject constructor(
     private val apiService: OnlineNovelApiService,
@@ -25,6 +29,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
     private val serverPreferencesManager: ServerPreferencesManager
 ) : OnlineNovelRepository {
 
+    /**
+     * Lấy danh sách tóm tắt tất cả các bộ truyện online từ server.
+     */
     override suspend fun getNovels(): Result<List<OnlineNovelSummary>> = withContext(Dispatchers.IO) {
         runCatching {
             apiService.getNovels().map { dto ->
@@ -44,6 +51,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Lấy chi tiết bộ truyện và danh sách chương từ server.
+     */
     override suspend fun getNovelDetail(novelId: String): Result<OnlineNovelDetail> = withContext(Dispatchers.IO) {
         runCatching {
             val dto = apiService.getNovelDetail(novelId)
@@ -68,6 +78,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Lấy nội dung chi tiết của một chương truyện từ server để đọc trực tuyến.
+     */
     override suspend fun getChapterContent(
         novelId: String,
         chapterIndex: Int,
@@ -88,6 +101,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Tải file EPUB nhị phân dưới dạng luồng dữ liệu (Stream) và ghi thẳng vào internal storage.
+     */
     override fun downloadEpub(novelId: String, saveFileName: String): Flow<DownloadState> = flow {
         emit(DownloadState.Downloading(0))
         try {
@@ -98,10 +114,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
             }
 
             val body = response.body()!!
-            val contentLength = body.contentLength()
             val inputStream: InputStream = body.byteStream()
 
-            // Stream to temporary file with progress tracking
+            // Ghi luồng dữ liệu vào file tạm trên thiết bị
             val targetFile = storageManager.importDownloadedEpub(inputStream, saveFileName)
             
             emit(DownloadState.Downloading(100))
@@ -111,6 +126,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }.flowOn(Dispatchers.IO)
 
+    /**
+     * Yêu cầu AI dịch một chương truyện cụ thể.
+     */
     override suspend fun translateChapter(
         novelId: String,
         chapterIndex: Int,
@@ -141,6 +159,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Upload trực tiếp file EPUB từ điện thoại lên server backend.
+     */
     override suspend fun uploadEpub(
         filePath: String,
         isTranslated: Boolean
@@ -161,14 +182,23 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Lấy luồng phát ra địa chỉ Base URL hiện tại của backend.
+     */
     override fun getBaseUrl(): Flow<String> = serverPreferencesManager.baseUrlFlow
 
+    /**
+     * Cập nhật địa chỉ Base URL mới cho backend.
+     */
     override suspend fun setBaseUrl(url: String) {
         withContext(Dispatchers.IO) {
             serverPreferencesManager.saveBaseUrl(url)
         }
     }
 
+    /**
+     * Kiểm tra ping kết nối tới server.
+     */
     override suspend fun testServerConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
         runCatching {
             apiService.getNovels()

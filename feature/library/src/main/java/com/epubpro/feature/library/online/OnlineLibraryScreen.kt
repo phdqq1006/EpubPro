@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material3.*
@@ -78,7 +80,7 @@ fun OnlineLibraryScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.action_back))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
                     }
                 },
                 actions = {
@@ -204,11 +206,11 @@ fun OnlineLibraryScreen(
                                 ) {
                                     Text(stringResource(R.string.online_library_retry))
                                 }
-                                OutlinedButton(
+                                Button(
                                     onClick = onNavigateToServerSettings,
-                                    shape = RoundedCornerShape(12.dp)
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("Đổi Server URL")
+                                    Text(stringResource(R.string.server_settings_title))
                                 }
                             }
                         }
@@ -221,7 +223,7 @@ fun OnlineLibraryScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
-                                Icons.Default.MenuBook,
+                                Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 modifier = Modifier.size(64.dp),
                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
@@ -309,7 +311,11 @@ fun OnlineNovelCard(
                     modifier = Modifier.align(Alignment.TopStart)
                 ) {
                     Text(
-                        text = "${novel.translatedChapters}/${novel.totalChapters} c",
+                        text = stringResource(
+                            R.string.online_chapters_count_badge,
+                            novel.translatedChapters,
+                            novel.totalChapters
+                        ),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -325,7 +331,7 @@ fun OnlineNovelCard(
                         modifier = Modifier.align(Alignment.TopEnd)
                     ) {
                         Text(
-                            text = "Hoàn thành",
+                            text = stringResource(R.string.online_status_completed),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,

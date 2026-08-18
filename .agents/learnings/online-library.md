@@ -1,6 +1,6 @@
 # Online Backend & Library Integration
 
-> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render và xử lý tải/upload sách trong dự án.
+> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow và chuẩn hóa quy định dự án theo AGENTS.md.
 > Cập nhật lần cuối: 2026-08-18
 
 ---
@@ -26,6 +26,11 @@
 - **Ngày**: 2026-08-18
 - **Chi tiết**: Tách biệt luồng xử lý: FastAPI/Worker backend xử lý logic tính toán và metadata (`/novels`, `/translate`). Cloudflare R2 (`pub-*.r2.dev`) đóng vai trò lưu trữ tĩnh file EPUB và Cover Images với ưu điểm Zero Egress Fee (miễn phí 100% băng thông tải về). App gọi API lấy metadata nhưng tải trực tiếp binary EPUB và ảnh từ CDN R2.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelApiService.kt`
+
+### Single Job Coroutine Collector Management in ViewModels
+- **Ngày**: 2026-08-18
+- **Chi tiết**: Khi ViewModel cần kích hoạt lại việc thu thập Flow từ Repository dựa trên event (ví dụ kiểm tra sách đã tải sau khi fetch API chi tiết), luôn quản lý collector bằng một biến `private var collectJob: Job? = null` và gọi `collectJob?.cancel()` trước khi `launch` mới. Tránh rò rỉ và chồng chéo nhiều coroutine collectors chạy song song.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineNovelDetailViewModel.kt`
 
 ---
 
@@ -59,6 +64,13 @@
 - **Fix**: Gán vào biến cục bộ trước khi kiểm tra: `val desc = detail.description; if (!desc.isNullOrBlank()) { ... }`.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineNovelDetailScreen.kt`
 
+### Lỗi Mockito NPE trên Kotlin Non-null Parameter khi test Interceptor.Chain
+- **Ngày**: 2026-08-18
+- **Vấn đề**: Trong unit test cho `DynamicBaseUrlInterceptor`, gọi `when(chain.proceed(any()))` ném `java.lang.NullPointerException`.
+- **Root cause**: Mockito `any()` trả về `null` tạm thời trong bytecode, vi phạm non-null constraint của signature Kotlin `proceed(request: Request): Response`.
+- **Fix**: Sử dụng Test Double (Fake Object) triển khai trực tiếp `val fakeChain = object : Interceptor.Chain { ... }` thay vì Mockito mock.
+- **Files liên quan**: `core/storage/src/test/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptorTest.kt`
+
 ---
 
 ## How-To
@@ -91,13 +103,21 @@
   5. Chạy `./gradlew compileDebugKotlin` với JDK 17 để đảm bảo build xanh trước khi push merge commit.
 - **Files liên quan**: `app/src/main/AndroidManifest.xml`, `core/designsystem/src/main/res/values/strings.xml`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `gradle/libs.versions.toml`
 
+### Cách chuẩn hóa dự án tuân thủ AGENTS.md
+- **Ngày**: 2026-08-18
+- **Bước thực hiện**:
+  1. Chuyển toàn bộ UI text & dialog/snackbar messages sang `core/designsystem/src/main/res/values/strings.xml` và sử dụng `stringResource(R.string...)` hoặc `@StringRes`.
+  2. Bổ sung KDoc tiếng Việt đầy đủ (`/** ... */`) cho mọi interface, class và function mới tạo với `@param`, `@return`, `@throws`.
+  3. Thay thế các icon deprecated sang `Icons.AutoMirrored.*` (`ArrowBack`, `MenuBook`) để hỗ trợ layout RTL.
+- **Files liên quan**: `AGENTS.md`, `core/designsystem/src/main/res/values/strings.xml`
+
 ---
 
 ## Patterns
 
-### DNS-over-HTTPS (DoH) Fallback Pattern trong OkHttp
+### DNS-over-HTTPS (DoH) Fallback & Cache TTL Pattern
 - **Ngày**: 2026-08-18
-- **Chi tiết**: Cấu hình custom `okhttp3.Dns` với logic 2 tầng: tầng 1 gọi `Dns.SYSTEM` (lọc IPv4), nếu lỗi `UnknownHostException` tự động fallback sang tầng 2 gọi API DoH của Cloudflare (`1.1.1.1`) hoặc Google (`8.8.8.8`) với in-memory caching.
+- **Chi tiết**: Cấu hình custom `okhttp3.Dns` với logic 2 tầng: tầng 1 gọi `Dns.SYSTEM` (lọc IPv4), tầng 2 fallback DoH Cloudflare (`1.1.1.1`) và Google (`8.8.8.8`). Sử dụng `CachedDnsEntry` kèm TTL (10 phút) và giải phóng `HttpURLConnection.disconnect()` trong khối `finally`.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/FallbackDns.kt`
 
 ### Cleartext HTTP Traffic cho môi trường Dev & Emulator

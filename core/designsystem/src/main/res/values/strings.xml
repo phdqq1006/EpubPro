@@ -253,4 +253,24 @@
     <string name="server_save">Lưu cấu hình</string>
     <string name="upload_success">Tải sách lên server thành công!</string>
     <string name="upload_failed">Tải sách lên thất bại</string>
+    <string name="online_status_completed">Hoàn thành</string>
+    <string name="online_status_ongoing">Đang ra</string>
+    <string name="online_novel_version_vietnamese">Tiếng Việt</string>
+    <string name="online_novel_version_original_btn">Bản Gốc</string>
+    <string name="online_chapter_format">Chương %1$d</string>
+    <string name="online_chapter_title_format">Chương %1$d: %2$s</string>
+    <string name="online_chapters_count_badge">%1$d/%2$d c</string>
+    <string name="online_download_full_success">Tải toàn bộ file EPUB thành công! Sách đã có trong Tủ Sách.</string>
+    <string name="online_translate_need_api_key">Vui lòng nhập API Key AI trong Cài đặt Cá nhân trước khi dịch.</string>
+    <string name="online_translate_success">Dịch chương %1$d thành công!</string>
+    <string name="online_translate_failed">Dịch thất bại: %1$s</string>
+    <string name="online_upload_failed_msg">Upload thất bại: %1$s</string>
+    <string name="online_file_process_error">Lỗi xử lý file: %1$s</string>
+    <string name="online_chapter_load_error">Không thể tải nội dung chương</string>
+    <string name="online_detail_load_error">Không thể tải chi tiết truyện</string>
+    <string name="online_download_fail_http">Tải sách thất bại (HTTP %1$d): %2$s</string>
+    <string name="online_download_error">Lỗi khi tải file EPUB từ server</string>
+    <string name="server_checking_status">Đang kiểm tra...</string>
+    <string name="server_preset_label">Chọn nhanh:</string>
+    <string name="server_preset_cloud_render">Cloud Server (Render)</string>
 </resources>
