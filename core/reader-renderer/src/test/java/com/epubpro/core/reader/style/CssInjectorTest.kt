@@ -60,7 +60,54 @@ class CssInjectorTest {
     }
 
     @Test
-    fun `generateJsBridgeScript produces valid JS bridge API definitions`() {
+    fun generateJsBridgeScriptKeepsChapterNavigationEnabledWithoutLoadedPreview() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = true,
+            settings = ReaderSettings(),
+            previousChapterHtml = null,
+            nextChapterHtml = null,
+            hasPreviousChapter = true,
+            hasNextChapter = true
+        )
+
+        assertTrue(script.contains("var hasNextChapter = true;"))
+        assertTrue(script.contains("var hasPreviousChapter = true;"))
+        assertTrue(script.contains("var boundaryTriggered = hasAdjacentChapter && crossedBoundaryThreshold;"))
+    }
+
+    @Test
+    fun generateJsBridgeScriptBlocksNavigationAtRealChapterBoundary() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = true,
+            settings = ReaderSettings(),
+            hasPreviousChapter = false,
+            hasNextChapter = false
+        )
+
+        assertTrue(script.contains("var hasNextChapter = false;"))
+        assertTrue(script.contains("var hasPreviousChapter = false;"))
+    }
+
+    /**
+     * Ki?m tra thao t?c ch?m ? c?nh trang cu?i c?ng ?i qua animation boundary
+     * thay v? g?i callback native b? qua hi?u ?ng.
+     */
+    @Test
+    fun generateJsBridgeScriptAnimatesTapAtChapterBoundary() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = true,
+            settings = ReaderSettings(),
+            hasNextChapter = true,
+            hasPreviousChapter = true
+        )
+
+        assertTrue(script.contains("function animateChapterBoundary(direction)"))
+        assertTrue(script.contains("animateChapterBoundary(1);"))
+        assertTrue(script.contains("animateChapterBoundary(-1);"))
+    }
+
+    @Test
+    fun generateJsBridgeScriptProducesValidJsBridgeApiDefinitions() {
         val script = CssInjector.generateJsBridgeScript(
             isHorizontalPagination = true,
             initialPage = 1,

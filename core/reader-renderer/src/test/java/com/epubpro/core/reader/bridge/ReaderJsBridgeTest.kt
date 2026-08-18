@@ -19,4 +19,25 @@ class ReaderJsBridgeTest {
 
         assertEquals(17, receivedGeneration)
     }
+
+
+    @Test
+    fun prefetchCallbacksForwardToListeners() {
+        var nextPrefetchCount = 0
+        var previousPrefetchCount = 0
+        val bridge = ReaderJsBridge(
+            onTextSelectedListener = {},
+            onCfiChangedListener = {},
+            onPageTappedListener = {},
+            onNextChapterPrefetchListener = { nextPrefetchCount++ },
+            onPreviousChapterPrefetchListener = { previousPrefetchCount++ }
+        )
+
+        bridge.onNextChapterPrefetchRequested()
+        bridge.onPreviousChapterPrefetchRequested()
+
+        assertEquals(1, nextPrefetchCount)
+        assertEquals(1, previousPrefetchCount)
+    }
+
 }

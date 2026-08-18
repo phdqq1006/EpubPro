@@ -195,6 +195,17 @@ object CssInjector {
         """.trimIndent()
     }
 
+    /**
+     * Mã hóa an toàn một chuỗi HTML/văn bản thành biểu thức chuỗi JSON để truyền làm tham số cho hàm JavaScript qua [android.webkit.WebView.evaluateJavascript].
+     *
+     * @param value Chuỗi văn bản/HTML cần mã hóa.
+     * @return Chuỗi JSON an toàn đã escape các ký tự đặc biệt và dấu ngoặc nhọn.
+     */
+    fun quoteForJsArgument(value: String): String = JSONObject.quote(value)
+        .replace("<", "\\u003C")
+        .replace(">", "\\u003E")
+        .replace("&", "\\u0026")
+
     fun generateJsBridgeScript(
         isHorizontalPagination: Boolean,
         initialPage: Int = 1,
@@ -204,7 +215,9 @@ object CssInjector {
         previousChapterHtml: String? = null,
         nextChapterHtml: String? = null,
         filterPreferences: ContentFilterPreferences = ContentFilterPreferences(),
-        loadGeneration: Int = 0
+        loadGeneration: Int = 0,
+        hasPreviousChapter: Boolean = true,
+        hasNextChapter: Boolean = true
     ): String {
         val (bgColor, _) = when (settings.themeMode) {
             ReaderThemeMode.LIGHT -> "#FFFFFF" to "#0F172A"
@@ -213,13 +226,9 @@ object CssInjector {
             ReaderThemeMode.PAPER -> "#F5F0E8" to "#3C3530"
             ReaderThemeMode.MIDNIGHT -> "#000000" to "#AAAAAA"
         }
-        fun quoteForInlineScript(value: String): String = JSONObject.quote(value)
-            .replace("<", "\\u003C")
-            .replace(">", "\\u003E")
-            .replace("&", "\\u0026")
 
-        val previousChapterHtmlJson = quoteForInlineScript(previousChapterHtml.orEmpty())
-        val nextChapterHtmlJson = quoteForInlineScript(nextChapterHtml.orEmpty())
+        val previousChapterHtmlJson = quoteForJsArgument(previousChapterHtml.orEmpty())
+        val nextChapterHtmlJson = quoteForJsArgument(nextChapterHtml.orEmpty())
         val tapZoneActionsJson = JSONObject.quote(settings.tapZoneActions.joinToString(",") { it.name })
 
         val rulesJsonArray = JSONArray()
@@ -233,7 +242,7 @@ object CssInjector {
                 rulesJsonArray.put(obj)
             }
         }
-        val filterRulesJson = quoteForInlineScript(rulesJsonArray.toString())
+        val filterRulesJson = quoteForJsArgument(rulesJsonArray.toString())
         val isFilterEnabled = filterPreferences.isFilterEnabled
 
         return """
@@ -602,6 +611,58 @@ object CssInjector {
                     }
                 }
 
+                function animateChapterBoundary(direction) {
+                    var hasAdjacentChapter = direction > 0 ? hasNextChapter : hasPreviousChapter;
+                    var fallback = direction > 0
+                        ? (window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested)
+                        : (window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested);
+                    if (!hasAdjacentChapter) {
+                        if (fallback) fallback();
+                        return;
+                    }
+
+                    if (!isCoverOverlayActive) {
+                        initCoverOverlay(direction > 0 ? -1 : 1);
+                    }
+                    var boundaryOverlay = activeTopOverlay;
+                    if (!boundaryOverlay) {
+                        if (fallback) fallback();
+                        return;
+                    }
+
+                    var token = gestureToken;
+                    var pageWidth = window.innerWidth || document.documentElement.clientWidth || 1;
+                    var chapterCommitted = false;
+                    function finishTapBoundary() {
+                        if (chapterCommitted || token !== gestureToken) return;
+                        chapterCommitted = true;
+                        var adjacentHtml = direction > 0 ? nextChapterHtml : previousChapterHtml;
+                        var committedInDocument = replaceAdjacentChapterInDocument(adjacentHtml, direction);
+                        if (committedInDocument && window.ReaderJsBridge && window.ReaderJsBridge.onAdjacentChapterCommitted) {
+                            window.ReaderJsBridge.onAdjacentChapterCommitted(direction);
+                        } else if (fallback) {
+                            fallback();
+                        }
+                        setTimeout(function() {
+                            if (token === gestureToken) {
+                                cleanupCoverOverlay();
+                                updatePageMetrics();
+                            }
+                        }, Math.max(transitionSpeedMs + 120, 180));
+                    }
+
+                    boundaryOverlay.addEventListener('transitionend', function onTapBoundaryEnd(event) {
+                        if (event.propertyName !== 'transform') return;
+                        boundaryOverlay.removeEventListener('transitionend', onTapBoundaryEnd);
+                        finishTapBoundary();
+                    });
+                    boundaryOverlay.style.transition =
+                        'transform ' + (transitionSpeedMs / 1000).toFixed(2) + 's cubic-bezier(0.2, 0.8, 0.2, 1)';
+                    boundaryOverlay.style.transform =
+                        direction > 0 ? 'translateX(-' + pageWidth + 'px)' : 'translateX(' + pageWidth + 'px)';
+                    setTimeout(finishTapBoundary, transitionSpeedMs + 100);
+                }
+
                 window.epubproGoNextPage = function() {
                     if (!window.epubproIsHorizontal) {
                         var root = document.scrollingElement || document.documentElement;
@@ -615,8 +676,8 @@ object CssInjector {
                     }
                     if (currentPage < totalPages) {
                         scrollToPage(currentPage + 1, true);
-                    } else if (window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
-                        window.ReaderJsBridge.onNextChapterRequested();
+                    } else {
+                        animateChapterBoundary(1);
                     }
                 };
 
@@ -632,8 +693,8 @@ object CssInjector {
                     }
                     if (currentPage > 1) {
                         scrollToPage(currentPage - 1, true);
-                    } else if (window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
-                        window.ReaderJsBridge.onPreviousChapterRequested();
+                    } else {
+                        animateChapterBoundary(-1);
                     }
                 };
 
@@ -696,12 +757,23 @@ object CssInjector {
                     });
                 }
 
+                function scheduleInitLayout() {
+                    var scheduleAfterFonts = function() {
+                        window.requestAnimationFrame(function() {
+                            window.requestAnimationFrame(initLayout);
+                        });
+                    };
+                    if (document.fonts && document.fonts.ready) {
+                        document.fonts.ready.then(scheduleAfterFonts, scheduleAfterFonts);
+                    } else {
+                        scheduleAfterFonts();
+                    }
+                }
+
                 if (document.readyState === 'complete') {
-                    setTimeout(initLayout, 100);
+                    scheduleInitLayout();
                 } else {
-                    window.addEventListener('load', function() {
-                        setTimeout(initLayout, 100);
-                    });
+                    window.addEventListener('load', scheduleInitLayout, { once: true });
                 }
                 setTimeout(initLayout, 500);
 
@@ -720,7 +792,18 @@ object CssInjector {
                 var themeBgColor = '$bgColor';
                 var previousChapterHtml = $previousChapterHtmlJson;
                 var nextChapterHtml = $nextChapterHtmlJson;
+                var hasPreviousChapter = $hasPreviousChapter;
+                var hasNextChapter = $hasNextChapter;
                 var tapZoneActions = $tapZoneActionsJson.split(',');
+
+                window.epubproDocumentGeneration = $loadGeneration;
+                window.epubproSetAdjacentChapters = function(generation, prevHtml, nextHtml, hasPrev, hasNext) {
+                    if (generation !== window.epubproDocumentGeneration) return;
+                    previousChapterHtml = prevHtml || '';
+                    nextChapterHtml = nextHtml || '';
+                    if (typeof hasPrev === 'boolean') hasPreviousChapter = hasPrev;
+                    if (typeof hasNext === 'boolean') hasNextChapter = hasNext;
+                };
 
                 window.epubproApplyRuntimeSettings = function(speedMs, actionsCsv) {
                     transitionSpeedMs = Math.max(0, Number(speedMs) || 0);
@@ -846,6 +929,45 @@ object CssInjector {
                     } catch (error) {
                         dbg('PREVIEW_ERROR', error.message || 'Unable to parse adjacent chapter');
                         return null;
+                    }
+                }
+
+                function replaceAdjacentChapterInDocument(html, direction) {
+                    if (!html || !html.trim() || !document.body) return false;
+                    try {
+                        var parsed = new DOMParser().parseFromString(html, 'text/html');
+                        if (!parsed.body) return false;
+                        var oldHtml = document.body.innerHTML;
+                        var nodes = [];
+                        for (var i = 0; i < parsed.body.childNodes.length; i++) {
+                            nodes.push(parsed.body.childNodes[i].cloneNode(true));
+                        }
+                        document.body.innerHTML = '';
+                        for (var j = 0; j < nodes.length; j++) {
+                            document.body.appendChild(nodes[j]);
+                        }
+                        if (direction > 0) {
+                            previousChapterHtml = oldHtml;
+                            nextChapterHtml = '';
+                            targetInitPage = 1;
+                        } else {
+                            previousChapterHtml = '';
+                            nextChapterHtml = oldHtml;
+                            targetInitPage = 1000000;
+                        }
+                        targetInitParagraph = 0;
+                        currentPage = targetInitPage;
+                        totalPages = 1;
+                        hasInitializedLayout = false;
+                        hasNotifiedLayoutReady = false;
+                        isLayoutReady = !window.epubproIsHorizontal;
+                        forceBodyDimensions();
+                        if (window.epubproApplyContentFilter) window.epubproApplyContentFilter();
+                        scheduleInitLayout();
+                        return true;
+                    } catch (error) {
+                        dbg('CHAPTER_COMMIT_ERROR', error && error.message ? error.message : 'Unable to replace chapter DOM');
+                        return false;
                     }
                 }
 
@@ -993,8 +1115,8 @@ object CssInjector {
                             var clampedX = deltaX;
                             var hasNextPreview = !!(nextChapterHtml && nextChapterHtml.trim());
                             var hasPreviousPreview = !!(previousChapterHtml && previousChapterHtml.trim());
-                            var isBlockedNextBoundary = dragDirection < 0 && currentPage === totalPages && !hasNextPreview;
-                            var isBlockedPreviousBoundary = dragDirection > 0 && currentPage === 1 && !hasPreviousPreview;
+                            var isBlockedNextBoundary = dragDirection < 0 && currentPage === totalPages && !hasNextChapter;
+                            var isBlockedPreviousBoundary = dragDirection > 0 && currentPage === 1 && !hasPreviousChapter;
 
                             if (isBlockedNextBoundary) {
                                 clampedX = Math.max(-pw * 0.3, deltaX * 0.3);
@@ -1058,7 +1180,15 @@ object CssInjector {
                         var crossedBoundaryThreshold = isNextBoundary
                             ? (currentDeltaX <= -threshold || (currentDeltaX < -pw * 0.20 && velocity > 0.35))
                             : (currentDeltaX >= threshold || (currentDeltaX > pw * 0.20 && velocity > 0.35));
-                        var boundaryTriggered = hasAdjacentPreview && crossedBoundaryThreshold;
+                        var hasAdjacentChapter = isNextBoundary ? hasNextChapter : hasPreviousChapter;
+                        var boundaryTriggered = hasAdjacentChapter && crossedBoundaryThreshold;
+                        if (boundaryTriggered) {
+                            if (isNextBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterPrefetchRequested) {
+                                window.ReaderJsBridge.onNextChapterPrefetchRequested();
+                            } else if (isPreviousBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterPrefetchRequested) {
+                                window.ReaderJsBridge.onPreviousChapterPrefetchRequested();
+                            }
+                        }
                         var boundaryOverlay = activeTopOverlay;
                         var boundaryDone = false;
 
@@ -1072,7 +1202,13 @@ object CssInjector {
                             }
 
                             var chapterRequested = false;
-                            if (isNextBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
+                            var chapterDirection = isNextBoundary ? 1 : -1;
+                            var adjacentHtml = isNextBoundary ? nextChapterHtml : previousChapterHtml;
+                            var committedInDocument = replaceAdjacentChapterInDocument(adjacentHtml, chapterDirection);
+                            if (committedInDocument && window.ReaderJsBridge && window.ReaderJsBridge.onAdjacentChapterCommitted) {
+                                chapterRequested = true;
+                                window.ReaderJsBridge.onAdjacentChapterCommitted(chapterDirection);
+                            } else if (isNextBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested) {
                                 chapterRequested = true;
                                 window.ReaderJsBridge.onNextChapterRequested();
                             } else if (isPreviousBoundary && window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested) {
@@ -1086,8 +1222,11 @@ object CssInjector {
                             }
 
                             setTimeout(function() {
-                                if (completingGestureToken === gestureToken) cleanupCoverOverlay();
-                            }, 1800);
+                                if (completingGestureToken === gestureToken) {
+                                     cleanupCoverOverlay();
+                                     updatePageMetrics();
+                                 }
+                            }, Math.max(transitionSpeedMs + 120, 180));
                         }
 
                         if (boundaryOverlay) {

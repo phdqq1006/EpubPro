@@ -86,6 +86,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -130,6 +133,7 @@ fun ReaderScreen(
 
     val context = LocalContext.current
     val hostView = LocalView.current
+    val lifecycleOwner = context as? LifecycleOwner
     var ttsService by remember { mutableStateOf<TtsService?>(null) }
     val window = (context as? android.app.Activity)?.window
 
@@ -144,6 +148,23 @@ fun ReaderScreen(
         activity = context.findActivity(),
         hardwareBrightness = brightnessOutput.hardwareBrightness
     )
+
+    DisposableEffect(lifecycleOwner) {
+        if (lifecycleOwner == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) {
+                    viewModel.flushPendingProgress()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                viewModel.flushPendingProgress()
+            }
+        }
+    }
 
     DisposableEffect(window, uiState.settings.keepScreenOn) {
         if (window != null) {
@@ -278,8 +299,15 @@ fun ReaderScreen(
 
                 EpubProWebView(
                     htmlContent = uiState.displayedChapterHtml,
+                    preSanitizedHtml = uiState.sanitizedCurrentChapterHtml.takeIf {
+                        uiState.contentVersion == ReaderContentVersion.ORIGINAL
+                    },
                     previousChapterHtml = uiState.previousChapterHtml,
                     nextChapterHtml = uiState.nextChapterHtml,
+                    preSanitizedPreviousChapterHtml = uiState.sanitizedPreviousChapterHtml,
+                    preSanitizedNextChapterHtml = uiState.sanitizedNextChapterHtml,
+                    hasPreviousChapter = uiState.currentChapterIndex > 0,
+                    hasNextChapter = uiState.currentChapterIndex < uiState.chapters.lastIndex,
                     initialPage = uiState.initialPageRequest,
                     initialVisibleParagraphIndex = uiState.firstVisibleParagraphIndex,
                     settings = uiState.settings,
@@ -289,6 +317,12 @@ fun ReaderScreen(
                     onPageChanged = viewModel::updatePageMetrics,
                     onNextChapter = viewModel::nextChapter,
                     onPreviousChapter = viewModel::previousChapter,
+                    onNextChapterPrefetch = {
+                        viewModel.prefetchChapter(uiState.currentChapterIndex + 1)
+                    },
+                    onPreviousChapterPrefetch = {
+                        viewModel.prefetchChapter(uiState.currentChapterIndex - 1)
+                    },
                     onTextSelected = { json ->
                         try {
                             val obj = JSONObject(json)

@@ -20,13 +20,22 @@ object HtmlNormalizer {
     )
 
     /**
-     * Normalizes EPUB HTML content that lacks <p> tags for individual paragraphs
-     * (such as books converted via GetTextFromHtml or raw TXT dumps).
-     * Automatically wraps text chunks separated by <br> or newlines into proper <p> elements
-     * without breaking block container semantics (lists, tables, pre, headers).
+     * Chuẩn hóa nội dung HTML EPUB thiếu thẻ `<p>` (như sách chuyển đổi từ TXT hoặc text thô).
+     * Tự động bọc các đoạn văn cách nhau bởi `<br>` hoặc dấu xuống dòng vào thẻ `<p>` hợp lệ
+     * mà không làm hỏng cấu trúc các khối block khác (danh sách, bảng, pre, tiêu đề).
+     *
+     * Áp dụng đường dẫn xử lý nhanh (fast-path) kiểm tra chuỗi để trả về ngay nếu tài liệu đã có sẵn từ 3 thẻ `<p>` trở lên.
+     *
+     * @param htmlContent Chuỗi HTML thô cần chuẩn hóa.
+     * @return Chuỗi HTML đã được chuẩn hóa cấu trúc đoạn văn.
      */
     fun normalize(htmlContent: String): String {
         if (htmlContent.isBlank()) return htmlContent
+
+        // Fast-path: Nếu tài liệu đã có từ 3 thẻ <p> trở lên, trả về ngay lập tức (tránh chi phí phân tích Jsoup)
+        if (hasAtLeastThreeParagraphTags(htmlContent)) {
+            return htmlContent
+        }
 
         try {
             var processedHtml = htmlContent
@@ -96,5 +105,28 @@ object HtmlNormalizer {
             e.printStackTrace()
         }
         return htmlContent
+    }
+
+    /**
+     * Kiểm tra nhanh sự xuất hiện của ít nhất 3 thẻ mở `<p>` trong chuỗi HTML mà không cần khởi tạo Jsoup Document.
+     *
+     * @param html Chuỗi mã HTML cần kiểm tra.
+     * @return `true` nếu tìm thấy từ 3 thẻ `<p>` hợp lệ trở lên, ngược lại trả về `false`.
+     */
+    private fun hasAtLeastThreeParagraphTags(html: String): Boolean {
+        var count = 0
+        var startIndex = 0
+        val length = html.length
+        while (startIndex < length) {
+            val idx = html.indexOf("<p", startIndex, ignoreCase = true)
+            if (idx == -1) break
+            val charAfter = html.getOrNull(idx + 2)
+            if (charAfter == null || charAfter.isWhitespace() || charAfter == '>' || charAfter == '/') {
+                count++
+                if (count >= 3) return true
+            }
+            startIndex = idx + 2
+        }
+        return false
     }
 }

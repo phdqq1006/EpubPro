@@ -22,4 +22,5 @@ dependencies {
 
     testImplementation(libs.junit4)
     testImplementation(libs.mockito.core)
+    testImplementation(libs.json)
 }

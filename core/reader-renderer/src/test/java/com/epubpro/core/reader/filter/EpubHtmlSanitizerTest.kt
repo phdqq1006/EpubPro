@@ -22,7 +22,7 @@ class EpubHtmlSanitizerTest {
             </html>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertFalse("Script tag should be removed", output.contains("<script", ignoreCase = true))
         assertFalse("Script payload should be removed", output.contains("alert('xss')"))
@@ -40,7 +40,7 @@ class EpubHtmlSanitizerTest {
             </body>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertFalse(output.contains("onerror", ignoreCase = true))
         assertFalse(output.contains("onload", ignoreCase = true))
@@ -64,7 +64,7 @@ class EpubHtmlSanitizerTest {
             </body>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertFalse(output.contains("javascript:", ignoreCase = true))
         assertFalse(output.contains("vbscript:", ignoreCase = true))
@@ -88,7 +88,7 @@ class EpubHtmlSanitizerTest {
             </body>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertFalse(output.contains("<iframe", ignoreCase = true))
         assertFalse(output.contains("<object", ignoreCase = true))
@@ -109,7 +109,7 @@ class EpubHtmlSanitizerTest {
             </body>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertTrue("Safe data:image/png should be kept", output.contains("src=\"data:image/png;base64,"))
         assertFalse("Dangerous data:text/html should be stripped", output.contains("data:text/html"))
@@ -133,7 +133,7 @@ class EpubHtmlSanitizerTest {
             </html>
         """.trimIndent()
 
-        val output = EpubHtmlSanitizer.sanitize(input)
+        val output = EpubHtmlSanitizer.sanitize(input).rawHtml
 
         assertTrue(output.contains("Chương 1: Khởi Đầu Mới"))
         assertTrue(output.contains("Lý Mộc Điền"))
@@ -146,7 +146,42 @@ class EpubHtmlSanitizerTest {
 
     @Test
     fun `sanitize should handle blank or empty input safely`() {
-        assertEquals("", EpubHtmlSanitizer.sanitize(""))
-        assertEquals("", EpubHtmlSanitizer.sanitize("   "))
+        assertTrue(EpubHtmlSanitizer.sanitize("").isBlank)
+        assertTrue(EpubHtmlSanitizer.sanitize("   ").isBlank)
+    }
+
+    @Test
+    fun `SanitizedEpubHtml restoreFromSnapshot validates hash and version`() {
+        val raw = "<p>Test Content</p>"
+        val sanitized = EpubHtmlSanitizer.sanitize(raw)
+        val hash = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+        val restored = SanitizedEpubHtml.restoreFromSnapshot(
+            html = sanitized.rawHtml,
+            sourceHash = hash,
+            actualSourceHtml = raw,
+            sanitizerVersion = EpubHtmlSanitizer.CURRENT_SANITIZER_VERSION
+        )
+        assertEquals(sanitized.rawHtml, restored?.rawHtml)
+
+        // Invalid version
+        val invalidVersion = SanitizedEpubHtml.restoreFromSnapshot(
+            html = sanitized.rawHtml,
+            sourceHash = hash,
+            actualSourceHtml = raw,
+            sanitizerVersion = 999
+        )
+        org.junit.Assert.assertNull(invalidVersion)
+
+        // Mismatched hash
+        val invalidHash = SanitizedEpubHtml.restoreFromSnapshot(
+            html = sanitized.rawHtml,
+            sourceHash = "wrong_hash",
+            actualSourceHtml = raw,
+            sanitizerVersion = EpubHtmlSanitizer.CURRENT_SANITIZER_VERSION
+        )
+        org.junit.Assert.assertNull(invalidHash)
     }
 }

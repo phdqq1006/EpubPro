@@ -31,7 +31,8 @@ class LibraryViewModel @Inject constructor(
     private val bookRepository: BookRepository,
     private val searchRepository: SearchRepository,
     private val storageManager: EpubStorageManager,
-    private val epubEngine: EpubEngine
+    private val epubEngine: EpubEngine,
+    private val snapshotStore: com.epubpro.core.storage.ReaderResumeSnapshotStore
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -85,6 +86,8 @@ class LibraryViewModel @Inject constructor(
 
     fun deleteBook(item: BookItemUiState) {
         viewModelScope.launch {
+            epubEngine.deleteBookCache(item.book.filePath)
+            snapshotStore.deleteSnapshot(item.book.id)
             storageManager.deleteBookFile(item.book.filePath)
             storageManager.deleteAiBookCache(item.book.id)
             bookRepository.deleteBook(item.book.id)

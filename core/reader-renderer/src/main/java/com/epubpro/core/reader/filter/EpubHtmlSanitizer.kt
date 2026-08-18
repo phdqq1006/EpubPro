@@ -13,6 +13,9 @@ import java.util.Locale
  */
 object EpubHtmlSanitizer {
 
+    /** Phiên bản của bộ lọc làm sạch HTML EPUB. */
+    const val CURRENT_SANITIZER_VERSION = 1
+
     private val BLOCKED_TAGS = setOf(
         "script",
         "iframe",
@@ -32,13 +35,13 @@ object EpubHtmlSanitizer {
     private val URL_ATTRIBUTES = listOf("href", "src", "action", "data", "formaction", "xlink:href")
 
     /**
-     * Làm sạch mã HTML/XHTML của chương sách.
+     * Làm sạch mã HTML/XHTML của chương sách và trả về kiểu dữ liệu đóng gói an toàn [SanitizedEpubHtml].
      *
      * @param html Chuỗi HTML gốc cần xử lý.
-     * @return Chuỗi HTML đã được làm sạch an toàn.
+     * @return Đối tượng [SanitizedEpubHtml] đã được làm sạch an toàn.
      */
-    fun sanitize(html: String): String {
-        if (html.isBlank()) return ""
+    fun sanitize(html: String): SanitizedEpubHtml {
+        if (html.isBlank()) return SanitizedEpubHtml.EMPTY
 
         val doc = Jsoup.parse(html)
         doc.outputSettings().apply {
@@ -63,7 +66,7 @@ object EpubHtmlSanitizer {
             sanitizeElement(element)
         }
 
-        return doc.outerHtml()
+        return SanitizedEpubHtml(doc.outerHtml())
     }
 
     private fun sanitizeElement(element: Element) {

@@ -1,7 +1,7 @@
 # EPUB Reader & Layout Engine
 
 > Tổng hợp kiến thức về hệ thống đọc EPUB, WebView rendering, TTS, tối ưu bộ nhớ RAM, Room FTS5 và cài đặt mặc định đọc / chuyển trang trong dự án.
-> Cập nhật lần cuối: 2026-08-17
+> Cập nhật lần cuối: 2026-08-18
 
 ---
 
@@ -87,6 +87,12 @@
 - **Chi tiết**: Điều chỉnh độ sáng màn hình đọc sách độc lập hoàn toàn với thiết bị mà không cần quyền hệ thống `WRITE_SETTINGS`: (1) Sử dụng `WindowManager.LayoutParams.screenBrightness` trên `Activity.window` cho dải sáng `20%..100%`; (2) Dưới ngưỡng `20%` kích hoạt cơ chế Extra Dim: giữ đèn nền ở mức tối thiểu `0.01f` và phủ một lớp `ExtraDimOverlay` (`Color.Black.copy(alpha = ...)`) tăng dần lên tối đa `75%`; (3) Xử lý Lifecycle với `LifecycleEventObserver` để tự động trả về độ sáng hệ thống (`BRIGHTNESS_OVERRIDE_NONE`) khi `onDispose` / `ON_PAUSE` và áp dụng lại khi `ON_RESUME`; (4) Phân loại `brightness` là Runtime Setting độc lập với `contentReloadKey()`, kết hợp cảm biến vuốt mép trái `detectVerticalDragGestures`, HUD nổi và Slider commit-on-release để đạt tốc độ phản hồi 60fps mà không reload WebView hay ghi disk liên tục.
 - **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/Models.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 ---
+
+
+### Same-WebView Adjacent Chapter Commit Architecture
+- **Ngay**: 2026-08-18
+- **Chi tiet**: De chuyen chuong co cam giac nhu chuyen page, giu preview da sanitize cua chuong truoc/ke trong cua so reader. Khi vuot boundary, renderer clone noi dung preview vao document.body, chay lai pagination/layout va chi gui su kien commit de native cap nhat currentChapterIndex. loadDataWithBaseURL() chi la fallback khi preview chua san sang hoac DOM commit that bai.
+- **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt
 
 ## Bugs & Solutions
 
@@ -253,6 +259,14 @@
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`
 ---
 
+
+### Tap Boundary Bo Qua Animation Va Reload WebView
+- **Ngay**: 2026-08-18
+- **Van de**: Vuot toi cuoi chuong co overlay preview, nhung cham vung NEXT o canh phai lai reload chuong ngay va khong chay hieu ung lat.
+- **Root cause**: epubproGoNextPage()/epubproGoPrevPage() goi truc tiep ReaderJsBridge.on*ChapterRequested(), bo qua gesture touchend va logic boundary overlay. Ngoai ra callback native truoc day kich hoat PixelCopy roi loadDataWithBaseURL().
+- **Fix**: Dung animateChapterBoundary(direction) cho ca tap va swipe; commit body preview trong DOM, gui onAdjacentChapterCommitted(direction), roi native bo qua reload neu hash HTML trung document da commit.
+- **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt, core/reader-renderer/src/main/java/com/epubpro/core/reader/bridge/ReaderJsBridge.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt
+
 ## How-To
 
 ### Cách triển khai điều chỉnh độ sáng độc lập và Extra Dim trong Compose Reader
@@ -318,6 +332,18 @@
   5. Build/cài lại, mở đúng sách và xác nhận log có callback page metrics nhưng không còn console syntax error.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
 ---
+
+
+### Cach trien khai chuyen chuong khong reload WebView
+- **Ngay**: 2026-08-18
+- **Buoc thuc hien**:
+  1. Preload va sanitize HTML chuong ke trong ViewModel/WebView.
+  2. Tach ham animation boundary dung chung cho swipe va tap canh trang.
+  3. Parse HTML preview bang DOMParser, thay document.body va reset pagination.
+  4. Gui bridge event co huong chuyen chuong; native cap nhat index.
+  5. Tao khoa sanitizedHtmlHash + contentReloadKey() de bo qua loadDataWithBaseURL() dung mot lan.
+  6. Giu fallback reload khi preview khong co hoac commit DOM loi; chay unit test renderer va build APK.
+- **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt
 
 ## Patterns
 
@@ -411,3 +437,9 @@
 - **Ngày**: 2026-08-17
 - **Chi tiết**: Đối với các thao tác vuốt kéo real-time 60fps (như vuốt mép chỉnh sáng, chỉnh âm lượng): Cập nhật trạng thái hiển thị và hiệu ứng trực tiếp qua `draftState` trong suốt quá trình vuốt (`onVerticalDrag`). Chỉ thực hiện ghi lưu storage (SharedPreferences / Database) trong callback `onDragEnd` / `onDragCancel` được bảo vệ bởi `rememberUpdatedState` để triệt tiêu tình trạng nghẽn I/O và stale closure.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/brightness/ReaderBrightnessComponents.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+
+### Boundary Commit Bridge + Reload Guard Pattern
+- **Ngay**: 2026-08-18
+- **Chi tiet**: Su kien chuyen chuong co hai duong: onAdjacentChapterCommitted(direction) cho document da thay DOM va onNext/PreviousChapterRequested() cho fallback. Native luu locallyCommittedHtmlKey; khi Compose doi state, neu key trung thi khong goi loadDataWithBaseURL(). Guard nay phai co generation/HTML hash de tranh bo qua nham reload cua chuong khac.
+- **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/bridge/ReaderJsBridge.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt

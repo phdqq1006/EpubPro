@@ -10,6 +10,9 @@ class ReaderJsBridge(
     private val onPageChangedListener: (currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) -> Unit = { _, _, _ -> },
     private val onNextChapterListener: () -> Unit = {},
     private val onPreviousChapterListener: () -> Unit = {},
+    private val onNextChapterPrefetchListener: () -> Unit = {},
+    private val onPreviousChapterPrefetchListener: () -> Unit = {},
+    private val onAdjacentChapterCommittedListener: (direction: Int) -> Unit = {},
     private val onReaderLayoutReadyListener: (loadGeneration: Int) -> Unit = {}
 ) {
     @JavascriptInterface
@@ -40,6 +43,32 @@ class ReaderJsBridge(
     @JavascriptInterface
     fun onPreviousChapterRequested() {
         onPreviousChapterListener()
+    }
+
+    /**
+     * Báo trước rằng người dùng đã commit gesture sang chương kế tiếp để chuẩn bị cache.
+     */
+    @JavascriptInterface
+    fun onNextChapterPrefetchRequested() {
+        onNextChapterPrefetchListener()
+    }
+
+    /**
+     * Báo trước rằng người dùng đã commit gesture về chương trước để chuẩn bị cache.
+     */
+    @JavascriptInterface
+    fun onPreviousChapterPrefetchRequested() {
+        onPreviousChapterPrefetchListener()
+    }
+
+    /**
+     * Báo cho Android rằng nội dung chương kề đã được thay trực tiếp trong DOM hiện tại.
+     *
+     * @param direction Hướng chuyển chương: 1 là chương kế tiếp, -1 là chương trước đó.
+     */
+    @JavascriptInterface
+    fun onAdjacentChapterCommitted(direction: Int) {
+        onAdjacentChapterCommittedListener(direction)
     }
 
     @JavascriptInterface

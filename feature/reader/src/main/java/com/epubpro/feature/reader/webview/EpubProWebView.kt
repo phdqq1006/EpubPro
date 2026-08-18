@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import com.epubpro.core.reader.bridge.ReaderJsBridge
 import com.epubpro.core.reader.filter.EpubHtmlSanitizer
+import com.epubpro.core.reader.filter.SanitizedEpubHtml
 import com.epubpro.core.reader.style.CssInjector
 import com.epubpro.domain.model.ContentFilterPreferences
 import kotlinx.coroutines.Dispatchers
@@ -93,7 +94,7 @@ private data class SanitizedEpubHtmlBundle(
  * @return Chuỗi HTML đã được lọc bỏ các thẻ active script/style nguy hiểm.
  */
 private fun sanitizeEpubHtmlOrEmpty(html: String): String =
-    runCatching { EpubHtmlSanitizer.sanitize(html) }.getOrDefault("")
+    runCatching { EpubHtmlSanitizer.sanitize(html).rawHtml }.getOrDefault("")
 
 /**
  * Tạo mã hash khóa nạp lại nội dung WebView dựa trên các thuộc tính giao diện cần render lại.
@@ -193,8 +194,13 @@ private fun WebView.captureTransitionFrame(
  *
  * @param modifier Modifier tùy chỉnh layout cho WebView.
  * @param htmlContent Mã HTML nguyên bản của chương sách hiện tại.
+ * @param preSanitizedHtml HTML current đã được kiểm tra và làm sạch từ snapshot, nếu có.
  * @param previousChapterHtml Mã HTML xem trước của chương trước đó.
  * @param nextChapterHtml Mã HTML xem trước của chương kế tiếp.
+ * @param preSanitizedPreviousChapterHtml HTML chương trước đã sanitize, nếu có.
+ * @param preSanitizedNextChapterHtml HTML chương kế tiếp đã sanitize, nếu có.
+ * @param hasPreviousChapter Cho biết danh sách còn chương trước hay không.
+ * @param hasNextChapter Cho biết danh sách còn chương kế tiếp hay không.
  * @param initialPage Trang bắt đầu hiển thị khi mở chương.
  * @param initialVisibleParagraphIndex Chỉ số đoạn văn bắt đầu hiển thị khi mở chương.
  * @param settings Cấu hình cài đặt đọc sách [ReaderSettings].
@@ -204,6 +210,8 @@ private fun WebView.captureTransitionFrame(
  * @param onPageChanged Callback báo chỉ số trang hiện tại, tổng số trang và index đoạn văn hiển thị đầu tiên.
  * @param onNextChapter Callback yêu cầu chuyển sang chương kế tiếp.
  * @param onPreviousChapter Callback yêu cầu chuyển về chương trước đó.
+ * @param onNextChapterPrefetch Callback preload chương kế tiếp ngay khi gesture commit.
+ * @param onPreviousChapterPrefetch Callback preload chương trước ngay khi gesture commit.
  * @param onTextSelected Callback khi người dùng bôi đen chọn đoạn văn bản.
  * @param onCfiChanged Callback báo mã vị trí CFI thay đổi.
  */
@@ -212,8 +220,13 @@ private fun WebView.captureTransitionFrame(
 fun EpubProWebView(
     modifier: Modifier = Modifier,
     htmlContent: String,
+    preSanitizedHtml: SanitizedEpubHtml? = null,
     previousChapterHtml: String?,
     nextChapterHtml: String?,
+    preSanitizedPreviousChapterHtml: SanitizedEpubHtml? = null,
+    preSanitizedNextChapterHtml: SanitizedEpubHtml? = null,
+    hasPreviousChapter: Boolean = true,
+    hasNextChapter: Boolean = true,
     initialPage: Int,
     initialVisibleParagraphIndex: Int,
     settings: ReaderSettings,
@@ -223,6 +236,8 @@ fun EpubProWebView(
     onPageChanged: (currentPage: Int, totalPages: Int, firstVisibleChunkIndex: Int) -> Unit,
     onNextChapter: () -> Unit,
     onPreviousChapter: () -> Unit,
+    onNextChapterPrefetch: () -> Unit = {},
+    onPreviousChapterPrefetch: () -> Unit = {},
     onTextSelected: (String) -> Unit,
     onCfiChanged: (String) -> Unit
 ) {
@@ -232,25 +247,33 @@ fun EpubProWebView(
     val currentOnPageChanged by rememberUpdatedState(onPageChanged)
     val currentOnNextChapter by rememberUpdatedState(onNextChapter)
     val currentOnPreviousChapter by rememberUpdatedState(onPreviousChapter)
+    val currentOnNextChapterPrefetch by rememberUpdatedState(onNextChapterPrefetch)
+    val currentOnPreviousChapterPrefetch by rememberUpdatedState(onPreviousChapterPrefetch)
+    val currentPreSanitizedPreviousChapterHtml by rememberUpdatedState(preSanitizedPreviousChapterHtml)
+    val currentPreSanitizedNextChapterHtml by rememberUpdatedState(preSanitizedNextChapterHtml)
+    val currentPreviousChapterHtml by rememberUpdatedState(previousChapterHtml)
+    val currentNextChapterHtml by rememberUpdatedState(nextChapterHtml)
+    val currentReaderSettings by rememberUpdatedState(settings)
     val currentOnTextSelected by rememberUpdatedState(onTextSelected)
     val currentOnCfiChanged by rememberUpdatedState(onCfiChanged)
 
     var loadedHtmlKey by remember { mutableStateOf("") }
+    var currentLoadedGeneration by remember { mutableStateOf(0) }
+    var latestAdjacentPayload by remember { mutableStateOf<Triple<Int, String, String>?>(null) }
+    var locallyCommittedHtmlKey by remember { mutableStateOf<String?>(null) }
+    val currentAdjacentPayload by rememberUpdatedState(latestAdjacentPayload)
+    val currentGenerationForPage by rememberUpdatedState(currentLoadedGeneration)
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var transitionCover by remember { mutableStateOf<ChapterTransitionCover?>(null) }
     var isTransitionCapturePending by remember { mutableStateOf(false) }
-    val sanitizedHtmlBundle by produceState<SanitizedEpubHtmlBundle?>(
-        initialValue = null,
+
+    val sanitizedCurrentHtml by produceState<SanitizedEpubHtml?>(
+        initialValue = preSanitizedHtml,
         htmlContent,
-        previousChapterHtml,
-        nextChapterHtml
+        preSanitizedHtml
     ) {
-        value = withContext(Dispatchers.Default) {
-            SanitizedEpubHtmlBundle(
-                current = sanitizeEpubHtmlOrEmpty(htmlContent),
-                previous = previousChapterHtml?.let(::sanitizeEpubHtmlOrEmpty),
-                next = nextChapterHtml?.let(::sanitizeEpubHtmlOrEmpty)
-            )
+        value = preSanitizedHtml ?: withContext(Dispatchers.Default) {
+            EpubHtmlSanitizer.sanitize(htmlContent)
         }
     }
 
@@ -326,6 +349,28 @@ fun EpubProWebView(
                     requestChapterTransition(ChapterTransitionDirection.PREVIOUS)
                 }
             },
+            onNextChapterPrefetchListener = {
+                mainHandler.post { currentOnNextChapterPrefetch() }
+            },
+            onPreviousChapterPrefetchListener = {
+                mainHandler.post { currentOnPreviousChapterPrefetch() }
+            },
+            onAdjacentChapterCommittedListener = { direction ->
+                mainHandler.post {
+                    val adjacent = if (direction > 0) {
+                        currentPreSanitizedNextChapterHtml?.rawHtml
+                            ?: currentNextChapterHtml?.takeIf { it.isNotBlank() }
+                    } else {
+                        currentPreSanitizedPreviousChapterHtml?.rawHtml
+                            ?: currentPreviousChapterHtml?.takeIf { it.isNotBlank() }
+                    }
+                    if (adjacent != null) {
+                        locallyCommittedHtmlKey =
+                            "${adjacent.hashCode()}_${currentReaderSettings.contentReloadKey()}"
+                    }
+                    if (direction > 0) currentOnNextChapter() else currentOnPreviousChapter()
+                }
+            },
             onReaderLayoutReadyListener = { loadGeneration ->
                 mainHandler.post {
                     val cover = transitionCover
@@ -388,6 +433,37 @@ fun EpubProWebView(
         }
     }
 
+    LaunchedEffect(
+        previousChapterHtml,
+        nextChapterHtml,
+        preSanitizedPreviousChapterHtml,
+        preSanitizedNextChapterHtml,
+        currentLoadedGeneration
+    ) {
+        if (currentLoadedGeneration <= 0) return@LaunchedEffect
+        val webView = webViewRef ?: return@LaunchedEffect
+
+        val (quotedPrev, quotedNext) = withContext(Dispatchers.Default) {
+            val cleanPrev = preSanitizedPreviousChapterHtml?.rawHtml
+                ?: previousChapterHtml?.takeIf { it.isNotBlank() }
+                    ?.let { EpubHtmlSanitizer.sanitize(it).rawHtml }
+                .orEmpty()
+            val cleanNext = preSanitizedNextChapterHtml?.rawHtml
+                ?: nextChapterHtml?.takeIf { it.isNotBlank() }
+                    ?.let { EpubHtmlSanitizer.sanitize(it).rawHtml }
+                .orEmpty()
+            val prevJs = CssInjector.quoteForJsArgument(cleanPrev)
+            val nextJs = CssInjector.quoteForJsArgument(cleanNext)
+            prevJs to nextJs
+        }
+
+        latestAdjacentPayload = Triple(currentLoadedGeneration, quotedPrev, quotedNext)
+        webView.evaluateJavascript(
+            "if (typeof epubproSetAdjacentChapters === 'function') { epubproSetAdjacentChapters($currentLoadedGeneration, $quotedPrev, $quotedNext, $hasPreviousChapter, $hasNextChapter); }",
+            null
+        )
+    }
+
     LaunchedEffect(activeTtsParagraphIndex) {
         if (activeTtsParagraphIndex != null && webViewRef != null) {
             webViewRef?.evaluateJavascript(
@@ -442,6 +518,14 @@ fun EpubProWebView(
                                 "if (typeof epubproUpdateMetrics === 'function') { epubproUpdateMetrics(); }",
                                 null
                             )
+                            val payload = currentAdjacentPayload
+                            val generation = currentGenerationForPage
+                            if (view != null && payload?.first == generation) {
+                                view.evaluateJavascript(
+                                    "if (typeof epubproSetAdjacentChapters === 'function') { epubproSetAdjacentChapters(${payload.first}, ${payload.second}, ${payload.third}); }",
+                                    null
+                                )
+                            }
                         }
 
                         override fun shouldOverrideUrlLoading(
@@ -465,7 +549,7 @@ fun EpubProWebView(
                 }
             },
             update = update@{ webView ->
-                val sanitized = sanitizedHtmlBundle ?: return@update
+                val sanitized = sanitizedCurrentHtml ?: return@update
                 webView.isVerticalScrollBarEnabled =
                     settings.showScrollBar && !settings.isHorizontalPagination
                 webView.isHorizontalScrollBarEnabled =
@@ -519,13 +603,16 @@ fun EpubProWebView(
                 )
 
                 val newHtmlKey =
-                    "${sanitized.current.hashCode()}_${sanitized.previous?.hashCode()}_${sanitized.next?.hashCode()}_${settings.contentReloadKey()}"
+                    "${sanitized.rawHtml.hashCode()}_${settings.contentReloadKey()}"
                 if (loadedHtmlKey != newHtmlKey) {
                     loadedHtmlKey = newHtmlKey
-                    val loadGeneration = generationTracker.nextLoadGeneration()
-                    val cleanHtml = sanitized.current
-                    val previousPreviewHtml = sanitized.previous
-                    val nextPreviewHtml = sanitized.next
+                    if (locallyCommittedHtmlKey == newHtmlKey) {
+                        locallyCommittedHtmlKey = null
+                        Log.d("EpubPro_HTML", "Skipping WebView reload because chapter was committed in the existing DOM")
+                    } else {
+                        val loadGeneration = generationTracker.nextLoadGeneration()
+                    currentLoadedGeneration = loadGeneration
+                    val cleanHtml = sanitized.rawHtml
                     val statusFooterHeightDp = if (settings.showStatusBar) 20 else 0
                     val css = CssInjector.generateCss(settings, statusFooterHeightDp)
                     val jsScript = CssInjector.generateJsBridgeScript(
@@ -534,10 +621,12 @@ fun EpubProWebView(
                         initialVisibleParagraphIndex = initialVisibleParagraphIndex,
                         settings = settings,
                         statusFooterHeightDp = statusFooterHeightDp,
-                        previousChapterHtml = previousPreviewHtml,
-                        nextChapterHtml = nextPreviewHtml,
+                        previousChapterHtml = preSanitizedPreviousChapterHtml?.rawHtml,
+                        nextChapterHtml = preSanitizedNextChapterHtml?.rawHtml,
                         filterPreferences = filterPreferences,
-                        loadGeneration = loadGeneration
+                        loadGeneration = loadGeneration,
+                        hasPreviousChapter = hasPreviousChapter,
+                        hasNextChapter = hasNextChapter
                     )
                     val meta = CssInjector.generateMetaAndViewport()
                     val headInjection = """
@@ -584,6 +673,7 @@ fun EpubProWebView(
                         "utf-8",
                         null
                     )
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize()

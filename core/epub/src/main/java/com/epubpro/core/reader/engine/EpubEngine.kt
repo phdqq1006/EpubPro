@@ -7,21 +7,31 @@ import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jsoup.Jsoup
-import org.jsoup.parser.Parser
 import java.io.File
-import java.net.URLDecoder
-import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Tiêu đề và vị trí định danh của một chương sách EPUB.
+ *
+ * @property index Thứ tự chỉ số chương trong toàn bộ cuốn sách (0-indexed).
+ * @property title Tiêu đề hiển thị của chương.
+ * @property entryName Đường dẫn tệp entry bên trong tệp nén Zip.
+ */
 data class EpubChapterHeader(
     val index: Int,
     val title: String,
     val entryName: String
 )
 
+/**
+ * Nội dung chi tiết của một chương sách EPUB.
+ *
+ * @property index Thứ tự chỉ số chương trong sách.
+ * @property title Tiêu đề chương.
+ * @property htmlContent Nội dung mã HTML/XHTML đã được chuẩn hóa của chương.
+ */
 data class EpubChapterContent(
     val index: Int,
     val title: String,
@@ -30,12 +40,41 @@ data class EpubChapterContent(
 
 typealias ReadiumEngine = EpubEngine
 
+/**
+ * Engine xử lý trích xuất metadata, phân tích cấu trúc chương sách và nạp nội dung EPUB.
+ *
+ * Hỗ trợ tối ưu hóa hiệu năng mở sách bằng:
+ * 1. Persistent Structure Cache ([EpubStructureCache]) lưu trữ danh sách chương trên đĩa.
+ * 2. Phân tích TOC-first ([EpubPackageStructureParser]) trích xuất tiêu đề từ Navigation Document/NCX trong 1 lượt I/O.
+ * 3. Byte-Budget Memory Cache ([EpubChapterMemoryCache]) lưu trữ RAM cho các chương đã chuẩn hóa.
+ *
+ * @param context Context ứng dụng Android.
+ * @param structureCache Bộ quản lý cache cấu trúc chương trên đĩa.
+ * @param chapterMemoryCache Bộ nhớ đệm RAM cho nội dung các chương.
+ */
 @Singleton
 class EpubEngine @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val structureCache: EpubStructureCache,
+    private val chapterMemoryCache: EpubChapterMemoryCache
 ) {
     /**
-     * Parses metadata from EPUB file with memory safety boundaries.
+     * Constructor phụ phục vụ khởi tạo trong môi trường Unit Test hoặc khi không có DI container.
+     */
+    constructor(
+        context: Context
+    ) : this(
+        context = context,
+        structureCache = EpubStructureCache(context),
+        chapterMemoryCache = EpubChapterMemoryCache()
+    )
+
+    /**
+     * Trích xuất thông tin metadata cơ bản (tiêu đề, tác giả, số lượng chương) từ tệp EPUB.
+     *
+     * @param file Tệp EPUB trên bộ nhớ thiết bị.
+     * @return Đối tượng [Book] chứa metadata đã trích xuất.
+     * @throws IllegalStateException Nếu kích thước tệp vượt quá giới hạn an toàn [EpubReadLimits.MAX_EPUB_FILE_SIZE].
      */
     suspend fun parseEpubMetadata(file: File): Book = withContext(Dispatchers.IO) {
         if (file.length() > EpubReadLimits.MAX_EPUB_FILE_SIZE) {
@@ -47,16 +86,12 @@ class EpubEngine @Inject constructor(
 
         try {
             ZipFile(file).use { zip ->
-                val allEntries = zip.entries().toList()
-                val opfEntry = findOpfEntry(zip, allEntries)
-                if (opfEntry != null) {
-                    EpubReadLimits.validateZipEntry(opfEntry)
-                    val content = zip.getInputStream(opfEntry).use { it.readBoundedText() }
-                    val opfDoc = Jsoup.parse(content, "", Parser.xmlParser())
-                    val dcTitle = opfDoc.select("dc|title, title").text().trim()
-                    val dcCreator = opfDoc.select("dc|creator, creator").text().trim()
-                    if (dcTitle.isNotBlank()) title = dcTitle
-                    if (dcCreator.isNotBlank()) author = dcCreator
+                val parsed = EpubPackageStructureParser.parseStructure(zip)
+                if (parsed.title.isNotBlank() && parsed.title != "Unknown Title") {
+                    title = parsed.title
+                }
+                if (parsed.author.isNotBlank() && parsed.author != "Unknown Author") {
+                    author = parsed.author
                 }
             }
         } catch (e: Exception) {
@@ -82,31 +117,48 @@ class EpubEngine @Inject constructor(
     }
 
     /**
-     * Extracts lightweight chapter headers without loading full HTML text into memory.
+     * Trích xuất danh sách tiêu đề chương gọn nhẹ ([EpubChapterHeader]) từ tệp EPUB mà không cần nạp toàn bộ HTML vào RAM.
+     *
+     * Tự động kiểm tra [EpubStructureCache] theo dấu vân tay [EpubCacheFingerprint]. Nếu trúng cache (hit),
+     * trả về kết quả ngay lập tức (0ms) mà không mở tệp Zip.
+     * Nếu trượt cache (miss), phân tích bằng [EpubPackageStructureParser] theo thứ tự spine và TOC mapping,
+     * sau đó tự động lưu vào cache bền vững.
+     *
+     * @param file Tệp EPUB cần lấy danh sách chương.
+     * @return Danh sách [EpubChapterHeader] theo đúng thứ tự đọc của tác giả.
      */
     suspend fun extractChapterHeaders(file: File): List<EpubChapterHeader> = withContext(Dispatchers.IO) {
+        val fingerprint = EpubCacheFingerprint.fromFile(file)
+        val cachedHeaders = structureCache.readHeaders(fingerprint)
+        if (cachedHeaders != null && cachedHeaders.isNotEmpty()) {
+            return@withContext cachedHeaders
+        }
+
         val headers = mutableListOf<EpubChapterHeader>()
         try {
             ZipFile(file).use { zip ->
-                val orderedEntries = getOrderedHtmlEntries(zip)
+                val parsed = EpubPackageStructureParser.parseStructure(zip)
+                val tocTitles = parsed.chapterTitles
 
-                orderedEntries.forEachIndexed { index, entry ->
-                    // Read header sample to extract chapter title
-                    val rawTitle = try {
-                        val buffer = ByteArray(8192)
-                        val readBytes = zip.getInputStream(entry).use { it.read(buffer, 0, buffer.size) }
-                        if (readBytes > 0) {
-                            val sample = String(buffer, 0, readBytes, Charsets.UTF_8)
-                            extractXmlTag(sample, "title")
-                                ?: extractXmlTag(sample, "h1")
-                                ?: extractXmlTag(sample, "h2")
-                                ?: "Chương ${index + 1}"
-                        } else {
+                parsed.orderedEntries.forEachIndexed { index, entry ->
+                    val rawTitle = tocTitles[entry.name]
+                        ?: tocTitles[entry.name.substringAfterLast('/')]
+                        ?: tocTitles.entries.firstOrNull { entry.name.endsWith(it.key, ignoreCase = true) }?.value
+                        ?: try {
+                            val buffer = ByteArray(8192)
+                            val readBytes = zip.getInputStream(entry).use { it.read(buffer, 0, buffer.size) }
+                            if (readBytes > 0) {
+                                val sample = String(buffer, 0, readBytes, Charsets.UTF_8)
+                                extractXmlTag(sample, "title")
+                                    ?: extractXmlTag(sample, "h1")
+                                    ?: extractXmlTag(sample, "h2")
+                                    ?: "Chương ${index + 1}"
+                            } else {
+                                "Chương ${index + 1}"
+                            }
+                        } catch (e: Exception) {
                             "Chương ${index + 1}"
                         }
-                    } catch (e: Exception) {
-                        "Chương ${index + 1}"
-                    }
 
                     val title = sanitizeChapterTitle(rawTitle)
                         .ifBlank { "Chương ${index + 1}" }
@@ -123,35 +175,61 @@ class EpubEngine @Inject constructor(
         } catch (e: Exception) {
             throw IllegalStateException("Không thể đọc cấu trúc EPUB", e)
         }
+
+        structureCache.saveHeaders(fingerprint, headers)
         headers
     }
 
     /**
-     * Loads single chapter HTML on demand with bounded stream reading.
+     * Nạp nội dung mã HTML của một chương theo yêu cầu (on-demand), áp dụng [HtmlNormalizer]
+     * và lưu trữ trong [EpubChapterMemoryCache] với cơ chế Single-Flight.
+     *
+     * @param file Tệp EPUB chứa nội dung.
+     * @param entryName Tên entry tệp chương cần nạp.
+     * @return Chuỗi mã HTML đã được chuẩn hóa.
      */
     suspend fun loadChapterHtml(file: File, entryName: String): String = withContext(Dispatchers.IO) {
-        try {
-            ZipFile(file).use { zip ->
-                val entry = zip.getEntry(entryName)
-                if (entry != null) {
-                    EpubReadLimits.validateZipEntry(entry)
-                    val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
-                    return@withContext HtmlNormalizer.normalize(rawHtml)
+        val fingerprint = EpubCacheFingerprint.fromFile(file)
+        chapterMemoryCache.getOrLoad(fingerprint, entryName) {
+            try {
+                ZipFile(file).use { zip ->
+                    val entry = zip.getEntry(entryName)
+                    if (entry != null) {
+                        EpubReadLimits.validateZipEntry(entry)
+                        val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
+                        return@getOrLoad HtmlNormalizer.normalize(rawHtml)
+                    }
                 }
+            } catch (e: Exception) {
+                throw IllegalStateException("Không thể tải nội dung chương: $entryName", e)
             }
-        } catch (e: Exception) {
-            throw IllegalStateException("Không thể tải nội dung chương: $entryName", e)
+            throw IllegalStateException("Không tìm thấy nội dung chương: $entryName")
         }
-        throw IllegalStateException("Không tìm thấy nội dung chương: $entryName")
     }
 
     /**
-     * Streams chapters one by one into FTS index without keeping them in memory.
+     * Xóa cache cấu trúc đĩa và cache RAM khi tệp sách bị xóa khỏi thư viện.
+     *
+     * @param filePath Đường dẫn tệp sách bị xóa.
+     */
+    fun deleteBookCache(filePath: String) {
+        val canonicalPath = File(filePath).canonicalFile.absolutePath
+        structureCache.deleteCache(canonicalPath)
+        chapterMemoryCache.evictBook(canonicalPath)
+    }
+
+    /**
+     * Đánh chỉ mục tìm kiếm FTS ngầm cho nội dung toàn bộ sách theo từng đợt (batch).
+     *
+     * @param file Tệp EPUB cần đánh chỉ mục.
+     * @param bookId Mã định danh của cuốn sách.
+     * @param searchRepository Repository tìm kiếm dữ liệu.
      */
     suspend fun indexBookContent(file: File, bookId: String, searchRepository: SearchRepository) = withContext(Dispatchers.IO) {
         try {
             ZipFile(file).use { zip ->
-                val orderedEntries = getOrderedHtmlEntries(zip)
+                val parsed = EpubPackageStructureParser.parseStructure(zip)
+                val orderedEntries = parsed.orderedEntries
 
                 val indexedChapters = mutableListOf<Pair<Int, Pair<String, String>>>()
 
@@ -160,7 +238,8 @@ class EpubEngine @Inject constructor(
                         EpubReadLimits.validateZipEntry(entry)
                         val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
                         val plainText = stripHtmlTags(rawHtml)
-                        val title = extractXmlTag(rawHtml, "title")
+                        val title = parsed.chapterTitles[entry.name]
+                            ?: extractXmlTag(rawHtml, "title")
                             ?: extractXmlTag(rawHtml, "h1")
                             ?: "Chương ${index + 1}"
                         indexedChapters.add(index to (title to plainText))
@@ -182,124 +261,6 @@ class EpubEngine @Inject constructor(
             }
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    private fun findOpfEntry(zip: ZipFile, allEntries: List<ZipEntry>): ZipEntry? {
-        val entryMap = allEntries.associateBy { it.name }
-
-        // 1. Try reading META-INF/container.xml (EPUB specification)
-        val containerEntry = entryMap["META-INF/container.xml"]
-            ?: allEntries.find { it.name.equals("META-INF/container.xml", ignoreCase = true) }
-
-        if (containerEntry != null) {
-            try {
-                EpubReadLimits.validateZipEntry(containerEntry)
-                val containerXml = zip.getInputStream(containerEntry).use { it.readBoundedText() }
-                val doc = Jsoup.parse(containerXml, "", Parser.xmlParser())
-                val rootfile = doc.select("rootfile").firstOrNull()
-                val fullPath = rootfile?.attr("full-path")?.trim()
-                if (!fullPath.isNullOrBlank()) {
-                    val decodedPath = URLDecoder.decode(fullPath, "UTF-8")
-                    val opf = entryMap[decodedPath]
-                        ?: entryMap[fullPath]
-                        ?: allEntries.find { it.name.equals(decodedPath, ignoreCase = true) || it.name.equals(fullPath, ignoreCase = true) }
-                    if (opf != null) return opf
-                }
-            } catch (e: Exception) {
-                // Fallback to scanning first .opf
-            }
-        }
-
-        // 2. Fallback: Search for first .opf file in the archive
-        return allEntries.find { it.name.endsWith(".opf", ignoreCase = true) }
-    }
-
-    private fun getOrderedHtmlEntries(zip: ZipFile): List<ZipEntry> {
-        val allEntries = zip.entries().toList()
-        val entryMap = allEntries.associateBy { it.name }
-
-        // 1. Try OPF spine parsing for exact author-intended chapter sequence
-        val opfEntry = findOpfEntry(zip, allEntries)
-        if (opfEntry != null) {
-            try {
-                EpubReadLimits.validateZipEntry(opfEntry)
-                val opfContent = zip.getInputStream(opfEntry).use { it.readBoundedText() }
-                val opfDir = opfEntry.name.substringBeforeLast('/', "")
-                val dirPrefix = if (opfDir.isNotEmpty()) "$opfDir/" else ""
-
-                val opfDoc = Jsoup.parse(opfContent, "", Parser.xmlParser())
-                val manifestMap = mutableMapOf<String, String>()
-                opfDoc.select("manifest > item").forEach { item ->
-                    val id = item.attr("id").trim()
-                    val href = item.attr("href").trim()
-                    if (id.isNotEmpty() && href.isNotEmpty()) {
-                        manifestMap[id] = href
-                    }
-                }
-
-                val spineIds = mutableListOf<String>()
-                opfDoc.select("spine > itemref").forEach { itemref ->
-                    val idref = itemref.attr("idref").trim()
-                    if (idref.isNotEmpty()) {
-                        spineIds.add(idref)
-                    }
-                }
-
-                val orderedEntries = mutableListOf<ZipEntry>()
-                for (id in spineIds) {
-                    val href = manifestMap[id] ?: continue
-                    val cleanHref = href.substringBefore('#') // Strip fragment identifier if present
-                    val decodedHref = URLDecoder.decode(cleanHref, "UTF-8")
-                    val fullPath = if (dirPrefix.isNotEmpty() && !decodedHref.startsWith("/")) "$dirPrefix$decodedHref" else decodedHref
-
-                    val entry = entryMap[fullPath]
-                        ?: entryMap[decodedHref]
-                        ?: allEntries.find { it.name.endsWith(decodedHref, ignoreCase = true) }
-
-                    if (entry != null && isHtmlEntry(entry.name)) {
-                        orderedEntries.add(entry)
-                    }
-                }
-
-                if (orderedEntries.isNotEmpty()) {
-                    return orderedEntries
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-
-        // 2. Fallback: Natural numeric sort comparator
-        val htmlEntries = allEntries.filter { isHtmlEntry(it.name) }
-        val comparator = naturalOrderComparator()
-        return htmlEntries.sortedWith(Comparator { e1, e2 -> comparator.compare(e1.name, e2.name) })
-    }
-
-    private fun isHtmlEntry(name: String): Boolean {
-        return name.endsWith(".xhtml", ignoreCase = true) ||
-               name.endsWith(".html", ignoreCase = true) ||
-               name.endsWith(".htm", ignoreCase = true)
-    }
-
-    private fun naturalOrderComparator(): Comparator<String> {
-        val regex = Regex("(\\d+)|(\\D+)")
-        return Comparator { s1, s2 ->
-            val m1 = regex.findAll(s1).map { it.value }.toList()
-            val m2 = regex.findAll(s2).map { it.value }.toList()
-            for (i in 0 until minOf(m1.size, m2.size)) {
-                val token1 = m1[i]
-                val token2 = m2[i]
-                val num1 = token1.toIntOrNull()
-                val num2 = token2.toIntOrNull()
-                if (num1 != null && num2 != null) {
-                    if (num1 != num2) return@Comparator num1.compareTo(num2)
-                } else {
-                    val res = token1.compareTo(token2, ignoreCase = true)
-                    if (res != 0) return@Comparator res
-                }
-            }
-            m1.size.compareTo(m2.size)
         }
     }
 
