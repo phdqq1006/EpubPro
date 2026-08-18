@@ -1,7 +1,7 @@
 # Online Backend & Library Integration
 
-> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow và chuẩn hóa quy định dự án theo AGENTS.md.
-> Cập nhật lần cuối: 2026-08-18
+> Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow, WorkManager ngầm và chuẩn hóa quy định dự án theo AGENTS.md.
+> Cập nhật lần cuối: 2026-08-19
 
 ---
 
@@ -11,6 +11,16 @@
 - **Ngày**: 2026-08-17
 - **Chi tiết**: Sử dụng `DynamicBaseUrlInterceptor` trong OkHttp để định tuyến lại URL động lúc runtime dựa trên `ServerPreferencesManager`. Bóc tách path segments tương đối sau tiền tố `/api/v1` để tránh nhân đôi path segments khi chuyển đổi giữa Cloud (Render/API), Emulator (`10.0.2.2`), Localhost (`127.0.0.1`) và LAN IP.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptor.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`
+
+### Background EPUB Import & Realtime Notification Architecture
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Sử dụng `EpubImportWorker` (kế thừa `CoroutineWorker`) kết hợp `WorkManager` và `NotificationCompat.Builder` với kiểu `FOREGROUND_SERVICE_TYPE_DATA_SYNC`. Tách biệt vòng đời xử lý khỏi `viewModelScope` để tiến trình upload và polling không bao giờ bị dừng khi người dùng tắt app hoặc khóa màn hình. `LibraryViewModel` lắng nghe `getWorkInfosForUniqueWorkFlow` để đồng bộ UI.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`
+
+### Two-Tier Book Bible & Online Novel ID Resolution Architecture
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Phân tách rõ giữa Client Local Source Key (`LOCAL_EPUB:<id>`, `ONLINE_NOVEL:<slug>`) và Backend Cloud ID (`backendBookId`, `backendEditionId`). Sách offline được resolve qua `POST /books/resolve` để lấy ID máy chủ trước khi submit, tránh nhầm lẫn ID giữa các thiết bị.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleWorker.kt`, `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`
 
 ### Production Render Cloud Deployment Integration
 - **Ngày**: 2026-08-18
@@ -35,6 +45,27 @@
 ---
 
 ## Bugs & Solutions
+
+### Lỗi Dialog tự mở lại liên tục khi người dùng nhấn "Chạy ngầm"
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Sau khi bấm nút "Chạy ngầm" để đóng AlertDialog tiến trình upload, dialog bị tự động bật lại ngay lập tức.
+- **Root cause**: `WorkManager.getWorkInfosForUniqueWorkFlow` liên tục emit state `RUNNING` mỗi khi có cập nhật % tiến độ mới, gán đè lại `_uploadJobState.value = ImportJobStatus(...)`.
+- **Fix**: Thêm cờ `isDialogDismissedByUser = true` khi người dùng bấm ẩn; `observeImportWorkerProgress` kiểm tra cờ này trước khi gán lại state dialog. Reset về `false` khi có upload mới hoặc job kết thúc.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`
+
+### Lỗi Polling chạy vô tận khi gặp HTTP 404 / 4xx từ Server
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Khi Server trả về 404 (`{"detail":"Không tìm thấy tiến trình upload này."}`), app vẫn tiếp tục polling vô tận và không báo lỗi cho người dùng.
+- **Root cause**: Khối `onFailure` trong vòng lặp polling chỉ in stack trace và tiếp tục `delay(2500)` cho vòng lặp kế tiếp.
+- **Fix**: Bắt `HttpException`, bóc tách `JSONObject.optString("detail")`, ngắt vòng lặp ngay lập tức (`isRunning = false`), hiển thị Error Notification và cập nhật UI thất bại. Thêm giới hạn tối đa 12 lần lỗi mạng liên tiếp trước khi ngắt.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
+
+### Lỗi Notification không hiển thị trên Android 13+ (API 33+)
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Tiến trình upload chạy nhưng thanh thông báo trạng thái không xuất hiện trên đỉnh màn hình điện thoại.
+- **Root cause**: Android 13+ yêu cầu runtime permission `POST_NOTIFICATIONS` và Android 14 yêu cầu khai báo `FOREGROUND_SERVICE_DATA_SYNC` / `SystemForegroundService`.
+- **Fix**: Thêm launcher xin quyền `POST_NOTIFICATIONS` trong `LibraryScreen.kt` trước khi mở picker; khai báo `FOREGROUND_SERVICE_DATA_SYNC` trong `AndroidManifest.xml`; gọi `setForeground(createForegroundInfo(...))` trong Worker.
+- **Files liên quan**: `app/src/main/AndroidManifest.xml`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`, `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
 
 ### Lỗi IllegalArgumentException: 25.0.2 khi build Gradle với Java 25
 - **Ngày**: 2026-08-17
@@ -64,16 +95,18 @@
 - **Fix**: Gán vào biến cục bộ trước khi kiểm tra: `val desc = detail.description; if (!desc.isNullOrBlank()) { ... }`.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineNovelDetailScreen.kt`
 
-### Lỗi Mockito NPE trên Kotlin Non-null Parameter khi test Interceptor.Chain
-- **Ngày**: 2026-08-18
-- **Vấn đề**: Trong unit test cho `DynamicBaseUrlInterceptor`, gọi `when(chain.proceed(any()))` ném `java.lang.NullPointerException`.
-- **Root cause**: Mockito `any()` trả về `null` tạm thời trong bytecode, vi phạm non-null constraint của signature Kotlin `proceed(request: Request): Response`.
-- **Fix**: Sử dụng Test Double (Fake Object) triển khai trực tiếp `val fakeChain = object : Interceptor.Chain { ... }` thay vì Mockito mock.
-- **Files liên quan**: `core/storage/src/test/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptorTest.kt`
-
 ---
 
 ## How-To
+
+### Cách tích hợp WorkManager kèm Foreground Notification cho tác vụ upload dài
+- **Ngày**: 2026-08-19
+- **Bước thực hiện**:
+  1. Khai báo permission `FOREGROUND_SERVICE_DATA_SYNC` và `SystemForegroundService` trong `AndroidManifest.xml`.
+  2. Tạo `@HiltWorker CoroutineWorker` gọi `setForeground(createForegroundInfo(...))` với Channel và Ongoing Notification.
+  3. Bắn tiến độ bằng `setProgress(workDataOf(...))` và cập nhật Notification tương ứng.
+  4. Lắng nghe `workManager.getWorkInfosForUniqueWorkFlow(UNIQUE_NAME)` trong ViewModel.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`
 
 ### Cách tích hợp thêm một API Endpoint Backend mới
 - **Ngày**: 2026-08-17
@@ -93,37 +126,19 @@
   4. Lấy link public `https://xxx.onrender.com/api/v1/` cấu hình vào App.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`
 
-### Cách resolve Merge Conflicts giữa nhánh Online Library và Display Settings/Modularization
-- **Ngày**: 2026-08-18
-- **Bước thực hiện**:
-  1. `AndroidManifest.xml`: Kết hợp đầy đủ quyền mạng (Online Library) và quyền TTS Floating Bubble/Notification (`SYSTEM_ALERT_WINDOW`, `POST_NOTIFICATIONS`).
-  2. `strings.xml`: Giữ song song cả nhóm chuỗi Online Library (`online_novel_*`, `server_*`) và nhóm TTS Bubble / Display Settings.
-  3. `LibraryViewModel.kt`: Kết hợp StateFlow kết nối Room reading progress vừa đọc tiến độ `getAllReadingProgress()` vừa hỗ trợ upload sách lên server và dọn dẹp snapshot store khi xóa sách.
-  4. `libs.versions.toml`: Giữ cả Retrofit/OkHttp/Gson và Sherpa-ONNX/Jsoup/Testing harness.
-  5. Chạy `./gradlew compileDebugKotlin` với JDK 17 để đảm bảo build xanh trước khi push merge commit.
-- **Files liên quan**: `app/src/main/AndroidManifest.xml`, `core/designsystem/src/main/res/values/strings.xml`, `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `gradle/libs.versions.toml`
-
-### Cách chuẩn hóa dự án tuân thủ AGENTS.md
-- **Ngày**: 2026-08-18
-- **Bước thực hiện**:
-  1. Chuyển toàn bộ UI text & dialog/snackbar messages sang `core/designsystem/src/main/res/values/strings.xml` và sử dụng `stringResource(R.string...)` hoặc `@StringRes`.
-  2. Bổ sung KDoc tiếng Việt đầy đủ (`/** ... */`) cho mọi interface, class và function mới tạo với `@param`, `@return`, `@throws`.
-  3. Thay thế các icon deprecated sang `Icons.AutoMirrored.*` (`ArrowBack`, `MenuBook`) để hỗ trợ layout RTL.
-- **Files liên quan**: `AGENTS.md`, `core/designsystem/src/main/res/values/strings.xml`
-
 ---
 
 ## Patterns
+
+### Smart Dialog Dismissal with Background Worker Progress Pattern
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Khi Compose UI hiển thị Dialog theo dõi một background Worker, việc chỉ set `_state.value = null` sẽ bị ghi đè lại mỗi khi Worker emit progress mới. Áp dụng cờ `isDialogDismissedByUser = true` trong ViewModel khi bấm "Chạy ngầm", bỏ qua các progress updates tiếp theo trên UI nhưng vẫn giữ Worker chạy và cập nhật Notification. Reset cờ khi bắt đầu job mới hoặc khi job hoàn tất/hủy.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`
 
 ### DNS-over-HTTPS (DoH) Fallback & Cache TTL Pattern
 - **Ngày**: 2026-08-18
 - **Chi tiết**: Cấu hình custom `okhttp3.Dns` với logic 2 tầng: tầng 1 gọi `Dns.SYSTEM` (lọc IPv4), tầng 2 fallback DoH Cloudflare (`1.1.1.1`) và Google (`8.8.8.8`). Sử dụng `CachedDnsEntry` kèm TTL (10 phút) và giải phóng `HttpURLConnection.disconnect()` trong khối `finally`.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/FallbackDns.kt`
-
-### Cleartext HTTP Traffic cho môi trường Dev & Emulator
-- **Ngày**: 2026-08-17
-- **Chi tiết**: Trong `AndroidManifest.xml`, bật `android:usesCleartextTraffic="true"` để cho phép ứng dụng gọi các API nội bộ qua `http://` (`10.0.2.2`, `192.168.x.x`) mà không bị Android 9+ chặn kết nối không mã hóa.
-- **Files liên quan**: `app/src/main/AndroidManifest.xml`
 
 ### Multi-Source Add Book BottomSheet Pattern
 - **Ngày**: 2026-08-17
