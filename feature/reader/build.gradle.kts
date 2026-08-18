@@ -45,6 +45,7 @@ dependencies {
     implementation(libs.androidx.hilt.navigation.compose)
 
     implementation(libs.androidx.appcompat)
+    implementation(libs.jsoup)
 
     testImplementation(libs.junit4)
 }

@@ -16,4 +16,7 @@ dependencies {
     kapt(libs.androidx.room.compiler)
 
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.mockito.core)
 }

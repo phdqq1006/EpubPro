@@ -10,10 +10,16 @@ android {
 dependencies {
     implementation(project(":domain"))
     implementation(project(":core:common"))
+    implementation(project(":core:database"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
+
+    // WorkManager & Hilt Work
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    kapt(libs.androidx.hilt.compiler)
 
     // Networking
     implementation(libs.retrofit)

@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.epubpro.core.database.dao.AiChapterDao
 import com.epubpro.core.database.dao.AiRuleDao
+import com.epubpro.core.database.dao.BookBibleDao
 import com.epubpro.core.database.dao.BookDao
 import com.epubpro.core.database.dao.BookmarkDao
 import com.epubpro.core.database.dao.SearchDao
@@ -17,9 +18,13 @@ import com.epubpro.core.database.entity.*
         HighlightEntity::class,
         BookSearchEntity::class,
         AiRuleEntity::class,
-        AiChapterCacheEntity::class
+        AiChapterCacheEntity::class,
+        BookBibleEditionEntity::class,
+        BookBibleSubmissionEntity::class,
+        BookBibleSnapshotEntity::class,
+        BookBibleTimelineEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,4 +33,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun searchDao(): SearchDao
     abstract fun aiRuleDao(): AiRuleDao
     abstract fun aiChapterDao(): AiChapterDao
+    abstract fun bookBibleDao(): BookBibleDao
 }

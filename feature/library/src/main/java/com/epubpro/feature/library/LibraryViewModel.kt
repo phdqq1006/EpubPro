@@ -7,6 +7,7 @@ import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ReaderResumeSnapshotStore
 import com.epubpro.domain.model.Book
+import com.epubpro.domain.repository.BookBibleRepository
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
 import com.epubpro.domain.repository.SearchRepository
@@ -36,7 +37,8 @@ class LibraryViewModel @Inject constructor(
     private val storageManager: EpubStorageManager,
     private val epubEngine: EpubEngine,
     private val onlineNovelRepository: OnlineNovelRepository,
-    private val snapshotStore: ReaderResumeSnapshotStore
+    private val snapshotStore: ReaderResumeSnapshotStore,
+    private val bookBibleRepository: BookBibleRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -119,6 +121,7 @@ class LibraryViewModel @Inject constructor(
             snapshotStore.deleteSnapshot(item.book.id)
             storageManager.deleteBookFile(item.book.filePath)
             storageManager.deleteAiBookCache(item.book.id)
+            bookBibleRepository.deleteDataForBook(item.book.id)
             bookRepository.deleteBook(item.book.id)
         }
     }

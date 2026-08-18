@@ -170,7 +170,10 @@ fun AppNavHost(
                 )
             ) {
                 com.epubpro.feature.library.online.OnlineChapterReaderScreen(
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenBookBible = { novelId, chapterNumber ->
+                        navController.navigate(Screen.BookBible.createRoute("ONLINE_NOVEL", novelId, chapterNumber))
+                    }
                 )
             }
 
@@ -245,6 +248,22 @@ fun AppNavHost(
                 )
             ) {
                 ReaderScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenBookBible = { bookId, chapterNumber ->
+                        navController.navigate(Screen.BookBible.createRoute("LOCAL_EPUB", bookId, chapterNumber))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.BookBible.route,
+                arguments = listOf(
+                    navArgument("sourceType") { type = NavType.StringType },
+                    navArgument("sourceId") { type = NavType.StringType },
+                    navArgument("chapterNumber") { type = NavType.StringType }
+                )
+            ) {
+                com.epubpro.feature.bookbible.BookBibleScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
@@ -299,6 +318,12 @@ sealed class Screen(val route: String) {
             return "$baseRoute?" +
                 "${TtsOpenBookContract.NAV_ARGUMENT_CHAPTER_INDEX}=$safeChapterIndex&" +
                 "${TtsOpenBookContract.NAV_ARGUMENT_OPEN_TTS_PLAYER}=$openTtsPlayer"
+        }
+    }
+
+    object BookBible : Screen("book_bible/{sourceType}/{sourceId}/{chapterNumber}") {
+        fun createRoute(sourceType: String, sourceId: String, chapterNumber: Int): String {
+            return "book_bible/${Uri.encode(sourceType)}/${Uri.encode(sourceId)}/$chapterNumber"
         }
     }
 

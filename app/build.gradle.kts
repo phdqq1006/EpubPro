@@ -74,6 +74,7 @@ dependencies {
     implementation(project(":feature:bookmark"))
     implementation(project(":feature:search"))
     implementation(project(":feature:profile"))
+    implementation(project(":feature:bookbible"))
     implementation(project(":core:tts"))
 
     implementation(libs.androidx.core.ktx)
@@ -87,4 +88,6 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.media)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.work)
+    kapt(libs.androidx.hilt.compiler)
 }

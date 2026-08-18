@@ -273,4 +273,35 @@
     <string name="server_checking_status">Đang kiểm tra...</string>
     <string name="server_preset_label">Chọn nhanh:</string>
     <string name="server_preset_cloud_render">Cloud Server (Render)</string>
+
+    <!-- Book Bible -->
+    <string name="book_bible_title">Book Bible</string>
+    <string name="book_bible_subtitle">Hồ sơ nhân vật chống spoiler</string>
+    <string name="book_bible_menu_action">Hồ sơ Book Bible</string>
+    <string name="book_bible_current_chapter_pill">Đến chương %1$d</string>
+    <string name="book_bible_status_complete">Dữ liệu đầy đủ</string>
+    <string name="book_bible_status_partial">Dữ liệu một phần</string>
+    <string name="book_bible_status_processing">Đang phân tích dữ liệu AI...</string>
+    <string name="book_bible_status_empty">Chưa có dữ liệu nhân vật</string>
+    <string name="book_bible_coverage_format">Đã phân tích: %1$s • Chưa mở: %2$s</string>
+    <string name="book_bible_coverage_range_format">c.%1$d-%2$d</string>
+    <string name="book_bible_changed_badge">Tiến triển mới</string>
+    <string name="book_bible_tab_profile">Hồ sơ</string>
+    <string name="book_bible_tab_timeline">Dòng thời gian</string>
+    <string name="book_bible_section_cultivation">Cảnh giới tu vi</string>
+    <string name="book_bible_section_techniques">Công pháp &amp; Võ học</string>
+    <string name="book_bible_section_skills">Kỹ năng đặc biệt</string>
+    <string name="book_bible_section_items">Trang bị &amp; Pháp bảo</string>
+    <string name="book_bible_section_relationships">Quan hệ nhân vật</string>
+    <string name="book_bible_section_affiliations">Thế lực &amp; Môn phái</string>
+    <string name="book_bible_section_titles">Danh hiệu &amp; Bí danh</string>
+    <string name="book_bible_section_other">Thông tin khác</string>
+    <string name="book_bible_timeline_empty">Chưa có sự kiện nào được ghi nhận</string>
+    <string name="book_bible_timeline_chapter_badge">Chương %1$d</string>
+    <string name="book_bible_timeline_evidence_label">Trích dẫn nguyên tác:</string>
+    <string name="book_bible_offline_cached">Đang xem dữ liệu lưu trong máy (Offline)</string>
+    <string name="book_bible_refresh">Làm mới dữ liệu</string>
+    <string name="book_bible_retry">Thử lại</string>
+    <string name="book_bible_error_loading">Không thể tải dữ liệu Book Bible</string>
+    <string name="book_bible_empty_desc">Chưa có thông tin nhân vật nào được ghi nhận cho chương này.</string>
 </resources>

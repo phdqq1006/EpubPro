@@ -20,14 +20,22 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.epubpro.core.designsystem.R
 
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnlineChapterReaderScreen(
     onNavigateBack: () -> Unit,
+    onOpenBookBible: (novelId: String, chapterNumber: Int) -> Unit = { _, _ -> },
     viewModel: OnlineChapterReaderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val scrollState = rememberScrollState()
+    var showMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -67,8 +75,35 @@ fun OnlineChapterReaderScreen(
                             )
                         },
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     )
+
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.book_bible_menu_action)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.book_bible_menu_action)) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.AutoStories,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenBookBible(uiState.novelId, uiState.chapterIndex)
+                                }
+                            )
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background

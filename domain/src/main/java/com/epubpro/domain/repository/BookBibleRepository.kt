@@ -1,0 +1,107 @@
+package com.epubpro.domain.repository
+
+import com.epubpro.domain.model.BookBibleSnapshot
+import com.epubpro.domain.model.BookBibleSource
+import com.epubpro.domain.model.CharacterTimeline
+import com.epubpro.domain.model.SubmissionState
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Interface Repository quản lý toàn bộ tương tác nghiệp vụ cho hệ thống Book Bible:
+ * lập lịch gửi chương nguồn, quan sát hồ sơ nhân vật snapshot từ cache/mạng, và tra cứu timeline chống spoiler.
+ */
+interface BookBibleRepository {
+
+    /**
+     * Đưa một chương sách vừa được mở vào hàng đợi gửi dữ liệu lên backend để phân tích.
+     * Thao tác này là bất đồng bộ và có tính idempotent: nếu chương đã được gửi hoặc cùng mã băm nguồn thì không tạo job trùng.
+     *
+     * @param source Nguồn sách ([BookBibleSource]).
+     * @param chapterNumber Thứ tự chương (1-based index).
+     * @param chapterTitle Tiêu đề chương.
+     * @param totalChapters Tổng số chương của sách.
+     * @param sourceContent Nội dung văn bản thô (plain text) của chương nguồn.
+     * @param bookTitle Tên sách.
+     * @param author Tên tác giả.
+     * @return [Result] trả về thành công nếu đã ghi payload và lên lịch WorkManager thành công.
+     */
+    suspend fun enqueueChapterSubmission(
+        source: BookBibleSource,
+        chapterNumber: Int,
+        chapterTitle: String,
+        totalChapters: Int,
+        sourceContent: String,
+        bookTitle: String,
+        author: String
+    ): Result<Unit>
+
+    /**
+     * Quan sát luồng dữ liệu Snapshot của Book Bible tại một mốc chương xác định.
+     * Ưu tiên phát ra dữ liệu có sẵn từ Room Database Cache trước (Cache-first).
+     *
+     * @param source Nguồn sách.
+     * @param chapterNumber Mốc chương yêu cầu (1-based).
+     * @return [Flow] phát ra [BookBibleSnapshot] hoặc `null` nếu chưa có dữ liệu trong cache.
+     */
+    fun observeSnapshot(
+        source: BookBibleSource,
+        chapterNumber: Int
+    ): Flow<BookBibleSnapshot?>
+
+    /**
+     * Làm mới dữ liệu Snapshot từ máy chủ backend qua mạng và cập nhật giao dịch vào Room cache.
+     *
+     * @param source Nguồn sách.
+     * @param chapterNumber Mốc chương yêu cầu (1-based).
+     * @return [Result] chứa [BookBibleSnapshot] mới nhất từ backend.
+     */
+    suspend fun refreshSnapshot(
+        source: BookBibleSource,
+        chapterNumber: Int
+    ): Result<BookBibleSnapshot>
+
+    /**
+     * Lấy dòng thời gian tiến trình của một nhân vật cụ thể đến mốc chương yêu cầu.
+     *
+     * @param source Nguồn sách.
+     * @param characterId Mã định danh duy nhất của nhân vật.
+     * @param chapterNumber Mốc chương giới hạn tối đa (1-based, chống spoiler).
+     * @return [Result] chứa [CharacterTimeline] với các sự kiện đã được lọc đến chương này.
+     */
+    suspend fun getCharacterTimeline(
+        source: BookBibleSource,
+        characterId: String,
+        chapterNumber: Int
+    ): Result<CharacterTimeline>
+
+    /**
+     * Quan sát trạng thái gửi dữ liệu của một chương cụ thể.
+     *
+     * @param source Nguồn sách.
+     * @param chapterNumber Thứ tự chương.
+     * @return [Flow] phát ra [SubmissionState].
+     */
+    fun observeSubmissionState(
+        source: BookBibleSource,
+        chapterNumber: Int
+    ): Flow<SubmissionState?>
+
+    /**
+     * Thử gửi lại một chương bị lỗi.
+     *
+     * @param source Nguồn sách.
+     * @param chapterNumber Thứ tự chương.
+     * @return [Result] trả về thành công nếu đã xếp lịch gửi lại.
+     */
+    suspend fun retrySubmission(
+        source: BookBibleSource,
+        chapterNumber: Int
+    ): Result<Unit>
+
+    /**
+     * Xóa toàn bộ dữ liệu Book Bible (edition, snapshot, timeline, payload, submission) liên quan đến cuốn sách khi sách bị xóa khỏi thư viện.
+     *
+     * @param sourceId Mã sách (Book ID hoặc Novel ID).
+     */
+    suspend fun deleteDataForBook(sourceId: String)
+}

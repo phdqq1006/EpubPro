@@ -56,3 +56,124 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE reading_progress ADD COLUMN totalChapters INTEGER NOT NULL DEFAULT 0")
     }
 }
+
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS book_bible_editions (
+                localSourceKey TEXT NOT NULL PRIMARY KEY,
+                backendBookId TEXT NOT NULL,
+                backendEditionId TEXT NOT NULL,
+                mappingRevision INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                chapterCount INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS book_bible_submissions (
+                id TEXT NOT NULL PRIMARY KEY,
+                localSourceKey TEXT NOT NULL,
+                chapterNumber INTEGER NOT NULL,
+                sourceHash TEXT NOT NULL,
+                payloadPath TEXT,
+                submissionId TEXT,
+                state TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                errorCode INTEGER,
+                errorMessage TEXT,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS index_book_bible_submissions_localSourceKey_chapterNumber_sourceHash 
+            ON book_bible_submissions(localSourceKey, chapterNumber, sourceHash)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_book_bible_submissions_localSourceKey_chapterNumber 
+            ON book_bible_submissions(localSourceKey, chapterNumber)
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS book_bible_snapshots (
+                id TEXT NOT NULL PRIMARY KEY,
+                editionId TEXT NOT NULL,
+                localSourceKey TEXT NOT NULL,
+                chapterNumber INTEGER NOT NULL,
+                canonicalChapter INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                coverageJson TEXT NOT NULL,
+                payloadJson TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                byteSize INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                lastAccessedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS index_book_bible_snapshots_editionId_chapterNumber 
+            ON book_bible_snapshots(editionId, chapterNumber)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_book_bible_snapshots_localSourceKey_chapterNumber 
+            ON book_bible_snapshots(localSourceKey, chapterNumber)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_book_bible_snapshots_lastAccessedAt 
+            ON book_bible_snapshots(lastAccessedAt)
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS book_bible_timelines (
+                id TEXT NOT NULL PRIMARY KEY,
+                editionId TEXT NOT NULL,
+                localSourceKey TEXT NOT NULL,
+                chapterNumber INTEGER NOT NULL,
+                characterId TEXT NOT NULL,
+                payloadJson TEXT NOT NULL,
+                byteSize INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                lastAccessedAt INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS index_book_bible_timelines_editionId_chapterNumber_characterId 
+            ON book_bible_timelines(editionId, chapterNumber, characterId)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_book_bible_timelines_localSourceKey_chapterNumber_characterId 
+            ON book_bible_timelines(localSourceKey, chapterNumber, characterId)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE INDEX IF NOT EXISTS index_book_bible_timelines_lastAccessedAt 
+            ON book_bible_timelines(lastAccessedAt)
+            """.trimIndent()
+        )
+    }
+}

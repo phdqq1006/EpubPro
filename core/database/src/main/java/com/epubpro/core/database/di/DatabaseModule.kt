@@ -5,11 +5,8 @@ import androidx.room.Room
 import com.epubpro.core.database.AppDatabase
 import com.epubpro.core.database.MIGRATION_2_3
 import com.epubpro.core.database.MIGRATION_3_4
-import com.epubpro.core.database.dao.AiChapterDao
-import com.epubpro.core.database.dao.AiRuleDao
-import com.epubpro.core.database.dao.BookDao
-import com.epubpro.core.database.dao.BookmarkDao
-import com.epubpro.core.database.dao.SearchDao
+import com.epubpro.core.database.MIGRATION_4_5
+import com.epubpro.core.database.dao.*
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -30,7 +27,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "epubpro.db"
-        ).addMigrations(MIGRATION_2_3, MIGRATION_3_4).fallbackToDestructiveMigration().build()
+        ).addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).fallbackToDestructiveMigration().build()
     }
 
     @Provides
@@ -47,4 +44,7 @@ object DatabaseModule {
 
     @Provides
     fun provideAiChapterDao(db: AppDatabase): AiChapterDao = db.aiChapterDao()
+
+    @Provides
+    fun provideBookBibleDao(db: AppDatabase): BookBibleDao = db.bookBibleDao()
 }

@@ -16,6 +16,9 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
+import com.epubpro.core.storage.bookbible.BookBibleRepositoryImpl
+import com.epubpro.domain.repository.BookBibleRepository
+
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class NetworkBindModule {
@@ -24,6 +27,12 @@ abstract class NetworkBindModule {
     abstract fun bindOnlineNovelRepository(
         impl: OnlineNovelRepositoryImpl
     ): OnlineNovelRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBookBibleRepository(
+        impl: BookBibleRepositoryImpl
+    ): BookBibleRepository
 }
 
 @Module
@@ -45,7 +54,7 @@ object NetworkModule {
         fallbackDns: FallbackDns
     ): OkHttpClient {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
+            level = HttpLoggingInterceptor.Level.BODY
         }
 
         return OkHttpClient.Builder()
@@ -76,5 +85,11 @@ object NetworkModule {
     @Singleton
     fun provideOnlineNovelApiService(retrofit: Retrofit): OnlineNovelApiService {
         return retrofit.create(OnlineNovelApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBookBibleApiService(retrofit: Retrofit): BookBibleApiService {
+        return retrofit.create(BookBibleApiService::class.java)
     }
 }

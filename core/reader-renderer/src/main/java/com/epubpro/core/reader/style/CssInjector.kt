@@ -611,13 +611,19 @@ object CssInjector {
                     }
                 }
 
+                function requestFallbackBoundary(direction) {
+                    if (!window.ReaderJsBridge) return;
+                    if (direction > 0 && typeof window.ReaderJsBridge.onNextChapterRequested === 'function') {
+                        window.ReaderJsBridge.onNextChapterRequested();
+                    } else if (direction < 0 && typeof window.ReaderJsBridge.onPreviousChapterRequested === 'function') {
+                        window.ReaderJsBridge.onPreviousChapterRequested();
+                    }
+                }
+
                 function animateChapterBoundary(direction) {
                     var hasAdjacentChapter = direction > 0 ? hasNextChapter : hasPreviousChapter;
-                    var fallback = direction > 0
-                        ? (window.ReaderJsBridge && window.ReaderJsBridge.onNextChapterRequested)
-                        : (window.ReaderJsBridge && window.ReaderJsBridge.onPreviousChapterRequested);
                     if (!hasAdjacentChapter) {
-                        if (fallback) fallback();
+                        requestFallbackBoundary(direction);
                         return;
                     }
 
@@ -626,7 +632,7 @@ object CssInjector {
                     }
                     var boundaryOverlay = activeTopOverlay;
                     if (!boundaryOverlay) {
-                        if (fallback) fallback();
+                        requestFallbackBoundary(direction);
                         return;
                     }
 
@@ -640,8 +646,8 @@ object CssInjector {
                         var committedInDocument = replaceAdjacentChapterInDocument(adjacentHtml, direction);
                         if (committedInDocument && window.ReaderJsBridge && window.ReaderJsBridge.onAdjacentChapterCommitted) {
                             window.ReaderJsBridge.onAdjacentChapterCommitted(direction);
-                        } else if (fallback) {
-                            fallback();
+                        } else {
+                            requestFallbackBoundary(direction);
                         }
                         setTimeout(function() {
                             if (token === gestureToken) {

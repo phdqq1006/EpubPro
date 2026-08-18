@@ -32,6 +32,8 @@ import com.epubpro.domain.model.AiRuleAction
 import com.epubpro.domain.model.AiRuleScope
 import com.epubpro.domain.model.AiSettings
 import com.epubpro.domain.model.Book
+import com.epubpro.domain.model.BookBibleSource
+import com.epubpro.domain.model.BookBibleSourceType
 import com.epubpro.domain.model.Bookmark
 import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.Highlight
@@ -42,6 +44,7 @@ import com.epubpro.domain.model.TtsChunk
 import com.epubpro.domain.model.TtsPlayerState
 import com.epubpro.domain.model.TtsSettings
 import com.epubpro.domain.repository.AiRuleRepository
+import com.epubpro.domain.repository.BookBibleRepository
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.BookmarkRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,6 +63,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
+import org.jsoup.Jsoup
 
 private const val WIDGET_TEXT_MAX_CHARS = 800
 private const val SANITIZED_CHAPTER_CACHE_MAX_BYTES = 4 * 1024 * 1024
@@ -137,7 +141,8 @@ class ReaderViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val widgetStateStore: TtsWidgetStateStore,
     private val playbackSnapshotStore: TtsPlaybackSnapshotStore,
-    private val resumeSnapshotStore: ReaderResumeSnapshotStore
+    private val resumeSnapshotStore: ReaderResumeSnapshotStore,
+    private val bookBibleRepository: BookBibleRepository
 ) : ViewModel() {
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
@@ -373,6 +378,13 @@ class ReaderViewModel @Inject constructor(
                     )
                 }
 
+                enqueueBookBibleChapter(
+                    book = book,
+                    chapterIndex = initialIndex,
+                    chapterTitle = headers.getOrNull(initialIndex)?.title ?: "Chương ${initialIndex + 1}",
+                    originalHtml = currentHtml
+                )
+
                 // Asynchronously preload adjacent chapters and AI cache in background
                 adjacentPreloadJob?.cancel()
                 adjacentPreloadJob = viewModelScope.launch(Dispatchers.IO) {
@@ -492,6 +504,15 @@ class ReaderViewModel @Inject constructor(
                     normalizedHtml = currentHtml,
                     generation = loadGen
                 )
+
+                state.book?.let { book ->
+                    enqueueBookBibleChapter(
+                        book = book,
+                        chapterIndex = index,
+                        chapterTitle = state.chapters.getOrNull(index)?.title ?: "Chương ${index + 1}",
+                        originalHtml = currentHtml
+                    )
+                }
 
                 if (autoStartTts) {
                     ttsPreferencesManager.saveLastTtsChunkIndex(bookId, index, 0)
@@ -1312,5 +1333,33 @@ class ReaderViewModel @Inject constructor(
     fun setSleepTimerOption(option: SleepTimerOption, ttsService: TtsService?) {
         _uiState.update { it.copy(selectedSleepTimer = option) }
         ttsService?.setSleepTimer(option)
+    }
+
+    /**
+     * Đưa chương nguồn vừa nạp vào hàng đợi gửi Book Bible theo cơ chế bất đồng bộ, không chặn UI.
+     */
+    private fun enqueueBookBibleChapter(
+        book: Book,
+        chapterIndex: Int,
+        chapterTitle: String,
+        originalHtml: String
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val plainText = Jsoup.parse(originalHtml).text()
+                if (plainText.isNotBlank()) {
+                    val totalChapters = book.totalChapters.takeIf { it > 0 } ?: _uiState.value.chapters.size
+                    bookBibleRepository.enqueueChapterSubmission(
+                        source = BookBibleSource(BookBibleSourceType.LOCAL_EPUB, book.id),
+                        chapterNumber = chapterIndex + 1,
+                        chapterTitle = chapterTitle,
+                        totalChapters = totalChapters,
+                        sourceContent = plainText,
+                        bookTitle = book.title,
+                        author = book.author
+                    )
+                }
+            }
+        }
     }
 }

@@ -47,14 +47,18 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NavigateBefore
 import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Nightlight
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -125,11 +129,13 @@ import org.json.JSONObject
 @Composable
 fun ReaderScreen(
     onNavigateBack: () -> Unit,
+    onOpenBookBible: (bookId: String, chapterNumber: Int) -> Unit = { _, _ -> },
     viewModel: ReaderViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showTocDrawer by remember { mutableStateOf(false) }
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showReaderOverflowMenu by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val hostView = LocalView.current
@@ -429,11 +435,46 @@ fun ReaderScreen(
                             contentDescription = stringResource(R.string.reader_toc)
                         )
                     }
-                    IconButton(onClick = { showSettingsSheet = true }) {
-                        Icon(
-                            Icons.Default.FormatSize,
-                            contentDescription = stringResource(R.string.reader_display_settings)
-                        )
+                    Box {
+                        IconButton(onClick = { showReaderOverflowMenu = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = stringResource(R.string.book_bible_menu_action)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showReaderOverflowMenu,
+                            onDismissRequest = { showReaderOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.book_bible_menu_action)) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Outlined.AutoStories,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showReaderOverflowMenu = false
+                                    val bookId = uiState.book?.id ?: ""
+                                    val chapterNumber = uiState.currentChapterIndex + 1
+                                    onOpenBookBible(bookId, chapterNumber)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.reader_display_settings)) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.FormatSize,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showReaderOverflowMenu = false
+                                    showSettingsSheet = true
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
