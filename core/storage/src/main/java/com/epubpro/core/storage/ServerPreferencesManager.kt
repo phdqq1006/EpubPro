@@ -76,6 +76,54 @@ class ServerPreferencesManager @Inject constructor(
         return clean
     }
 
+    /**
+     * Lấy khóa xác thực Book Bible Client Key nếu có.
+     *
+     * @return Chuỗi token hoặc null nếu chưa thiết lập.
+     */
+    fun getBookBibleClientKey(): String? = preferences.getString(KEY_BOOK_BIBLE_CLIENT_KEY, null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Lưu trữ khóa xác thực Book Bible Client Key.
+     *
+     * @param key Khóa token do quản trị viên cung cấp hoặc null để xóa.
+     */
+    fun saveBookBibleClientKey(key: String?) {
+        preferences.edit().putString(KEY_BOOK_BIBLE_CLIENT_KEY, key?.trim()).apply()
+    }
+
+    /**
+     * Lấy khóa LLM API Key (Gemini/Claude) cá nhân nếu có.
+     *
+     * @return Chuỗi API Key hoặc null.
+     */
+    fun getLlmApiKey(): String? = preferences.getString(KEY_LLM_API_KEY, null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Lưu trữ khóa LLM API Key cá nhân.
+     *
+     * @param key Chuỗi API Key hoặc null để xóa.
+     */
+    fun saveLlmApiKey(key: String?) {
+        preferences.edit().putString(KEY_LLM_API_KEY, key?.trim()).apply()
+    }
+
+    /**
+     * Lấy tên model LLM tùy chỉnh.
+     *
+     * @return Tên model (ví dụ: "gemini-2.5-flash") hoặc null nếu dùng mặc định.
+     */
+    fun getLlmModel(): String? = preferences.getString(KEY_LLM_MODEL, null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * Lưu trữ tên model LLM tùy chỉnh.
+     *
+     * @param model Tên model hoặc null để dùng mặc định của backend.
+     */
+    fun saveLlmModel(model: String?) {
+        preferences.edit().putString(KEY_LLM_MODEL, model?.trim()).apply()
+    }
+
     companion object {
         /** Địa chỉ máy chủ Cloud Production mặc định */
         const val DEFAULT_BASE_URL = "https://epubbackend.onrender.com/api/v1/"
@@ -90,5 +138,8 @@ class ServerPreferencesManager @Inject constructor(
         const val PRESET_LOCALHOST = "http://127.0.0.1:8000/api/v1/"
 
         private const val KEY_BASE_URL = "server_base_url"
+        private const val KEY_BOOK_BIBLE_CLIENT_KEY = "book_bible_client_key"
+        private const val KEY_LLM_API_KEY = "book_bible_llm_api_key"
+        private const val KEY_LLM_MODEL = "book_bible_llm_model"
     }
 }

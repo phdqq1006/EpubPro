@@ -109,17 +109,69 @@ data class ExtraAttribute(
 )
 
 /**
+ * Dấu vân tay định danh cấu trúc và nội dung thực tế của sách phục vụ nhận diện Book Bible.
+ *
+ * @property file Mã băm SHA-256 nội dung bytes thực tế của tệp sách.
+ * @property edition Chuỗi định danh ổn định của ấn bản.
+ * @property structure Mã băm SHA-256 cấu trúc mục lục/spine chuẩn hóa.
+ * @property sampledChapters Danh sách mã băm nội dung các chương mẫu.
+ */
+data class BookFingerprints(
+    val file: String,
+    val edition: String,
+    val structure: String,
+    val sampledChapters: List<String> = emptyList()
+)
+
+/**
+ * Quy cách xưng hô và cách giao tiếp của nhân vật với các nhân vật khác.
+ *
+ * @property targetName Tên đối tượng xưng hô (ví dụ: "Thẩm Dập", "Tiểu Vũ").
+ * @property selfTerm Cách nhân vật tự xưng (ví dụ: "em / chúng em", "huynh", "ta").
+ * @property otherTerm Cách nhân vật gọi đối phương (ví dụ: "Thẩm lão sư", "muội", "sư phụ").
+ * @property context Ngữ cảnh sử dụng cách xưng hô (ví dụ: "học viên với giáo viên hướng dẫn sát hạch").
+ * @property contexts Danh sách các ngữ cảnh sử dụng xưng hô đã được gộp nhóm chống trùng lặp.
+ */
+data class CharacterAddressTerm(
+    val targetName: String,
+    val selfTerm: String? = null,
+    val otherTerm: String? = null,
+    val context: String? = null,
+    val contexts: List<String> = emptyList()
+)
+
+/**
+ * Thông tin linh thú / thú cưng (Pet) đi kèm với nhân vật.
+ *
+ * @property name Tên của thú cưng (ví dụ: "Tiểu Hắc").
+ * @property species Chủng loại linh thú (ví dụ: "U Minh Miêu", "Cửu Vĩ Thiên Hồ").
+ * @property realm Cảnh giới / Tu vi của thú cưng (ví dụ: "Bách Niên Hồn Thú", "Cấp 4").
+ * @property status Trạng thái / Loại khế ước (ví dụ: "Khế ước linh hồn", "Nuôi dưỡng", "Đồng hành").
+ */
+data class CharacterPet(
+    val name: String,
+    val species: String? = null,
+    val realm: String? = null,
+    val status: String? = null
+)
+
+/**
  * Hồ sơ chi tiết của một nhân vật được giới hạn chống spoiler tại chương hiện tại.
  *
  * @property id Mã định danh duy nhất của nhân vật trên backend.
  * @property name Tên nhân vật (đã chuẩn hóa hoặc tên gốc).
  * @property originalName Tên gốc tiếng Trung/Anh nếu có.
+ * @property role Vai trò nhân vật (ví dụ: "Nhân vật chính", "Phản diện", "Nhân vật phụ").
+ * @property voiceNotes Ghi chú tính cách, âm điệu giọng nói (phục vụ hiển thị và TTS).
+ * @property aliases Danh sách biệt danh, tôn hiệu, bí danh khác của nhân vật.
  * @property changedInCurrentChapter Cờ đánh dấu nhân vật có sự kiện/tiến triển mới trong chương hiện tại.
  * @property lastChangedChapter Chương gần nhất nhân vật có cập nhật trạng thái/thuộc tính.
  * @property cultivationRealm Cảnh giới tu vi / cấp bậc hiện tại.
  * @property techniques Danh sách công pháp / võ học tu luyện.
  * @property skills Danh sách kỹ năng / năng lực đặc biệt.
  * @property items Danh sách trang bị / pháp bảo / vật phẩm sở hữu.
+ * @property pets Danh sách linh thú / thú cưng thuộc sở hữu hoặc đồng hành.
+ * @property addressTerms Danh sách quy cách xưng hô và giao tiếp với các nhân vật khác.
  * @property relationships Danh sách các mối quan hệ xã hội.
  * @property affiliations Danh sách các bang phái / thế lực / tông môn trực thuộc.
  * @property titles Danh sách các danh hiệu / xưng hiệu / bí danh.
@@ -129,17 +181,47 @@ data class CharacterProfile(
     val id: String,
     val name: String,
     val originalName: String? = null,
+    val role: String? = null,
+    val isMain: Boolean = false,
+    val voiceNotes: String? = null,
+    val aliases: List<String> = emptyList(),
     val changedInCurrentChapter: Boolean = false,
     val lastChangedChapter: Int = 1,
     val cultivationRealm: String? = null,
     val techniques: List<String> = emptyList(),
     val skills: List<String> = emptyList(),
     val items: List<String> = emptyList(),
+    val pets: List<CharacterPet> = emptyList(),
+    val addressTerms: List<CharacterAddressTerm> = emptyList(),
     val relationships: List<CharacterRelationship> = emptyList(),
     val affiliations: List<String> = emptyList(),
     val titles: List<String> = emptyList(),
     val extraAttributes: List<ExtraAttribute> = emptyList()
-)
+) {
+    /**
+     * Kiểm tra nhân vật có phải là Nhân vật chính (Protagonist / Main Character) hay không.
+     */
+    val isProtagonist: Boolean
+        get() {
+            if (isMain) return true
+            val r = role?.trim()?.lowercase(java.util.Locale.ROOT) ?: return false
+            return r in listOf(
+                "protagonist", "main", "lead", "mc", "nhân vật chính", "nhan vat chinh",
+                "nam chính", "nam chinh", "nữ chính", "nu chinh", "chính", "nam chủ", "nam chu", "nữ chủ", "nu chu"
+            ) || r.startsWith("nam chính") || r.startsWith("nữ chính") || r.startsWith("nhân vật chính") || r.startsWith("nam chủ") || r.startsWith("nữ chủ")
+        }
+
+    /**
+     * Kiểm tra nhân vật có phải là Phản diện (Antagonist / Villain) hay không.
+     */
+    val isAntagonist: Boolean
+        get() {
+            val r = role?.trim()?.lowercase(java.util.Locale.ROOT) ?: return false
+            return r in listOf(
+                "antagonist", "villain", "phản diện", "phan dien", "kẻ thù", "ke thu"
+            ) || r.startsWith("phản diện") || r.startsWith("kẻ thù")
+        }
+}
 
 /**
  * Bản Snapshot Book Bible đại diện cho toàn bộ hồ sơ nhân vật tại một mốc chương xác định.
@@ -151,6 +233,11 @@ data class CharacterProfile(
  * @property status Trạng thái của snapshot ([SnapshotStatus]).
  * @property coverage Độ bao phủ của các chương đã phân tích ([SnapshotCoverage]).
  * @property revision Số phiên bản sửa đổi dữ liệu (dùng để kiểm tra cache mới nhất).
+ * @property bookRevision Số phiên bản cập nhật của đầu sách.
+ * @property projectionRevision Số phiên bản chiếu dữ liệu tại mốc chương.
+ * @property projectionStatus Trạng thái sẵn sàng của projection ("ready", "stale", "pending").
+ * @property completeThroughChapter Mốc chương cao nhất đã được phân tích hoàn chỉnh liên tục.
+ * @property pendingChapters Danh sách các chương đang chờ phân tích.
  * @property updatedAt Thời điểm cập nhật cuối cùng tính theo mili-giây.
  * @property characters Danh sách toàn bộ hồ sơ nhân vật xuất hiện đến chương này.
  */
@@ -162,6 +249,11 @@ data class BookBibleSnapshot(
     val status: SnapshotStatus,
     val coverage: SnapshotCoverage = SnapshotCoverage(),
     val revision: Long = 1L,
+    val bookRevision: Int = 0,
+    val projectionRevision: Int = 0,
+    val projectionStatus: String = "ready",
+    val completeThroughChapter: Int? = null,
+    val pendingChapters: List<Int> = emptyList(),
     val updatedAt: Long = System.currentTimeMillis(),
     val characters: List<CharacterProfile> = emptyList()
 )
@@ -170,9 +262,10 @@ data class BookBibleSnapshot(
  * Một sự kiện diễn tiến của nhân vật trong dòng thời gian.
  *
  * @property chapter Thứ tự chương diễn ra sự kiện.
- * @property category Phân loại sự kiện (ví dụ: "Cảnh giới", "Trang bị", "Quan hệ", "Thế lực").
- * @property operation Loại tác động (ví dụ: "Đột phá", "Nhận được", "Thay đổi", "Mất đi").
+ * @property category Phân loại sự kiện (ví dụ: "realm", "skill", "item", "relationship", "faction").
+ * @property operation Loại tác động (ví dụ: "set", "add", "remove", "increase", "decrease", "link", "unlink", "correct").
  * @property displayValue Chuỗi hiển thị nội dung sự kiện bằng tiếng Việt.
+ * @property certainty Mức độ tin cậy của thông tin ("observed", "stated", "rumor", "inferred", "contradicted").
  * @property evidence Đoạn văn bản trích dẫn làm chứng cứ trong nguyên tác (nếu có).
  * @property confidence Độ tin cậy của mô hình AI trích xuất (chỉ ghi log, không hiển thị trên UI).
  */
@@ -181,6 +274,7 @@ data class CharacterTimelineEvent(
     val category: String,
     val operation: String,
     val displayValue: String,
+    val certainty: String? = "observed",
     val evidence: String? = null,
     val confidence: Double? = null
 )

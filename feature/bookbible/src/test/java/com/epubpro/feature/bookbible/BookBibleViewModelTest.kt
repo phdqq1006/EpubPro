@@ -37,14 +37,23 @@ class BookBibleViewModelTest {
             CharacterProfile(
                 id = "char_1",
                 name = "Lâm Phong",
+                role = "Nhân vật phụ",
                 cultivationRealm = "Trúc Cơ sơ kỳ",
                 changedInCurrentChapter = false
             ),
             CharacterProfile(
                 id = "char_2",
                 name = "Diệp Thần",
+                role = "Nhân vật phụ",
                 cultivationRealm = "Kim Đan trung kỳ",
                 changedInCurrentChapter = true
+            ),
+            CharacterProfile(
+                id = "char_3",
+                name = "Đường Vũ Lân",
+                role = "Nhân vật chính",
+                cultivationRealm = "Hồn Tôn",
+                changedInCurrentChapter = false
             )
         )
     )
@@ -70,7 +79,7 @@ class BookBibleViewModelTest {
     }
 
     @Test
-    fun testSortedCharactersPutsChangedInCurrentChapterFirst() = runTest {
+    fun testSortedCharactersPutsProtagonistFirstThenChangedInCurrentChapter() = runTest {
         `when`(repository.refreshSnapshot(source, 3)).thenReturn(Result.success(sampleSnapshot))
 
         viewModel = BookBibleViewModel(savedStateHandle, repository)
@@ -81,10 +90,13 @@ class BookBibleViewModelTest {
         assertNotNull(state.snapshot)
 
         val sorted = state.sortedCharacters
-        assertEquals(2, sorted.size)
-        // Diệp Thần has changedInCurrentChapter = true, so he should be first
-        assertEquals("Diệp Thần", sorted[0].name)
-        assertEquals("Lâm Phong", sorted[1].name)
+        assertEquals(3, sorted.size)
+        // Đường Vũ Lân is Protagonist, so he must ALWAYS be first!
+        assertEquals("Đường Vũ Lân", sorted[0].name)
+        // Diệp Thần has changedInCurrentChapter = true, so he is second
+        assertEquals("Diệp Thần", sorted[1].name)
+        // Lâm Phong is third
+        assertEquals("Lâm Phong", sorted[2].name)
     }
 
     @Test

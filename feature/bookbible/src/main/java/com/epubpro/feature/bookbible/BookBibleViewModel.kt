@@ -44,10 +44,11 @@ data class BookBibleUiState(
     val selectedCharacter: CharacterProfile?
         get() = snapshot?.characters?.find { it.id == selectedCharacterId }
 
-    /** Danh sách nhân vật đã sắp xếp: ưu tiên nhân vật có thay đổi ở chương hiện tại lên đầu, sau đó theo tên */
+    /** Danh sách nhân vật đã sắp xếp: Luôn ưu tiên Nhân vật chính lên đầu tiên, sau đó đến nhân vật có tiến triển ở chương hiện tại, và theo tên */
     val sortedCharacters: List<CharacterProfile>
         get() = snapshot?.characters?.sortedWith(
-            compareByDescending<CharacterProfile> { it.changedInCurrentChapter }
+            compareByDescending<CharacterProfile> { it.isProtagonist }
+                .thenByDescending { it.changedInCurrentChapter }
                 .thenBy { it.name }
         ) ?: emptyList()
 }

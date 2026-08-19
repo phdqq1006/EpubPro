@@ -15,10 +15,21 @@ data class BookMetadataDto(
 )
 
 /**
+ * DTO dấu vân tay cấu trúc và nội dung sách.
+ */
+data class BookFingerprintsDto(
+    @SerializedName("file") val file: String? = null,
+    @SerializedName("edition") val edition: String? = null,
+    @SerializedName("structure") val structure: String? = null,
+    @SerializedName("sampled_chapters") val sampledChapters: List<String>? = null
+)
+
+/**
  * DTO yêu cầu định danh/tìm kiếm sách trên backend.
  */
 data class BookResolutionRequestDto(
     @SerializedName("metadata") val metadata: BookMetadataDto,
+    @SerializedName("fingerprints") val fingerprints: BookFingerprintsDto? = null,
     @SerializedName("create_if_missing") val createIfMissing: Boolean = true,
     @SerializedName("book_id") val bookId: String? = null
 )
@@ -48,6 +59,7 @@ data class BookResolutionResponseDto(
  */
 data class CreateEditionRequestDto(
     @SerializedName("metadata") val metadata: BookMetadataDto,
+    @SerializedName("fingerprints") val fingerprints: BookFingerprintsDto? = null,
     @SerializedName("chapter_count") val chapterCount: Int? = null
 )
 
@@ -58,9 +70,21 @@ data class EditionRecordDto(
     @SerializedName("edition_id") val editionId: String,
     @SerializedName("book_id") val bookId: String,
     @SerializedName("metadata") val metadata: BookMetadataDto? = null,
+    @SerializedName("fingerprints") val fingerprints: BookFingerprintsDto? = null,
     @SerializedName("chapter_count") val chapterCount: Int? = null,
     @SerializedName("mapping_revision") val mappingRevision: Long = 1L,
     @SerializedName("created_at") val createdAt: String? = null
+)
+
+/**
+ * DTO yêu cầu cấu hình ánh xạ số chương local sang canonical.
+ */
+data class ChapterMappingRequestDto(
+    @SerializedName("local_chapter_index") val localChapterIndex: Int,
+    @SerializedName("canonical_chapter_start") val canonicalChapterStart: Int,
+    @SerializedName("canonical_chapter_end") val canonicalChapterEnd: Int,
+    @SerializedName("confidence") val confidence: Double = 1.0,
+    @SerializedName("source") val source: String = "client"
 )
 
 /**
@@ -79,7 +103,7 @@ data class ChapterSubmissionRequestDto(
  * DTO phản hồi sau khi gửi chương nguồn thành công (HTTP 202 SubmissionStatusResponse).
  */
 data class ChapterSubmissionResponseDto(
-    @SerializedName("submission_id") val submissionId: String,
+    @SerializedName("submission_id") val submissionId: String = "",
     @SerializedName("idempotency_key") val idempotencyKey: String? = null,
     @SerializedName("book_id") val bookId: String? = null,
     @SerializedName("edition_id") val editionId: String? = null,
@@ -89,7 +113,7 @@ data class ChapterSubmissionResponseDto(
     @SerializedName("input_type") val inputType: String? = "chapter_text",
     @SerializedName("content_fingerprint") val contentFingerprint: String? = null,
     @SerializedName("source_group_id") val sourceGroupId: String? = null,
-    @SerializedName("status") val status: String? = "queued",
+    @SerializedName("status") val status: String? = "accepted",
     @SerializedName("error_code") val errorCode: String? = null,
     @SerializedName("error_message") val errorMessage: String? = null,
     @SerializedName("event_ids") val eventIds: List<String>? = null,
@@ -103,6 +127,16 @@ data class ChapterSubmissionResponseDto(
 data class CoverageDto(
     @SerializedName("processed_ranges") val processedRanges: List<List<Int>>? = null,
     @SerializedName("missing_ranges") val missingRanges: List<List<Int>>? = null
+)
+
+/**
+ * DTO thông tin linh thú / thú cưng (Pet).
+ */
+data class CharacterPetDto(
+    @SerializedName("name") val name: String = "",
+    @SerializedName("species") val species: String? = null,
+    @SerializedName("realm") val realm: String? = null,
+    @SerializedName("status") val status: String? = null
 )
 
 /**
@@ -121,7 +155,13 @@ data class CharacterProfileDto(
     @SerializedName("character_id") val characterId: String? = null,
     @SerializedName("id") val id: String? = null,
     @SerializedName("name") val name: String? = null,
+    @SerializedName("vi_name") val viName: String? = null,
     @SerializedName("original_name") val originalName: String? = null,
+    @SerializedName("role") val role: String? = null,
+    @SerializedName("is_main") val isMain: Boolean? = null,
+    @SerializedName("is_protagonist") val isProtagonistFlag: Boolean? = null,
+    @SerializedName("realm") val realm: String? = null,
+    @SerializedName("faction") val faction: String? = null,
     @SerializedName("last_changed_chapter") val lastChangedChapter: Int? = null,
     @SerializedName("attributes") val attributes: Map<String, JsonElement>? = null,
     @SerializedName("changed_in_current_chapter") val changedInCurrentChapter: Boolean = false,
@@ -129,6 +169,8 @@ data class CharacterProfileDto(
     @SerializedName("techniques") val techniques: List<String>? = null,
     @SerializedName("skills") val skills: List<String>? = null,
     @SerializedName("items") val items: List<String>? = null,
+    @SerializedName("pets") val pets: JsonElement? = null,
+    @SerializedName("address_terms") val addressTerms: JsonElement? = null,
     @SerializedName("relationships") val relationships: List<CharacterRelationshipDto>? = null,
     @SerializedName("affiliations") val affiliations: List<String>? = null,
     @SerializedName("titles") val titles: List<String>? = null,
@@ -152,6 +194,7 @@ data class CharacterSnapshotResponseDto(
     @SerializedName("snapshot_revision") val snapshotRevision: Long = 1L,
     @SerializedName("updated_at") val updatedAt: String? = null,
     @SerializedName("coverage") val coverage: CoverageDto? = null,
+    @SerializedName("main_character") val mainCharacter: CharacterProfileDto? = null,
     @SerializedName("characters") val characters: List<CharacterProfileDto>? = null
 )
 

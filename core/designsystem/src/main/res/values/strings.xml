@@ -131,7 +131,6 @@
     <string name="reader_brightness_extra_dim_badge">Siêu tối</string>
     <string name="reader_brightness_hud_format">%1$d%%</string>
 
-
     <!-- Reading Defaults Screen -->
     <string name="reading_defaults_title">Mặc định đọc</string>
     <string name="reading_defaults_info_title">Mặc định đọc</string>
@@ -298,16 +297,29 @@
     <string name="book_bible_status_empty">Chưa có dữ liệu nhân vật</string>
     <string name="book_bible_coverage_format">Đã phân tích: %1$s • Chưa mở: %2$s</string>
     <string name="book_bible_coverage_range_format">c.%1$d-%2$d</string>
-    <string name="book_bible_changed_badge">Tiến triển mới</string>
+    <string name="book_bible_changed_badge">Cập nhật ở chương này</string>
     <string name="book_bible_tab_profile">Hồ sơ</string>
     <string name="book_bible_tab_timeline">Dòng thời gian</string>
     <string name="book_bible_section_cultivation">Cảnh giới tu vi</string>
     <string name="book_bible_section_techniques">Công pháp &amp; Võ học</string>
     <string name="book_bible_section_skills">Kỹ năng đặc biệt</string>
     <string name="book_bible_section_items">Trang bị &amp; Pháp bảo</string>
+    <string name="book_bible_section_pets">Linh thú &amp; Thú cưng</string>
+    <string name="book_bible_section_address_terms">Xưng hô &amp; Giao tiếp</string>
+    <string name="book_bible_address_self_label">Tự xưng:</string>
+    <string name="book_bible_address_other_label">Gọi đối phương:</string>
     <string name="book_bible_section_relationships">Quan hệ nhân vật</string>
     <string name="book_bible_section_affiliations">Thế lực &amp; Môn phái</string>
     <string name="book_bible_section_titles">Danh hiệu &amp; Bí danh</string>
+    <string name="book_bible_section_voice_notes">Tính cách &amp; Ngữ điệu</string>
+    <string name="book_bible_role_protagonist">Nhân vật chính</string>
+    <string name="book_bible_role_antagonist">Phản diện</string>
+    <string name="book_bible_role_supporting">Nhân vật phụ</string>
+    <string name="book_bible_certainty_observed">Quan sát thực tế</string>
+    <string name="book_bible_certainty_stated">Lời kể / Tuyên bố</string>
+    <string name="book_bible_certainty_rumor">Tin đồn</string>
+    <string name="book_bible_certainty_inferred">Suy luận</string>
+    <string name="book_bible_certainty_contradicted">Mâu thuẫn</string>
     <string name="book_bible_section_other">Thông tin khác</string>
     <string name="book_bible_timeline_empty">Chưa có sự kiện nào được ghi nhận</string>
     <string name="book_bible_timeline_chapter_badge">Chương %1$d</string>
@@ -317,4 +329,10 @@
     <string name="book_bible_retry">Thử lại</string>
     <string name="book_bible_error_loading">Không thể tải dữ liệu Book Bible</string>
     <string name="book_bible_empty_desc">Chưa có thông tin nhân vật nào được ghi nhận cho chương này.</string>
+    <string name="book_bible_section_main_character">Nhân vật chính</string>
+    <string name="book_bible_section_other_characters">Danh sách nhân vật</string>
+    <string name="book_bible_view_detail">Xem hồ sơ chi tiết</string>
+    <string name="book_bible_search_placeholder">Tìm tên, cảnh giới, thế lực...</string>
+    <string name="book_bible_no_search_results">Không tìm thấy nhân vật phù hợp</string>
+    <string name="book_bible_clear_search">Xóa tìm kiếm</string>
 </resources>

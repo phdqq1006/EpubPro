@@ -99,6 +99,14 @@ interface BookBibleRepository {
     ): Result<Unit>
 
     /**
+     * Tra cứu trực tiếp tiến độ xử lý của một submission từ máy chủ backend qua mã [submissionId].
+     *
+     * @param submissionId Mã submission nhận được từ backend sau khi submit chương.
+     * @return [Result] chứa trạng thái [SubmissionState].
+     */
+    suspend fun checkSubmissionStatus(submissionId: String): Result<SubmissionState>
+
+    /**
      * Xóa toàn bộ dữ liệu Book Bible (edition, snapshot, timeline, payload, submission) liên quan đến cuốn sách khi sách bị xóa khỏi thư viện.
      *
      * @param sourceId Mã sách (Book ID hoặc Novel ID).

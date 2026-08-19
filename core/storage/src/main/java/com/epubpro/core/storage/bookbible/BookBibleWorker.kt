@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.epubpro.core.database.dao.BookBibleDao
 import com.epubpro.core.database.entity.BookBibleEditionEntity
+import com.epubpro.core.storage.ServerPreferencesManager
 import com.epubpro.core.storage.network.*
 import com.google.gson.Gson
 import dagger.assisted.Assisted
@@ -23,6 +24,7 @@ class BookBibleWorker @AssistedInject constructor(
     private val apiService: BookBibleApiService,
     private val bookBibleDao: BookBibleDao,
     private val payloadStore: BookBiblePayloadStore,
+    private val serverPreferencesManager: ServerPreferencesManager,
     private val gson: Gson
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -71,7 +73,7 @@ class BookBibleWorker @AssistedInject constructor(
             var edition = bookBibleDao.getEditionByLocalSourceKey(localSourceKey)
             if (edition == null) {
                 val bookRes = apiService.resolveBook(
-                    BookResolutionRequestDto(
+                    body = BookResolutionRequestDto(
                         metadata = BookMetadataDto(
                             title = bookTitle,
                             author = author,
@@ -80,8 +82,13 @@ class BookBibleWorker @AssistedInject constructor(
                         createIfMissing = true
                     )
                 )
-                val bookId = bookRes.bookId
-                    ?: throw IllegalStateException("Không nhận được book_id từ server.")
+                val bookId = when {
+                    !bookRes.bookId.isNullOrBlank() -> bookRes.bookId
+                    !bookRes.candidates.isNullOrEmpty() -> {
+                        bookRes.candidates.maxByOrNull { it.score }?.bookId ?: bookRes.candidates.first().bookId
+                    }
+                    else -> null
+                } ?: throw IllegalStateException("Không nhận diện được book_id từ server.")
 
                 val editionRes = apiService.resolveOrCreateEdition(
                     bookId = bookId,
@@ -119,11 +126,13 @@ class BookBibleWorker @AssistedInject constructor(
                 errorMessage = null
             )
 
-            // Bước 3: Gửi request submit chapter lên backend
+            // Bước 3: Gửi request submit chapter lên backend với cấu hình LLM nếu có
             val response = apiService.submitChapter(
                 editionId = edition.backendEditionId,
                 chapterNumber = chapterNumber,
                 idempotencyKey = idempotencyKey,
+                apiKey = serverPreferencesManager.getLlmApiKey(),
+                model = serverPreferencesManager.getLlmModel(),
                 body = ChapterSubmissionRequestDto(
                     localChapterIndex = chapterNumber,
                     inputType = "chapter_text",
@@ -133,11 +142,17 @@ class BookBibleWorker @AssistedInject constructor(
                 )
             )
 
-            // Bước 4: Thành công (HTTP 200/202) -> cập nhật trạng thái và xóa file payload tạm
+            // Bước 4: Thành công (HTTP 200/202) -> cập nhật trạng thái theo response.status và xóa file payload tạm
+            val targetState = when (response.status?.lowercase(java.util.Locale.ROOT)) {
+                "completed" -> "COMPLETED"
+                "processing", "reviewing" -> "PROCESSING"
+                else -> "ACCEPTED"
+            }
+
             bookBibleDao.updateSubmissionState(
                 id = submissionDbId,
-                state = "ACCEPTED",
-                submissionId = response.submissionId,
+                state = targetState,
+                submissionId = response.submissionId.ifBlank { submission.submissionId },
                 errorCode = null,
                 errorMessage = null
             )
@@ -159,6 +174,18 @@ class BookBibleWorker @AssistedInject constructor(
                 )
                 payloadStore.deletePayload(payloadPath)
                 return Result.success()
+            }
+
+            // 401 Unauthorized / 403 Forbidden: Lỗi Client Token -> Không xóa payload, chuyển trạng thái RETRYABLE_FAILURE để người dùng chỉnh sửa key rồi thử lại
+            if (code == 401 || code == 403) {
+                bookBibleDao.updateSubmissionState(
+                    id = submissionDbId,
+                    state = "RETRYABLE_FAILURE",
+                    submissionId = submission.submissionId,
+                    errorCode = code,
+                    errorMessage = "Lỗi xác thực (HTTP $code). Vui lòng cấu hình lại Client Key trong Cài đặt và thử lại."
+                )
+                return Result.failure()
             }
 
             // Lỗi mạng hoặc server tạm thời (408, 429, 5xx) -> Thử lại có giãn cách (Retry)
