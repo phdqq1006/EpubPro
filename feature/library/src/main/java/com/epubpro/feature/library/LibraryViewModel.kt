@@ -1,6 +1,7 @@
 package com.epubpro.feature.library
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,8 +11,12 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.epubpro.core.reader.engine.EpubEngine
+import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ReaderResumeSnapshotStore
+import com.epubpro.core.storage.TtsPlaybackSnapshotStore
+import com.epubpro.core.storage.TtsWidgetState
+import com.epubpro.core.storage.TtsWidgetStateStore
 import com.epubpro.core.storage.worker.EpubImportWorker
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.ImportJobStatus
@@ -58,6 +63,42 @@ data class LibraryUiState(
 )
 
 /**
+ * Mô tả broadcast thay đổi trạng thái widget trước khi chuyển thành Android Intent.
+ *
+ * @property action Action nội bộ của broadcast.
+ * @property packageName Package đích nhận broadcast.
+ */
+internal data class TtsWidgetStateChangedRequest(
+    val action: String,
+    val packageName: String
+)
+
+/**
+ * Tạo contract broadcast cập nhật widget theo package của ứng dụng.
+ *
+ * @param packageName Package ứng dụng nhận broadcast.
+ * @return Contract gồm action và package đích.
+ */
+internal fun createTtsWidgetStateChangedRequest(
+    packageName: String
+): TtsWidgetStateChangedRequest = TtsWidgetStateChangedRequest(
+    action = TtsWidgetContract.ACTION_STATE_CHANGED,
+    packageName = packageName
+)
+
+/**
+ * Phát tín hiệu nội bộ để các widget TTS đọc lại trạng thái đã được lưu.
+ *
+ * @param context Context ứng dụng dùng để gửi broadcast giới hạn trong chính package.
+ */
+internal fun broadcastTtsWidgetStateChanged(context: Context) {
+    val request = createTtsWidgetStateChangedRequest(context.packageName)
+    context.sendBroadcast(
+        Intent(request.action).setPackage(request.packageName)
+    )
+}
+
+/**
  * ViewModel quản lý danh sách sách trong thư viện, tìm kiếm, nhập file EPUB nội bộ
  * và điều phối tác vụ tải sách lên server chạy ngầm qua [WorkManager].
  */
@@ -70,6 +111,8 @@ class LibraryViewModel @Inject constructor(
     private val epubEngine: EpubEngine,
     private val onlineNovelRepository: OnlineNovelRepository,
     private val snapshotStore: ReaderResumeSnapshotStore,
+    private val ttsPlaybackSnapshotStore: TtsPlaybackSnapshotStore,
+    private val ttsWidgetStateStore: TtsWidgetStateStore,
     private val bookBibleRepository: BookBibleRepository
 ) : ViewModel() {
 
@@ -289,8 +332,22 @@ class LibraryViewModel @Inject constructor(
         _userMessage.value = null
     }
 
+    /**
+     * Xóa một cuốn sách khỏi thư viện và dọn toàn bộ dữ liệu phụ thuộc của sách.
+     *
+     * Luồng này xóa cache EPUB, resume snapshot, TTS snapshot/widget state, AI cache,
+     * Book Bible data và bản ghi sách trong database. Nếu sách đang là snapshot TTS hiện tại,
+     * broadcast nội bộ sẽ được gửi để các widget cập nhật ngay lập tức.
+     *
+     * @param item Trạng thái UI chứa sách cần xóa.
+     */
     fun deleteBook(item: BookItemUiState) {
         viewModelScope.launch {
+            if (ttsPlaybackSnapshotStore.getSnapshot()?.bookId == item.book.id) {
+                ttsPlaybackSnapshotStore.clearSnapshot()
+                ttsWidgetStateStore.saveState(TtsWidgetState())
+                broadcastTtsWidgetStateChanged(context)
+            }
             epubEngine.deleteBookCache(item.book.filePath)
             snapshotStore.deleteSnapshot(item.book.id)
             storageManager.deleteBookFile(item.book.filePath)

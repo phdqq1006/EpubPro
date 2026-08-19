@@ -120,6 +120,37 @@ data class ReaderUiState(
         }
 }
 
+/**
+ * Lấy chapter override hợp lệ từ navigation request, độc lập với việc có mở màn hình TTS hay không.
+ *
+ * @param chapterIndex Chỉ số chapter nhận từ navigation, có thể là null hoặc giá trị sentinel âm.
+ * @return Chỉ số chapter không âm nếu hợp lệ; ngược lại trả về null.
+ */
+internal fun resolveRequestedChapterIndex(chapterIndex: Int?): Int? =
+    chapterIndex?.takeIf { it >= 0 }
+
+/**
+ * Tính tỷ lệ tiến độ đọc dựa trên chapter hiện tại và trang hiện tại trong chapter.
+ *
+ * @param state Trạng thái reader chứa chapter, trang hiện tại và tổng số trang.
+ * @return Tiến độ trong khoảng từ 0.0 đến 1.0; trang cuối của sách trả về 1.0.
+ */
+internal fun calculateReaderProgress(state: ReaderUiState): Float {
+    if (state.chapters.isEmpty()) return 0f
+
+    val totalChapters = state.chapters.size
+    val currentChapter = state.currentChapterIndex.coerceIn(0, totalChapters - 1)
+    val totalPages = state.totalPagesInChapter.coerceAtLeast(1)
+    val currentPage = state.currentPageInChapter.coerceIn(1, totalPages)
+    val pageProgress = if (totalPages == 1) {
+        if (currentChapter == totalChapters - 1 && currentPage == 1) 1f else 0f
+    } else {
+        (currentPage - 1).toFloat() / (totalPages - 1)
+    }
+    return ((currentChapter + pageProgress) / totalChapters.toFloat())
+        .coerceIn(0f, 1f)
+}
+
 private data class ChapterHtmlBundle(
     val current: String,
     val previous: String?,
@@ -146,14 +177,9 @@ class ReaderViewModel @Inject constructor(
 ) : ViewModel() {
 
     val bookId: String = checkNotNull(savedStateHandle["bookId"])
-    private val requestedTtsChapterIndex: Int? = if (
-        savedStateHandle.get<Boolean>(TtsOpenBookContract.NAV_ARGUMENT_OPEN_TTS_PLAYER) == true
-    ) {
+    private val requestedChapterIndex: Int? = resolveRequestedChapterIndex(
         savedStateHandle.get<Int>(TtsOpenBookContract.NAV_ARGUMENT_CHAPTER_INDEX)
-            ?.takeIf { it >= 0 }
-    } else {
-        null
-    }
+    )
     private var bookFile: File? = null
     private var chapterLoadJob: Job? = null
     private var adjacentPreloadJob: Job? = null
@@ -300,7 +326,7 @@ class ReaderViewModel @Inject constructor(
                 require(headers.isNotEmpty()) { "Không thể đọc cấu trúc EPUB" }
 
                 val savedProgress = bookRepository.getReadingProgress(bookId).firstOrNull()
-                val requestedIndex = requestedTtsChapterIndex?.takeIf { it in headers.indices }
+                val requestedIndex = requestedChapterIndex?.takeIf { it in headers.indices }
                 val initialIndex = requestedIndex
                     ?: (savedProgress?.chapterIndex ?: 0)
                         .coerceIn(0, (headers.size - 1).coerceAtLeast(0))
@@ -676,13 +702,7 @@ class ReaderViewModel @Inject constructor(
                 return@launch
             }
 
-            val totalChapters = state.chapters.size.coerceAtLeast(1)
-            val chapterProgress = state.currentChapterIndex.toFloat() / totalChapters
-            val pageProgress =
-                ((state.currentPageInChapter.toFloat() - 1) / state.totalPagesInChapter.coerceAtLeast(
-                    1
-                )) / totalChapters
-            val overallProgress = (chapterProgress + pageProgress).coerceIn(0f, 1f)
+            val overallProgress = calculateReaderProgress(state)
 
             bookRepository.saveReadingProgress(
                 ReadingProgress(
@@ -708,12 +728,7 @@ class ReaderViewModel @Inject constructor(
 
         progressSaveVersion++
         progressSaveJob?.cancel()
-        val totalChapters = state.chapters.size.coerceAtLeast(1)
-        val chapterProgress = state.currentChapterIndex.toFloat() / totalChapters
-        val pageProgress =
-            ((state.currentPageInChapter.toFloat() - 1) /
-                state.totalPagesInChapter.coerceAtLeast(1)) / totalChapters
-        val overallProgress = (chapterProgress + pageProgress).coerceIn(0f, 1f)
+        val overallProgress = calculateReaderProgress(state)
 
         viewModelScope.launch(Dispatchers.IO) {
             bookRepository.saveReadingProgress(

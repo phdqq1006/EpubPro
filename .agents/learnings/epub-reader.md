@@ -1,7 +1,7 @@
 # EPUB Reader & Layout Engine
 
 > Tổng hợp kiến thức về hệ thống đọc EPUB, WebView rendering, TTS, tối ưu bộ nhớ RAM, Room FTS5 và cài đặt mặc định đọc / chuyển trang trong dự án.
-> Cập nhật lần cuối: 2026-08-18
+> Cập nhật lần cuối: 2026-08-19
 
 ---
 
@@ -31,6 +31,11 @@
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Số trang không phải vị trí bền vững vì font, margin hoặc theme có thể repaginate chương. Reader lưu index paragraph đầu tiên đang thấy qua JS bridge. Khi nội dung phải render lại, WebView tìm paragraph đó rồi tính lại trang ngang hoặc `scrollIntoView()` trong chế độ cuộn dọc. Chỉ fallback về page index khi chưa có semantic anchor.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Explicit Reader State Projection Broadcast
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Khi xóa hoặc thay thế snapshot TTS/widget đang active, lưu state rỗng vào `TtsWidgetStateStore` là chưa đủ. Cần phát `TtsWidgetContract.ACTION_STATE_CHANGED` giới hạn trong package app để mọi widget đọc lại projection mới ngay, tránh launcher giữ RemoteViews cũ cho tới lần tick tiếp theo.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `app/src/main/java/com/epubpro/app/widget/TtsReadingWidgetProvider.kt`
 
 ### Batch Streaming FTS Indexer
 - **Ngày**: 2026-07-23
@@ -124,6 +129,27 @@
 - **Root cause**: Callback chỉnh cấu hình dùng chung `onStartListeningFromSetup()`, vốn có side effect playback.
 - **Fix**: Tách `updateTtsSettings()` chỉ persist và cập nhật service; giữ `onStartListeningFromSetup()` riêng cho lệnh nghe rõ ràng. Reader và Audio Settings cùng observe `TtsPreferencesManager.settingsFlow`.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/audio/AudioSettingsViewModel.kt`
+
+### Widget vẫn hiển thị sách đã xóa khỏi thư viện
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Xóa cuốn sách đang là snapshot TTS hiện tại đã clear storage nhưng widget ngoài launcher vẫn hiển thị nội dung cũ.
+- **Root cause**: `LibraryViewModel.deleteBook()` chỉ dọn `TtsPlaybackSnapshotStore` và `TtsWidgetStateStore`, không gửi broadcast contract cho `AppWidgetProvider`.
+- **Fix**: Inject store TTS/widget vào ViewModel, clear state khi bookId khớp snapshot active, rồi gửi broadcast package-scoped `ACTION_STATE_CHANGED`. Test contract broadcast bằng helper pure JVM để tránh phụ thuộc Android framework mock.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `feature/library/src/test/java/com/epubpro/feature/library/LibraryViewModelTest.kt`
+
+### Reader progress báo hoàn thành sai ở state rỗng hoặc chương một trang
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Progress lưu DB có thể thành `1.0` khi chưa load chapter, hoặc coi mọi chapter chỉ có một trang là đọc xong toàn sách.
+- **Root cause**: Công thức page progress chia theo `(totalPages - 1)` và ép `totalPages >= 1`, nên state rỗng/one-page chapter rơi vào nhánh hoàn thành.
+- **Fix**: Tách `calculateReaderProgress()` thành pure function: không có chapter trả `0f`; chapter một trang chỉ trả `1f` nếu đó là chapter cuối sách. Thêm unit test cho empty state, first one-page chapter và final chapter.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/reader/src/test/java/com/epubpro/feature/reader/ReaderProgressTest.kt`
+
+### Room schema mất dữ liệu do fallback destructive migration
+- **Ngày**: 2026-08-19
+- **Vấn đề**: Nâng database có thể xóa dữ liệu người dùng khi thiếu migration rõ ràng.
+- **Root cause**: `fallbackToDestructiveMigration()` che mất lỗi migration trong quá trình review và cho phép Room recreate schema.
+- **Fix**: Gỡ destructive fallback, đăng ký migration tường minh và thêm test xác nhận SQL `ALTER TABLE` cho trường mới thay vì recreate DB.
+- **Files liên quan**: `core/database/src/main/java/com/epubpro/core/database/di/DatabaseModule.kt`, `core/database/src/test/java/com/epubpro/core/database/BookBibleMigrationTest.kt`
 
 ### OutOfMemoryError do nạp toàn bộ HTML tất cả các chương vào RAM
 - **Ngày**: 2026-08-17
@@ -331,6 +357,15 @@
   4. So sánh chuỗi trước/sau injection, sửa root cause rồi gỡ log tạm.
   5. Build/cài lại, mở đúng sách và xác nhận log có callback page metrics nhưng không còn console syntax error.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`
+
+### Cách fix trạng thái widget khi xóa sách đang phát TTS
+- **Ngày**: 2026-08-19
+- **Bước thực hiện**:
+  1. Kiểm tra snapshot TTS hiện tại trước khi xóa sách khỏi database.
+  2. Nếu `bookId` trùng sách bị xóa, clear playback snapshot và lưu `TtsWidgetState()` rỗng.
+  3. Gửi `TtsWidgetContract.ACTION_STATE_CHANGED` bằng broadcast giới hạn trong `context.packageName`.
+  4. Giữ hàm tạo broadcast contract tách khỏi Android framework để unit test được trên JVM.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `feature/library/src/test/java/com/epubpro/feature/library/LibraryViewModelTest.kt`
 ---
 
 
@@ -386,6 +421,16 @@
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Duy trì pure function tạo reload key chỉ từ rendering fields. Unit test phải chứng minh runtime-only variants giữ nguyên key và rendering variants đổi key. Test này ngăn việc thêm field mới vào `ReaderSettings` rồi vô tình đưa toàn bộ data class hash trở lại khóa WebView.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderScreen.kt`, `feature/reader/src/test/java/com/epubpro/feature/reader/ReaderContentReloadKeyTest.kt`
+
+### Pure Reader Progress Function Pattern
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Logic tính progress nên nằm trong pure function nhận `ReaderUiState` và trả về `Float` đã `coerceIn(0f, 1f)`. Edge case phải được định nghĩa trước: chưa có chapter là `0f`; page đầu của chapter một trang chưa phải cuối sách không được xem là hoàn thành toàn bộ.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `feature/reader/src/test/java/com/epubpro/feature/reader/ReaderProgressTest.kt`
+
+### Package-Scoped Broadcast Contract Test Pattern
+- **Ngày**: 2026-08-19
+- **Chi tiết**: Với logic Android framework khó test trên JVM (`Intent.setPackage`, `sendBroadcast`), tách phần quyết định contract thành helper thuần Kotlin trả về action và package. Unit test helper để khóa behavior, còn hàm Android mỏng chỉ chuyển contract thành `Intent`.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`, `feature/library/src/test/java/com/epubpro/feature/library/LibraryViewModelTest.kt`
 
 ### Literal Regex Replacement Pattern cho HTML/JavaScript
 - **Ngày**: 2026-08-05

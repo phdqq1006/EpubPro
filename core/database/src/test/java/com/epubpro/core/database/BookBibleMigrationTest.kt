@@ -7,6 +7,19 @@ import org.mockito.Mockito.verify
 
 class BookBibleMigrationTest {
 
+    /**
+     * Kiểm tra migration 3 lên 4 bổ sung tổng số chapter cho sách và tiến độ đọc.
+     */
+    @Test
+    fun migration3To4AddsTotalChaptersColumns() {
+        val db = mock(SupportSQLiteDatabase::class.java)
+
+        MIGRATION_3_4.migrate(db)
+
+        verify(db).execSQL("ALTER TABLE books ADD COLUMN totalChapters INTEGER NOT NULL DEFAULT 0")
+        verify(db).execSQL("ALTER TABLE reading_progress ADD COLUMN totalChapters INTEGER NOT NULL DEFAULT 0")
+    }
+
     @Test
     fun testMigration4To5ExecutesExpectedSql() {
         val db = mock(SupportSQLiteDatabase::class.java)

@@ -9,6 +9,7 @@ import android.content.Intent
 import android.widget.RemoteViews
 import com.epubpro.app.MainActivity
 import com.epubpro.app.R
+import com.epubpro.core.designsystem.R as DesignSystemR
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsWidgetContract
@@ -71,16 +72,25 @@ class TtsReadingWidgetProvider : AppWidgetProvider() {
 
             // 2. Reader Content Text
             val contentText = state.paragraphText.take(800).ifBlank {
-                if (state.hasSnapshot) "Bấm lật trang hoặc mở sách để đọc..." else "Chưa có sách được mở trong thư viện."
+                if (state.hasSnapshot) {
+                    context.getString(DesignSystemR.string.tts_widget_reading_empty_with_snapshot)
+                } else {
+                    context.getString(DesignSystemR.string.tts_widget_reading_empty_library)
+                }
             }
             views.setTextViewText(R.id.tts_reading_content_text, contentText)
 
             // 3. Footer Progress Info
             val percent = (state.normalizedProgress * 100f).roundToInt()
             val progressText = if (state.totalParagraphs > 0) {
-                "$percent% • Đoạn ${state.paragraphIndex + 1}/${state.totalParagraphs}"
+                context.getString(
+                    DesignSystemR.string.tts_widget_reading_progress,
+                    percent,
+                    state.paragraphIndex + 1,
+                    state.totalParagraphs
+                )
             } else if (state.hasSnapshot) {
-                "$percent%"
+                context.getString(DesignSystemR.string.tts_widget_reading_percent, percent)
             } else {
                 ""
             }

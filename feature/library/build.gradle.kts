@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
     implementation(project(":core:epub"))
+    implementation(project(":core:playback"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -25,4 +26,6 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.androidx.work.runtime.ktx)
+
+    testImplementation(libs.junit4)
 }

@@ -196,6 +196,10 @@
     <string name="tts_action_pause">Tạm dừng</string>
     <string name="tts_action_prev">Đoạn trước</string>
     <string name="tts_action_next">Đoạn sau</string>
+    <string name="tts_widget_reading_empty_with_snapshot">Bấm lật trang hoặc mở sách để đọc...</string>
+    <string name="tts_widget_reading_empty_library">Chưa có sách được mở trong thư viện.</string>
+    <string name="tts_widget_reading_progress">%1$d%% • Đoạn %2$d/%3$d</string>
+    <string name="tts_widget_reading_percent">%1$d%%</string>
     <string name="tts_action_stop">Dừng</string>
     <string name="tts_preparing_voice">Đang chuẩn bị giọng…</string>
     <string name="tts_audio_focus_error">Không thể sử dụng đầu ra âm thanh</string>
