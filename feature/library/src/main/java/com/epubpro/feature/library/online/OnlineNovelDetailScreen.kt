@@ -156,7 +156,7 @@ fun OnlineNovelDetailScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(uiState.errorMessage ?: "Không tìm thấy thông tin truyện")
+                        Text(uiState.errorMessage ?: stringResource(R.string.online_novel_detail_empty))
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = { viewModel.loadDetail() }) {
                             Text(stringResource(R.string.online_library_retry))
@@ -168,6 +168,17 @@ fun OnlineNovelDetailScreen(
     }
 }
 
+/**
+ * Phần đầu hiển thị thông tin tổng quan của bộ truyện trong màn hình chi tiết.
+ *
+ * Bao gồm ảnh bìa truyện, tiêu đề, tên tác giả, tiến độ dịch, nút tải trọn bộ file EPUB
+ * và mô tả giới thiệu truyện có thể mở rộng/thu gọn.
+ *
+ * @param detail Chi tiết thông tin bộ truyện online.
+ * @param isDownloaded Cờ cho biết truyện này đã được tải về máy hay chưa.
+ * @param downloadPercent Phần trăm tiến độ tải sách.
+ * @param onDownloadClick Callback khi nhấn nút tải trọn bộ file EPUB.
+ */
 @Composable
 private fun NovelDetailHeader(
     detail: OnlineNovelDetail,
@@ -224,13 +235,17 @@ private fun NovelDetailHeader(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Tác giả: ${detail.author}",
+                        text = stringResource(R.string.online_novel_detail_author_format, detail.author),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Đã dịch: ${detail.translatedChapters}/${detail.totalChapters} chương",
+                        text = stringResource(
+                            R.string.online_novel_detail_translated_format,
+                            detail.translatedChapters,
+                            detail.totalChapters
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.primary
@@ -295,7 +310,7 @@ private fun NovelDetailHeader(
                     Icon(Icons.Outlined.CloudDownload, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Tải toàn bộ EPUB về máy (Đọc Offline)",
+                        text = stringResource(R.string.online_download_full_epub),
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -314,7 +329,7 @@ private fun NovelDetailHeader(
                 )
                 if (desc.length > 120) {
                     Text(
-                        text = if (isDescriptionExpanded) "Thu gọn" else "Xem thêm...",
+                        text = if (isDescriptionExpanded) stringResource(R.string.action_collapse) else stringResource(R.string.action_see_more),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
@@ -328,6 +343,17 @@ private fun NovelDetailHeader(
     }
 }
 
+/**
+ * Mục hiển thị một chương trong danh sách các chương của truyện online.
+ *
+ * Hiển thị tên chương, nhãn trạng thái đã dịch / bản gốc, số lượng từ, nút bấm đọc chương
+ * hoặc nút dịch AI nếu chương chưa được dịch.
+ *
+ * @param chapter Tóm tắt thông tin chương.
+ * @param isTranslating Cờ cho biết chương này đang trong tiến trình dịch AI.
+ * @param onReadClick Callback khi nhấn đọc nội dung chương.
+ * @param onTranslateClick Callback khi nhấn yêu cầu AI dịch chương.
+ */
 @Composable
 private fun ChapterListItem(
     chapter: OnlineChapterSummary,
@@ -358,7 +384,7 @@ private fun ChapterListItem(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "Đã dịch",
+                            text = stringResource(R.string.online_chapter_status_translated),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -371,7 +397,7 @@ private fun ChapterListItem(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "Bản gốc",
+                            text = stringResource(R.string.online_novel_version_original_btn),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -383,7 +409,7 @@ private fun ChapterListItem(
                 if (chapter.wordCount > 0) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "${chapter.wordCount} chữ",
+                        text = stringResource(R.string.online_word_count_format, chapter.wordCount),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

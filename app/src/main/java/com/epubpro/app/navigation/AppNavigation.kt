@@ -1,7 +1,5 @@
 package com.epubpro.app.navigation
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -11,7 +9,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import android.net.Uri
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -26,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsOpenBookRequest
+import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.feature.bookmark.BookmarkScreen
 import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
@@ -65,7 +63,7 @@ fun AppNavHost(
 
     LaunchedEffect(navController, openLibraryRequests) {
         openLibraryRequests.collect {
-            navController.navigate(Screen.Library.route) {
+            navController.navigate(Screen.Bookshelf.route) {
                 popUpTo(navController.graph.findStartDestination().id) {
                     saveState = false
                 }
@@ -110,42 +108,14 @@ fun AppNavHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Library.route,
+            startDestination = Screen.Bookshelf.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Library.route) {
-                LibraryScreen(
-                    onBookClick = { bookId ->
-                        navController.navigate(Screen.Reader.createRoute(bookId))
-                    },
-                    onNavigateToBookmarks = {
-                        navController.navigate(Screen.Bookmark.createRoute("global"))
-                    },
-                    onNavigateToSearch = {
-                        navController.navigate(Screen.Search.createRoute("global"))
-                    },
-                    onNavigateToOnlineLibrary = {
-                        navController.navigate(Screen.OnlineLibrary.route)
-                    }
-                )
-            }
-
             composable(Screen.Browse.route) {
                 com.epubpro.feature.library.online.OnlineLibraryScreen(
                     onNovelClick = { novelId ->
                         navController.navigate(Screen.OnlineNovelDetail.createRoute(novelId))
                     },
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToServerSettings = { navController.navigate(Screen.Profile.route) }
-                )
-            }
-
-            composable(Screen.OnlineLibrary.route) {
-                com.epubpro.feature.library.online.OnlineLibraryScreen(
-                    onNovelClick = { novelId ->
-                        navController.navigate(Screen.OnlineNovelDetail.createRoute(novelId))
-                    },
-                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToServerSettings = { navController.navigate(Screen.Profile.route) }
                 )
             }
@@ -185,19 +155,26 @@ fun AppNavHost(
                     onNavigateToBookmarks = {
                         navController.navigate(Screen.Bookmark.createRoute("global"))
                     },
-                    onNavigateToSearch = {
-                        navController.navigate(Screen.Search.createRoute("global"))
-                    },
                     onNavigateToOnlineLibrary = {
-                        navController.navigate(Screen.OnlineLibrary.route)
+                        navController.navigate(Screen.Browse.route) {
+                            launchSingleTop = true
+                        }
                     }
                 )
             }
 
-            composable(Screen.Notebook.route) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.coming_soon_suffix, stringResource(R.string.nav_notebook)))
-                }
+            composable(Screen.StoryProgress.route) {
+                com.epubpro.feature.bookbible.StoryProgressScreen(
+                    onOpenBookBible = { source: BookBibleSource, chapterNumber: Int ->
+                        navController.navigate(
+                            Screen.BookBible.createRoute(
+                                sourceType = source.type.name,
+                                sourceId = source.sourceId,
+                                chapterNumber = chapterNumber
+                            )
+                        )
+                    }
+                )
             }
 
             composable(Screen.Profile.route) {
@@ -296,7 +273,6 @@ fun AppNavHost(
 }
 
 sealed class Screen(val route: String) {
-    object Library : Screen("library")
     object Reader : Screen(
         "reader/{bookId}?" +
             "${TtsOpenBookContract.NAV_ARGUMENT_CHAPTER_INDEX}=" +
@@ -336,7 +312,6 @@ sealed class Screen(val route: String) {
     }
 
     object Browse : Screen("browse")
-    object OnlineLibrary : Screen("online_library")
     object OnlineNovelDetail : Screen("online_novel_detail/{novelId}") {
         fun createRoute(novelId: String) = "online_novel_detail/$novelId"
     }
@@ -345,7 +320,7 @@ sealed class Screen(val route: String) {
     }
 
     object Bookshelf : Screen("bookshelf")
-    object Notebook : Screen("notebook")
+    object StoryProgress : Screen("story_progress")
     object Profile : Screen("profile")
     object AudioSettings : Screen("audio_settings")
     object ReadingDefaults : Screen("reading_defaults")

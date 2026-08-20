@@ -41,6 +41,29 @@ data class BookBibleChapter(
 )
 
 /**
+ * Tóm tắt tiến trình Book Bible của một truyện để hiển thị ở màn hình cấp ứng dụng.
+ *
+ * @property source Nguồn truyện tương ứng.
+ * @property title Tên truyện.
+ * @property author Tác giả truyện.
+ * @property totalChapters Tổng số chương của truyện.
+ * @property latestChapterNumber Chương lớn nhất đã có submission hoặc snapshot.
+ * @property snapshotStatus Trạng thái snapshot mới nhất, nếu đã có snapshot.
+ * @property submissionState Trạng thái submission mới nhất, nếu chưa có snapshot.
+ * @property updatedAt Thời điểm cập nhật tiến trình gần nhất theo mili-giây.
+ */
+data class BookBibleProgressSummary(
+    val source: BookBibleSource,
+    val title: String,
+    val author: String,
+    val totalChapters: Int,
+    val latestChapterNumber: Int,
+    val snapshotStatus: SnapshotStatus? = null,
+    val submissionState: SubmissionState? = null,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+/**
  * Trạng thái dữ liệu của bản Snapshot Book Bible.
  */
 enum class SnapshotStatus {

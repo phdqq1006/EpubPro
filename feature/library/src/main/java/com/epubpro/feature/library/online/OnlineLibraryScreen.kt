@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.CloudDownload
@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -35,12 +36,22 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.OnlineNovelSummary
+import com.epubpro.feature.library.components.GeneratedBookCover
 
+/**
+ * Màn hình Kho Truyện Online (Online Library Screen).
+ *
+ * Giao diện sắc nét, độ tương phản cao với thanh tìm kiếm nổi bật, bộ lọc thể loại rõ ràng,
+ * danh sách thẻ truyện đồng bộ chiều cao và nút tải sách trực quan.
+ *
+ * @param onNovelClick Callback khi người dùng nhấn vào một bộ truyện để xem thông tin chi tiết.
+ * @param onNavigateToServerSettings Callback điều hướng đến màn hình cấu hình máy chủ backend.
+ * @param viewModel ViewModel quản lý trạng thái tải truyện, tìm kiếm, lọc và tiến trình tải sách.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnlineLibraryScreen(
     onNovelClick: (novelId: String) -> Unit,
-    onNavigateBack: () -> Unit,
     onNavigateToServerSettings: () -> Unit,
     viewModel: OnlineLibraryViewModel = hiltViewModel()
 ) {
@@ -78,11 +89,6 @@ fun OnlineLibraryScreen(
                         style = MaterialTheme.typography.titleLarge
                     )
                 },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
-                    }
-                },
                 actions = {
                     IconButton(onClick = { uploadPickerLauncher.launch("application/epub+zip") }) {
                         Icon(Icons.Default.CloudUpload, contentDescription = stringResource(R.string.add_book_upload))
@@ -106,27 +112,52 @@ fun OnlineLibraryScreen(
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp)
         ) {
-            // Search Bar
+            // High Contrast, Crisp Search Bar
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = viewModel::onSearchQueryChanged,
-                placeholder = { Text(stringResource(R.string.online_library_search_hint)) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                placeholder = {
+                    Text(
+                        text = stringResource(R.string.online_library_search_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                },
                 trailingIcon = {
                     if (uiState.searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.action_close))
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = stringResource(R.string.action_close),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                singleLine = true
+                    .padding(vertical = 6.dp),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                )
             )
 
-            // Genre filter chips
+            // High Contrast Genre Filter Chips Row
             if (uiState.availableGenres.isNotEmpty()) {
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -136,19 +167,72 @@ fun OnlineLibraryScreen(
                         FilterChip(
                             selected = uiState.selectedGenre == null,
                             onClick = { viewModel.onGenreSelected(null) },
-                            label = { Text("Tất cả") },
-                            shape = RoundedCornerShape(12.dp)
+                            label = {
+                                Text(
+                                    text = stringResource(R.string.online_filter_all),
+                                    fontWeight = if (uiState.selectedGenre == null) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = uiState.selectedGenre == null,
+                                borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                selectedBorderColor = MaterialTheme.colorScheme.primary
+                            ),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurface
+                            )
                         )
                     }
                     items(uiState.availableGenres) { genre ->
+                        val isSelected = uiState.selectedGenre == genre
                         FilterChip(
-                            selected = uiState.selectedGenre == genre,
+                            selected = isSelected,
                             onClick = { viewModel.onGenreSelected(genre) },
-                            label = { Text(genre) },
-                            shape = RoundedCornerShape(12.dp)
+                            label = {
+                                Text(
+                                    text = genre,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = isSelected,
+                                borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                selectedBorderColor = MaterialTheme.colorScheme.primary
+                            ),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                labelColor = MaterialTheme.colorScheme.onSurface
+                            )
                         )
                     }
                 }
+            }
+
+            // Results count status
+            if (!uiState.isLoading && uiState.novels.isNotEmpty()) {
+                val resultCount = uiState.filteredNovels.size
+                val statusText = if (uiState.searchQuery.isNotBlank() || uiState.selectedGenre != null) {
+                    stringResource(R.string.online_search_count_format, resultCount)
+                } else {
+                    stringResource(R.string.online_novel_count_format, resultCount)
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 6.dp)
+                )
+            } else {
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
@@ -163,9 +247,10 @@ fun OnlineLibraryScreen(
                             CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
-                                "Đang kết nối thư viện online...",
+                                text = stringResource(R.string.online_library_loading),
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -175,42 +260,49 @@ fun OnlineLibraryScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                        Card(
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier.padding(24.dp)
                         ) {
-                            Icon(
-                                Icons.Default.CloudOff,
-                                contentDescription = null,
-                                modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.error
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Không thể tải danh sách truyện",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = uiState.errorMessage ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Button(
-                                    onClick = { viewModel.loadNovels() },
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(stringResource(R.string.online_library_retry))
-                                }
-                                Button(
-                                    onClick = onNavigateToServerSettings,
-                                    shape = RoundedCornerShape(10.dp)
-                                ) {
-                                    Text(stringResource(R.string.server_settings_title))
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.CloudOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(56.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = stringResource(R.string.online_library_load_error_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = uiState.errorMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                )
+                                Spacer(modifier = Modifier.height(18.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Button(
+                                        onClick = { viewModel.loadNovels() },
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text(stringResource(R.string.online_library_retry))
+                                    }
+                                    OutlinedButton(
+                                        onClick = onNavigateToServerSettings,
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text(stringResource(R.string.server_settings_title))
+                                    }
                                 }
                             }
                         }
@@ -226,13 +318,13 @@ fun OnlineLibraryScreen(
                                 Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 modifier = Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = stringResource(R.string.online_library_empty),
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -242,7 +334,7 @@ fun OnlineLibraryScreen(
                         columns = GridCells.Fixed(2),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+                        contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp)
                     ) {
                         items(uiState.filteredNovels, key = { it.novelId }) { novel ->
                             val downloadPercent = uiState.downloadingNovels[novel.novelId]
@@ -263,6 +355,18 @@ fun OnlineLibraryScreen(
     }
 }
 
+/**
+ * Thẻ hiển thị một bộ truyện trong danh sách Kho Truyện Online với độ tương phản cao, rõ ràng.
+ *
+ * Bao gồm ảnh bìa sắc nét, badge thông tin số chương và trạng thái hoàn thành nổi bật,
+ * tiêu đề cố định 2 dòng không bị lệch hàng, tên tác giả, thể loại và nút tải sách bắt mắt.
+ *
+ * @param novel Thông tin tóm tắt của bộ truyện online.
+ * @param isDownloaded Cờ cho biết truyện đã có trong Tủ Sách thiết bị hay chưa.
+ * @param downloadPercent Phần trăm tiến độ tải sách (null nếu không trong tiến trình tải).
+ * @param onClick Callback khi người dùng nhấn vào truyện.
+ * @param onDownload Callback khi người dùng nhấn nút tải sách.
+ */
 @Composable
 fun OnlineNovelCard(
     novel: OnlineNovelSummary,
@@ -276,15 +380,18 @@ fun OnlineNovelCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column {
-            // Cover Image Box
+            // Book Cover Container
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .height(190.dp)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
@@ -296,101 +403,204 @@ fun OnlineNovelCard(
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
-                    Icon(
-                        Icons.Default.Book,
-                        contentDescription = null,
-                        modifier = Modifier.size(56.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    GeneratedBookCover(
+                        title = novel.title,
+                        author = novel.author,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
 
-                // Translation Progress Badge on top-start
+                // Dark top gradient scrim for high-contrast badge legibility
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.6f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+
+                // Chapter count badge with solid dark background + subtle border (Top-Left)
                 Surface(
-                    shape = RoundedCornerShape(bottomEnd = 12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
-                    modifier = Modifier.align(Alignment.TopStart)
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF1A1A1A).copy(alpha = 0.92f),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
                 ) {
-                    Text(
-                        text = stringResource(
-                            R.string.online_chapters_count_badge,
-                            novel.translatedChapters,
-                            novel.totalChapters
-                        ),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text(
+                            text = stringResource(
+                                R.string.online_chapters_count_badge,
+                                novel.translatedChapters,
+                                novel.totalChapters
+                            ),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
 
-                // Status Badge on top-end
+                // Status badge: Emerald for Completed, Vibrant Orange for Ongoing (Top-Right)
                 if (novel.isCompleted) {
                     Surface(
-                        shape = RoundedCornerShape(bottomStart = 12.dp),
-                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.92f),
-                        modifier = Modifier.align(Alignment.TopEnd)
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1B5E20),
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
                     ) {
                         Text(
                             text = stringResource(R.string.online_status_completed),
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFD35400),
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.35f)),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.online_status_ongoing),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                 }
             }
 
-            // Info
-            Column(modifier = Modifier.padding(10.dp)) {
+            // Novel Info Container
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 10.dp)
+            ) {
+                // Title (minLines = 2, maxLines = 2 ensures identical height for all cards)
                 Text(
                     text = novel.title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     maxLines = 2,
+                    minLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 18.sp
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
+
+                // Author
                 Text(
-                    text = novel.author,
+                    text = if (novel.author.isNotBlank()) novel.author else stringResource(R.string.online_novel_detail_empty),
                     fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    minLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                // Download CTA button / status
-                if (downloadPercent != null) {
+                // Genre tags
+                if (novel.genres.isNotEmpty()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        LinearProgressIndicator(
-                            progress = { downloadPercent / 100f },
+                        novel.genres.take(2).forEach { genre ->
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = genre,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action CTA Button / Status Pill
+                if (downloadPercent != null) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp)
+                    ) {
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(6.dp)
-                                .clip(CircleShape),
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "$downloadPercent%",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LinearProgressIndicator(
+                                progress = { downloadPercent / 100f },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(6.dp)
+                                    .clip(CircleShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "$downloadPercent%",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 } else if (isDownloaded) {
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(34.dp)
                     ) {
                         Row(
-                            modifier = Modifier.padding(vertical = 6.dp),
+                            modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -398,40 +608,52 @@ fun OnlineNovelCard(
                                 Icons.Default.CheckCircle,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = stringResource(R.string.online_library_downloaded),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
                 } else {
-                    OutlinedButton(
+                    Button(
                         onClick = onDownload,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(34.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        shape = RoundedCornerShape(8.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
-                        Icon(
-                            Icons.Outlined.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = stringResource(R.string.online_library_download),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Outlined.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = stringResource(R.string.online_action_download_short),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
+
