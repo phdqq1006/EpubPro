@@ -25,11 +25,22 @@ data class BookEntity(
     val filePath: String,
     val addedAt: Long,
     val lastReadAt: Long,
-    @ColumnInfo(defaultValue = "0") val totalChapters: Int = 0
+    @ColumnInfo(defaultValue = "0") val totalChapters: Int = 0,
+    val onlineNovelId: String? = null
 ) {
-    fun toDomain() = Book(id, title, author, coverPath, filePath, addedAt, lastReadAt, totalChapters)
+    fun toDomain() = Book(id, title, author, coverPath, filePath, addedAt, lastReadAt, totalChapters, onlineNovelId)
     companion object {
-        fun fromDomain(book: Book) = BookEntity(book.id, book.title, book.author, book.coverPath, book.filePath, book.addedAt, book.lastReadAt, book.totalChapters)
+        fun fromDomain(book: Book) = BookEntity(
+            id = book.id,
+            title = book.title,
+            author = book.author,
+            coverPath = book.coverPath,
+            filePath = book.filePath,
+            addedAt = book.addedAt,
+            lastReadAt = book.lastReadAt,
+            totalChapters = book.totalChapters,
+            onlineNovelId = book.onlineNovelId
+        )
     }
 }
 

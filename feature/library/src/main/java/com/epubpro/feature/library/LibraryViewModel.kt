@@ -21,13 +21,16 @@ import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.ImportJobStatus
 import com.epubpro.domain.repository.BookBibleRepository
 import com.epubpro.domain.repository.BookRepository
-import com.epubpro.domain.repository.OnlineNovelRepository
 import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlinx.coroutines.withContext
 
 /**
  * Trạng thái giao diện biểu diễn một cuốn sách và tiến độ đọc tương ứng.
@@ -48,16 +51,16 @@ data class BookItemUiState(
  * Trạng thái toàn diện của màn hình Thư Viện.
  *
  * @property books Danh sách sách sau khi lọc tìm kiếm.
+ * @property totalBookCount Tổng số sách trong thư viện trước khi lọc.
  * @property isLoading Trạng thái tải dữ liệu ban đầu.
  * @property searchQuery Từ khóa tìm kiếm hiện tại.
- * @property message Thông báo tức thời gửi tới người dùng (Snackbar/Toast).
  * @property uploadJobStatus Trạng thái tiến trình tải sách lên server chạy ngầm.
  */
 data class LibraryUiState(
     val books: List<BookItemUiState> = emptyList(),
+    val totalBookCount: Int = 0,
     val isLoading: Boolean = false,
     val searchQuery: String = "",
-    val message: String? = null,
     val uploadJobStatus: ImportJobStatus? = null
 )
 
@@ -108,7 +111,6 @@ class LibraryViewModel @Inject constructor(
     private val searchRepository: SearchRepository,
     private val storageManager: EpubStorageManager,
     private val epubEngine: EpubEngine,
-    private val onlineNovelRepository: OnlineNovelRepository,
     private val epubImportScheduler: EpubImportScheduler,
     private val snapshotStore: ReaderResumeSnapshotStore,
     private val ttsPlaybackSnapshotStore: TtsPlaybackSnapshotStore,
@@ -117,7 +119,8 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
-    private val _userMessage = MutableStateFlow<String?>(null)
+    private val _events = Channel<UserMessage>(capacity = Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
     private val _uploadJobState = MutableStateFlow<ImportJobStatus?>(null)
     private var isDialogDismissedByUser = false
     private var hasActiveUploadSession = false
@@ -126,15 +129,12 @@ class LibraryViewModel @Inject constructor(
         observeImportWorkerProgress()
     }
 
-    val uiState: StateFlow<LibraryUiState> = combine(
+    private val bookItems = combine(
         bookRepository.getAllBooks(),
-        bookRepository.getAllReadingProgress(),
-        _searchQuery,
-        _userMessage,
-        _uploadJobState
-    ) { books, progressList, query, msg, uploadStatus ->
+        bookRepository.getAllReadingProgress()
+    ) { books, progressList ->
         val progressMap = progressList.associateBy { it.bookId }
-        val items = books.map { book ->
+        books.map { book ->
             val progress = progressMap[book.id]
             val currentChapter = if (progress != null) progress.chapterIndex + 1 else 0
             val totalChapters = if (progress != null && progress.totalChapters > 0) {
@@ -142,21 +142,29 @@ class LibraryViewModel @Inject constructor(
             } else {
                 book.totalChapters
             }
-            val pct = progress?.progressPercentage ?: 0f
             BookItemUiState(
                 book = book,
                 currentChapter = currentChapter,
                 totalChapters = totalChapters,
-                progressPercentage = pct
+                progressPercentage = progress?.progressPercentage ?: 0f
             )
         }
+    }
+
+    val uiState: StateFlow<LibraryUiState> = combine(
+        bookItems,
+        _searchQuery,
+        _uploadJobState
+    ) { items, query, uploadStatus ->
         val filtered = if (query.isBlank()) items else items.filter {
-            it.book.title.contains(query, ignoreCase = true) || it.book.author.contains(query, ignoreCase = true)
+            it.book.title.contains(query, ignoreCase = true) ||
+                it.book.author.contains(query, ignoreCase = true)
         }
         LibraryUiState(
             books = filtered,
+            totalBookCount = items.size,
+            isLoading = false,
             searchQuery = query,
-            message = msg,
             uploadJobStatus = uploadStatus
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LibraryUiState(isLoading = true))
@@ -206,7 +214,12 @@ class LibraryViewModel @Inject constructor(
                                 isDialogDismissedByUser = false
                                 val title = activeWork.outputData.getString(EpubImportWorker.KEY_TITLE) ?: ""
                                 if (shouldNotify && title.isNotBlank()) {
-                                    _userMessage.value = "Đã nạp truyện \"$title\" lên server thành công!"
+                                    _events.send(
+                                        UserMessage(
+                                            textRes = R.string.epub_import_notification_success,
+                                            formatArgs = listOf(title)
+                                        )
+                                    )
                                 }
                                 _uploadJobState.value = null
                             }
@@ -216,7 +229,12 @@ class LibraryViewModel @Inject constructor(
                                 isDialogDismissedByUser = false
                                 val error = activeWork.outputData.getString(EpubImportWorker.KEY_ERROR_MESSAGE)
                                 if (shouldNotify && !error.isNullOrBlank()) {
-                                    _userMessage.value = "Nạp truyện thất bại: $error"
+                                    _events.send(
+                                        UserMessage(
+                                            textRes = R.string.epub_import_notification_failed,
+                                            formatArgs = listOf(error)
+                                        )
+                                    )
                                 }
                                 _uploadJobState.value = null
                             }
@@ -252,16 +270,24 @@ class LibraryViewModel @Inject constructor(
     fun importEpub(uri: Uri, originalName: String?) {
         viewModelScope.launch {
             try {
-                val file = storageManager.importEpubFromUri(uri, originalName)
+                val file = withContext(Dispatchers.IO) {
+                    storageManager.importEpubFromUri(uri, originalName)
+                }
                 val book = epubEngine.parseEpubMetadata(file)
                 bookRepository.insertBook(book)
 
                 // Memory-safe streaming background FTS indexer
                 epubEngine.indexBookContent(file, book.id, searchRepository)
-                _userMessage.value = "Đã nạp sách \"${book.title}\" thành công!"
-            } catch (e: Exception) {
-                e.printStackTrace()
-                _userMessage.value = "Lỗi khi nạp file EPUB: ${e.message}"
+                _events.send(
+                    UserMessage(
+                        textRes = R.string.library_import_success,
+                        formatArgs = listOf(book.title)
+                    )
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _events.send(UserMessage(R.string.library_import_failed))
             }
         }
     }
@@ -283,7 +309,7 @@ class LibraryViewModel @Inject constructor(
                     novelId = null,
                     title = originalName,
                     status = "pending",
-                    currentStep = "Đang khởi tạo tác vụ nền...",
+                    currentStep = context.getString(R.string.epub_import_notification_starting),
                     currentChapter = 0,
                     totalChapters = 0,
                     progressPercentage = 0,
@@ -300,15 +326,17 @@ class LibraryViewModel @Inject constructor(
                 )
                 if (enqueued) {
                     hasActiveUploadSession = true
-                    _userMessage.value = context.getString(R.string.upload_started_background)
+                    _events.send(UserMessage(R.string.upload_started_background))
                 } else {
                     hasActiveUploadSession = false
-                    _userMessage.value = context.getString(R.string.upload_already_running)
+                    _events.send(UserMessage(R.string.upload_already_running))
                     _uploadJobState.value = null
                 }
-            } catch (e: Exception) {
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
                 hasActiveUploadSession = false
-                _userMessage.value = "Lỗi chuẩn bị file upload: ${e.message}"
+                _events.send(UserMessage(R.string.upload_prepare_failed))
                 _uploadJobState.value = null
             }
         }
@@ -332,10 +360,6 @@ class LibraryViewModel @Inject constructor(
         _uploadJobState.value = null
     }
 
-    fun clearMessage() {
-        _userMessage.value = null
-    }
-
     /**
      * Xóa một cuốn sách khỏi thư viện và dọn toàn bộ dữ liệu phụ thuộc của sách.
      *
@@ -347,17 +371,30 @@ class LibraryViewModel @Inject constructor(
      */
     fun deleteBook(item: BookItemUiState) {
         viewModelScope.launch {
-            if (ttsPlaybackSnapshotStore.getSnapshot()?.bookId == item.book.id) {
-                ttsPlaybackSnapshotStore.clearSnapshot()
-                ttsWidgetStateStore.saveState(TtsWidgetState())
-                broadcastTtsWidgetStateChanged(context)
+            try {
+                withContext(Dispatchers.IO) {
+                    if (ttsPlaybackSnapshotStore.getSnapshot()?.bookId == item.book.id) {
+                        ttsPlaybackSnapshotStore.clearSnapshot()
+                        ttsWidgetStateStore.saveState(TtsWidgetState())
+                        broadcastTtsWidgetStateChanged(context)
+                    }
+                    epubEngine.deleteBookCache(item.book.filePath)
+                    snapshotStore.deleteSnapshot(item.book.id)
+                    storageManager.deleteBookFile(item.book.filePath)
+                    storageManager.deleteAiBookCache(item.book.id)
+                    bookBibleRepository.deleteDataForBook(item.book.id)
+                    bookRepository.deleteBook(item.book.id)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _events.send(
+                    UserMessage(
+                        textRes = R.string.library_delete_failed,
+                        formatArgs = listOf(item.book.title)
+                    )
+                )
             }
-            epubEngine.deleteBookCache(item.book.filePath)
-            snapshotStore.deleteSnapshot(item.book.id)
-            storageManager.deleteBookFile(item.book.filePath)
-            storageManager.deleteAiBookCache(item.book.id)
-            bookBibleRepository.deleteDataForBook(item.book.id)
-            bookRepository.deleteBook(item.book.id)
         }
     }
 }

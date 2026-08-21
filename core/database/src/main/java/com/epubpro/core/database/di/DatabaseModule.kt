@@ -6,6 +6,7 @@ import com.epubpro.core.database.AppDatabase
 import com.epubpro.core.database.MIGRATION_2_3
 import com.epubpro.core.database.MIGRATION_3_4
 import com.epubpro.core.database.MIGRATION_4_5
+import com.epubpro.core.database.MIGRATION_5_6
 import com.epubpro.core.database.dao.*
 import dagger.Module
 import dagger.Provides
@@ -30,7 +31,8 @@ object DatabaseModule {
         ).addMigrations(
             MIGRATION_2_3,
             MIGRATION_3_4,
-            MIGRATION_4_5
+            MIGRATION_4_5,
+            MIGRATION_5_6
         ).build()
     }
 

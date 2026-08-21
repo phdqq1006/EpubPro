@@ -177,3 +177,14 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
         )
     }
 }
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    /**
+     * Bổ sung định danh truyện online vào sách local để nhận diện bản tải về ổn định.
+     *
+     * @param db Cơ sở dữ liệu SQLite cần nâng cấp.
+     */
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE books ADD COLUMN onlineNovelId TEXT")
+    }
+}

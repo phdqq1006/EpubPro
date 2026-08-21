@@ -38,4 +38,16 @@ class BookBibleMigrationTest {
         // Verify that CREATE TABLE for book_bible_timelines was called
         verify(db).execSQL(org.mockito.ArgumentMatchers.contains("CREATE TABLE IF NOT EXISTS book_bible_timelines"))
     }
+
+    /**
+     * Kiểm tra migration 5 lên 6 bổ sung định danh truyện online nullable cho sách local.
+     */
+    @Test
+    fun migration5To6AddsOnlineNovelIdColumn() {
+        val db = mock(SupportSQLiteDatabase::class.java)
+
+        MIGRATION_5_6.migrate(db)
+
+        verify(db).execSQL("ALTER TABLE books ADD COLUMN onlineNovelId TEXT")
+    }
 }

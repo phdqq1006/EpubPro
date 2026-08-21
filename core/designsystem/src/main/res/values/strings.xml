@@ -30,6 +30,18 @@
     <string name="library_empty_title">Kệ sách chưa có tác phẩm nào</string>
     <string name="library_empty_subtitle">Nhấn nút bên dưới để nạp file EPUB từ thiết bị</string>
     <string name="library_delete_book">Xóa sách</string>
+    <string name="library_loading">Đang tải thư viện...</string>
+    <string name="library_search_empty_title">Không tìm thấy “%1$s”</string>
+    <string name="library_search_empty_subtitle">Hãy thử một từ khóa khác.</string>
+    <string name="library_delete_confirm_title">Xóa sách?</string>
+    <string name="library_delete_confirm_message">Sách “%1$s” cùng tiến độ đọc, đánh dấu và dữ liệu liên quan sẽ bị xóa vĩnh viễn.</string>
+    <string name="library_delete_failed">Không thể xóa “%1$s”. Vui lòng thử lại.</string>
+    <string name="library_import_success">Đã nạp sách “%1$s” thành công!</string>
+    <string name="library_import_failed">Không thể nạp file EPUB. Vui lòng thử lại.</string>
+    <string name="library_progress_format">%1$d/%2$d chương (%3$d%%)</string>
+    <string name="library_not_started">Chưa đọc</string>
+    <string name="library_book_menu_format">Tùy chọn cho %1$s</string>
+    <string name="upload_prepare_failed">Không thể chuẩn bị file để tải lên.</string>
 
     <!-- Reader Selection BottomSheet -->
     <string name="reader_selection_title">Chọn trình đọc sách</string>
@@ -253,6 +265,16 @@
     <string name="online_filter_all">Tất cả</string>
     <string name="online_library_loading">Đang kết nối thư viện online...</string>
     <string name="online_library_load_error_title">Không thể tải danh sách truyện</string>
+    <string name="online_library_load_failed">Không thể kết nối đến máy chủ. Hãy kiểm tra cấu hình server và thử lại.</string>
+    <string name="online_library_refresh_failed">Không thể làm mới Kho truyện. Nội dung cũ vẫn được giữ lại.</string>
+    <string name="online_library_uploading">Đang chuẩn bị tải sách lên server</string>
+    <string name="online_library_refreshing">Đang làm mới Kho truyện</string>
+    <string name="online_library_download_failed">Không thể tải “%1$s”. Vui lòng thử lại.</string>
+    <string name="online_library_import_failed">Đã tải file nhưng không thể thêm “%1$s” vào Thư viện.</string>
+    <string name="online_library_download_success">Đã tải “%1$s” vào Thư viện thành công!</string>
+    <string name="online_library_index_failed">Đã thêm “%1$s” vào Thư viện nhưng chưa thể lập chỉ mục tìm kiếm.</string>
+    <string name="online_download_percent_format">%1$d%%</string>
+    <string name="online_search_clear">Xóa nội dung tìm kiếm</string>
     <string name="online_novel_count_format">%1$d bộ truyện</string>
     <string name="online_search_count_format">Tìm thấy %1$d bộ truyện</string>
     <string name="online_novel_author_label">Tác giả: %1$s</string>

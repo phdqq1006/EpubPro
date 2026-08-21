@@ -8,7 +8,8 @@ data class Book(
     val filePath: String,
     val addedAt: Long,
     val lastReadAt: Long,
-    val totalChapters: Int = 0
+    val totalChapters: Int = 0,
+    val onlineNovelId: String? = null
 )
 
 data class ReadingProgress(

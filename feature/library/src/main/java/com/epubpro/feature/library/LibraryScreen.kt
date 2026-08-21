@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -16,19 +17,27 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.epubpro.core.designsystem.R
 import com.epubpro.feature.library.components.GeneratedBookCover
 
@@ -40,28 +49,40 @@ fun LibraryScreen(
     onNavigateToOnlineLibrary: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
-    var showAddBookBottomSheet by remember { mutableStateOf(false) }
+    var showAddBookBottomSheet by rememberSaveable { mutableStateOf(false) }
+    var pendingDeleteBookId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(uiState.message) {
-        uiState.message?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearMessage()
+    LaunchedEffect(viewModel, lifecycleOwner, snackbarHostState) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.events.collect { message ->
+                Log.d("TAG", "LibraryScreen: "+context.getString(
+                    message.textRes,
+                    *message.formatArgs.toTypedArray()
+                ))
+                snackbarHostState.showSnackbar(
+                    context.getString(
+                        message.textRes,
+                        *message.formatArgs.toTypedArray()
+                    )
+                )
+            }
         }
     }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.importEpub(it, "book.epub") }
+        uri?.let { viewModel.importEpub(it, null) }
     }
 
     val uploadPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.uploadEpubToServer(it, "upload.epub") }
+        uri?.let { viewModel.uploadEpubToServer(it, null) }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -88,6 +109,46 @@ fun LibraryScreen(
             onUploadEpubToServer = onStartUpload
         )
     }
+
+    pendingDeleteBookId?.let { bookId ->
+            uiState.books.firstOrNull { it.book.id == bookId }?.let { item ->
+                AlertDialog(
+                    onDismissRequest = { pendingDeleteBookId = null },
+                    title = {
+                        Text(
+                            text = stringResource(R.string.library_delete_confirm_title),
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = stringResource(
+                                R.string.library_delete_confirm_message,
+                                item.book.title
+                            )
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                pendingDeleteBookId = null
+                                viewModel.deleteBook(item)
+                            }
+                        ) {
+                            Text(
+                                text = stringResource(R.string.library_delete_book),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingDeleteBookId = null }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    }
+                )
+            }
+        }
 
     uiState.uploadJobStatus?.let { status ->
         AlertDialog(
@@ -168,7 +229,8 @@ fun LibraryScreen(
                     Text(
                         stringResource(R.string.app_name),
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.headlineMedium
+                        style = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier.semantics { heading() }
                     )
                 },
                 actions = {
@@ -212,46 +274,99 @@ fun LibraryScreen(
                 singleLine = true
             )
 
-            if (uiState.books.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Default.MenuBook,
-                            contentDescription = null,
-                            modifier = Modifier.size(72.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            stringResource(R.string.library_empty_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            stringResource(R.string.library_empty_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            when {
+                uiState.isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(R.string.library_loading),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(bottom = 88.dp, top = 8.dp)
-                ) {
-                    items(uiState.books, key = { it.book.id }) { item ->
-                        BookCard(
-                            item = item,
-                            onClick = { onBookClick(item.book.id) },
-                            onDelete = { viewModel.deleteBook(item) }
-                        )
+                uiState.totalBookCount == 0 -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                modifier = Modifier.size(72.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(R.string.library_empty_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.semantics { heading() }
+                            )
+                            Text(
+                                text = stringResource(R.string.library_empty_subtitle),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                uiState.books.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.SearchOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(
+                                    R.string.library_search_empty_title,
+                                    uiState.searchQuery
+                                ),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.semantics { heading() }
+                            )
+                            Text(
+                                text = stringResource(R.string.library_search_empty_subtitle),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 144.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 88.dp, top = 8.dp)
+                    ) {
+                        items(uiState.books, key = { it.book.id }) { item ->
+                            BookCard(
+                                item = item,
+                                onClick = { onBookClick(item.book.id) },
+                                onDelete = { pendingDeleteBookId = item.book.id }
+                            )
+                        }
                     }
                 }
             }
@@ -309,7 +424,10 @@ fun BookCard(
                     ) {
                         Icon(
                             Icons.Default.MoreVert,
-                            contentDescription = stringResource(R.string.action_menu),
+                            contentDescription = stringResource(
+                                R.string.library_book_menu_format,
+                                item.book.title
+                            ),
                             tint = androidx.compose.ui.graphics.Color.White
                         )
                     }
@@ -371,12 +489,19 @@ fun BookCard(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 val progressText = when {
-                    item.currentChapter > 0 && item.totalChapters > 0 ->
-                        "${item.currentChapter}/${item.totalChapters} chương (${(progress * 100).toInt()}%)"
-                    item.totalChapters > 0 ->
-                        "0/${item.totalChapters} chương (0%)"
-                    else ->
-                        "Chưa đọc"
+                    item.currentChapter > 0 && item.totalChapters > 0 -> stringResource(
+                        R.string.library_progress_format,
+                        item.currentChapter,
+                        item.totalChapters,
+                        (progress * 100).toInt()
+                    )
+                    item.totalChapters > 0 -> stringResource(
+                        R.string.library_progress_format,
+                        0,
+                        item.totalChapters,
+                        0
+                    )
+                    else -> stringResource(R.string.library_not_started)
                 }
 
                 Text(

@@ -14,10 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.Locale
 import kotlin.math.abs
 
 @Composable
@@ -34,7 +36,8 @@ fun GeneratedBookCover(
         modifier = modifier
             .fillMaxWidth()
             .height(180.dp)
-            .background(Brush.verticalGradient(gradientColors)),
+            .background(Brush.verticalGradient(gradientColors))
+            .clearAndSetSemantics { },
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -70,7 +73,7 @@ fun GeneratedBookCover(
             if (author.isNotBlank() && !author.equals("Unknown Author", ignoreCase = true)) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = author.uppercase(),
+                    text = author.uppercase(Locale.getDefault()),
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Medium,
                         letterSpacing = 1.2.sp,

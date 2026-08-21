@@ -52,6 +52,11 @@
 - **Chi tiết**: Với Render Free, polling trạng thái import mỗi 10 giây giảm tải xuống khoảng 6 request/phút nhưng vẫn đủ để hiển thị tiến độ. Không nhầm HTTP 200 của endpoint status với trạng thái job thành công; phải đọc trường `status` trong JSON.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
 
+### Persistent Online Novel ID Mapping in Local Database
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Để đồng bộ và nhận diện chính xác trạng thái đã tải về giữa Kho Truyện Online và Tủ Sách Local (tránh so khớp lỏng lẻo bằng title), bổ sung trường nullable `onlineNovelId: String?` vào `BookEntity` thông qua Room `MIGRATION_5_6`. Khi download từ kho truyện, book metadata được copy gắn kèm `onlineNovelId = novel.novelId`, giúp truy vấn và hiển thị badge "Đã tải" tức thì.
+- **Files liên quan**: `core/database/src/main/java/com/epubpro/core/database/Migrations.kt`, `core/database/src/main/java/com/epubpro/core/database/entity/Entities.kt`, `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryViewModel.kt`
+
 ---
 
 ## Bugs & Solutions
@@ -206,3 +211,14 @@
 - **Ngày**: 2026-08-21
 - **Chi tiết**: Trong `ServerSettingsDialog`, dùng `rememberSaveable` cho text URL tránh mất dữ liệu khi xoay màn hình; bọc bằng `verticalScroll` + `heightIn(max = 640.dp)` và `FlowRow` tránh vỡ layout trên màn hình nhỏ/landscape; gắn cờ `testInProgress` để disable inputs/buttons khi đang ping; gắn `semantics { liveRegion = LiveRegionMode.Polite }` cho thông báo trạng thái.
 - **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/ServerSettingsDialog.kt`
+
+### One-Shot UI Event Handling via Resource-Based UserMessage Channel
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Thay vì lưu chuỗi thông báo hoặc error string trực tiếp trong UI state (dễ bị emit lại khi recompose hoặc config change, hoặc hardcode chuỗi), sử dụng data class `UserMessage(@StringRes val textRes: Int, val formatArgs: List<Any> = emptyList())` gửi qua `Channel<UserMessage>(Channel.BUFFERED)` trong ViewModel. Giao diện Compose thu thập qua `LaunchedEffect` và hiển thị Snackbar bằng `stringResource(msg.textRes, *msg.formatArgs.toTypedArray())`.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/UserMessage.kt`, `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryViewModel.kt`, `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryScreen.kt`
+
+### Robust Download & Temp File Cleanup with NonCancellable Dispatchers
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Khi import truyện online đã tải về vào Room và FTS5, bọc thao tác trong try-catch bắt riêng `CancellationException` để rethrow, đồng thời thực hiện xóa file tạm trong khối catch và hủy bỏ bằng `withContext(NonCancellable + Dispatchers.IO) { file.delete() }`. Đảm bảo không rò rỉ dung lượng bộ nhớ tạm khi user thoát màn hình giữa chừng hoặc lỗi phân tích metadata.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryViewModel.kt`
+

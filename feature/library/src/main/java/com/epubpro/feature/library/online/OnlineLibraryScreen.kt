@@ -27,13 +27,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.OnlineNovelSummary
 import com.epubpro.feature.library.components.GeneratedBookCover
@@ -48,34 +58,35 @@ import com.epubpro.feature.library.components.GeneratedBookCover
  * @param onNavigateToServerSettings Callback điều hướng đến màn hình cấu hình máy chủ backend.
  * @param viewModel ViewModel quản lý trạng thái tải truyện, tìm kiếm, lọc và tiến trình tải sách.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun OnlineLibraryScreen(
     onNovelClick: (novelId: String) -> Unit,
     onNavigateToServerSettings: () -> Unit,
     viewModel: OnlineLibraryViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(uiState.userMessage) {
-        uiState.userMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearUserMessage()
-        }
-    }
-
-    LaunchedEffect(uiState.errorMessage) {
-        uiState.errorMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.clearUserMessage()
+    LaunchedEffect(viewModel, lifecycleOwner, snackbarHostState) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            viewModel.events.collect { message ->
+                snackbarHostState.showSnackbar(
+                    context.getString(
+                        message.textRes,
+                        *message.formatArgs.toTypedArray()
+                    )
+                )
+            }
         }
     }
 
     val uploadPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.uploadEpub(it, "upload.epub", isTranslated = true) }
+        uri?.let { viewModel.uploadEpub(it, null, isTranslated = true) }
     }
 
     Scaffold(
@@ -86,18 +97,58 @@ fun OnlineLibraryScreen(
                     Text(
                         stringResource(R.string.online_library_title),
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.semantics { heading() }
                     )
                 },
                 actions = {
-                    IconButton(onClick = { uploadPickerLauncher.launch("application/epub+zip") }) {
-                        Icon(Icons.Default.CloudUpload, contentDescription = stringResource(R.string.add_book_upload))
+                    IconButton(
+                        onClick = { uploadPickerLauncher.launch("application/epub+zip") },
+                        enabled = !uiState.isUploading
+                    ) {
+                        if (uiState.isUploading) {
+                            val uploadingDescription = stringResource(R.string.online_library_uploading)
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .semantics {
+                                        contentDescription = uploadingDescription
+                                    },
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.CloudUpload,
+                                contentDescription = stringResource(R.string.add_book_upload)
+                            )
+                        }
                     }
-                    IconButton(onClick = { viewModel.loadNovels(isRefresh = true) }) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.online_library_retry))
+                    IconButton(
+                        onClick = { viewModel.loadNovels(isRefresh = true) },
+                        enabled = !uiState.isLoading && !uiState.isRefreshing
+                    ) {
+                        if (uiState.isRefreshing) {
+                            val refreshingDescription = stringResource(R.string.online_library_refreshing)
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .semantics {
+                                        contentDescription = refreshingDescription
+                                    },
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.online_library_retry)
+                            )
+                        }
                     }
                     IconButton(onClick = onNavigateToServerSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.server_settings_title))
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.server_settings_title)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -136,7 +187,7 @@ fun OnlineLibraryScreen(
                         IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = stringResource(R.string.action_close),
+                                contentDescription = stringResource(R.string.online_search_clear),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -230,13 +281,16 @@ fun OnlineLibraryScreen(
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 6.dp)
+                    modifier = Modifier
+                        .padding(start = 4.dp, top = 2.dp, bottom = 6.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
                 )
             } else {
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
             // Body content
+            val loadErrorRes = uiState.loadErrorRes
             when {
                 uiState.isLoading -> {
                     Box(
@@ -255,7 +309,7 @@ fun OnlineLibraryScreen(
                         }
                     }
                 }
-                uiState.errorMessage != null && uiState.novels.isEmpty() -> {
+                loadErrorRes != null && uiState.novels.isEmpty() -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -280,17 +334,21 @@ fun OnlineLibraryScreen(
                                 Text(
                                     text = stringResource(R.string.online_library_load_error_title),
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.semantics { heading() }
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = uiState.errorMessage ?: "",
+                                    text = stringResource(loadErrorRes),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 8.dp)
                                 )
                                 Spacer(modifier = Modifier.height(18.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     Button(
                                         onClick = { viewModel.loadNovels() },
                                         shape = RoundedCornerShape(12.dp)
@@ -324,14 +382,15 @@ fun OnlineLibraryScreen(
                             Text(
                                 text = stringResource(R.string.online_library_empty),
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.semantics { heading() }
                             )
                         }
                     }
                 }
                 else -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(minSize = 144.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 28.dp)
@@ -398,7 +457,7 @@ fun OnlineNovelCard(
                 if (!novel.coverUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = novel.coverUrl,
-                        contentDescription = novel.title,
+                        contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -565,6 +624,7 @@ fun OnlineNovelCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(34.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite }
                     ) {
                         Row(
                             modifier = Modifier
@@ -583,7 +643,7 @@ fun OnlineNovelCard(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "$downloadPercent%",
+                                text = stringResource(R.string.online_download_percent_format, downloadPercent),
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
