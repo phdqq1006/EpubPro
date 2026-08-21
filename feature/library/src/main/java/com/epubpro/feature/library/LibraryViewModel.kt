@@ -5,11 +5,9 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.workDataOf
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.EpubStorageManager
@@ -17,6 +15,7 @@ import com.epubpro.core.storage.ReaderResumeSnapshotStore
 import com.epubpro.core.storage.TtsPlaybackSnapshotStore
 import com.epubpro.core.storage.TtsWidgetState
 import com.epubpro.core.storage.TtsWidgetStateStore
+import com.epubpro.core.storage.worker.EpubImportScheduler
 import com.epubpro.core.storage.worker.EpubImportWorker
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.ImportJobStatus
@@ -110,6 +109,7 @@ class LibraryViewModel @Inject constructor(
     private val storageManager: EpubStorageManager,
     private val epubEngine: EpubEngine,
     private val onlineNovelRepository: OnlineNovelRepository,
+    private val epubImportScheduler: EpubImportScheduler,
     private val snapshotStore: ReaderResumeSnapshotStore,
     private val ttsPlaybackSnapshotStore: TtsPlaybackSnapshotStore,
     private val ttsWidgetStateStore: TtsWidgetStateStore,
@@ -120,6 +120,7 @@ class LibraryViewModel @Inject constructor(
     private val _userMessage = MutableStateFlow<String?>(null)
     private val _uploadJobState = MutableStateFlow<ImportJobStatus?>(null)
     private var isDialogDismissedByUser = false
+    private var hasActiveUploadSession = false
 
     init {
         observeImportWorkerProgress()
@@ -171,6 +172,9 @@ class LibraryViewModel @Inject constructor(
                     val activeWork = workInfos.firstOrNull { !it.state.isFinished }
                         ?: workInfos.firstOrNull()
                     if (activeWork != null) {
+                        if (!activeWork.state.isFinished) {
+                            hasActiveUploadSession = true
+                        }
                         when (activeWork.state) {
                             WorkInfo.State.RUNNING -> {
                                 val progress = activeWork.progress.getInt(EpubImportWorker.KEY_PROGRESS, 0)
@@ -197,22 +201,27 @@ class LibraryViewModel @Inject constructor(
                                 }
                             }
                             WorkInfo.State.SUCCEEDED -> {
+                                val shouldNotify = hasActiveUploadSession
+                                hasActiveUploadSession = false
                                 isDialogDismissedByUser = false
                                 val title = activeWork.outputData.getString(EpubImportWorker.KEY_TITLE) ?: ""
-                                if (title.isNotBlank()) {
+                                if (shouldNotify && title.isNotBlank()) {
                                     _userMessage.value = "Đã nạp truyện \"$title\" lên server thành công!"
                                 }
                                 _uploadJobState.value = null
                             }
                             WorkInfo.State.FAILED -> {
+                                val shouldNotify = hasActiveUploadSession
+                                hasActiveUploadSession = false
                                 isDialogDismissedByUser = false
                                 val error = activeWork.outputData.getString(EpubImportWorker.KEY_ERROR_MESSAGE)
-                                if (!error.isNullOrBlank()) {
+                                if (shouldNotify && !error.isNullOrBlank()) {
                                     _userMessage.value = "Nạp truyện thất bại: $error"
                                 }
                                 _uploadJobState.value = null
                             }
                             WorkInfo.State.CANCELLED -> {
+                                hasActiveUploadSession = false
                                 isDialogDismissedByUser = false
                                 _uploadJobState.value = null
                             }
@@ -268,9 +277,6 @@ class LibraryViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 isDialogDismissedByUser = false
-                // Đọc và sao lưu file tạm thời vào internal storage trước khi chuyển cho Worker
-                val tempFile = storageManager.importEpubFromUri(uri, originalName)
-
                 // Hiển thị trạng thái khởi tạo ảo trên UI
                 _uploadJobState.value = ImportJobStatus(
                     jobId = "",
@@ -286,25 +292,22 @@ class LibraryViewModel @Inject constructor(
                     completedAt = null
                 )
 
-                val inputData = workDataOf(
-                    EpubImportWorker.KEY_FILE_PATH to tempFile.absolutePath,
-                    EpubImportWorker.KEY_ORIGINAL_NAME to (originalName ?: "book.epub"),
-                    EpubImportWorker.KEY_IS_TRANSLATED to true,
-                    EpubImportWorker.KEY_AUTO_SCAN_CHARACTERS to true
+                val enqueued = epubImportScheduler.enqueue(
+                    uri = uri,
+                    originalName = originalName,
+                    isTranslated = true,
+                    autoScanCharacters = true
                 )
-
-                val workRequest = OneTimeWorkRequestBuilder<EpubImportWorker>()
-                    .setInputData(inputData)
-                    .build()
-
-                WorkManager.getInstance(context).enqueueUniqueWork(
-                    EpubImportWorker.UNIQUE_WORK_NAME,
-                    ExistingWorkPolicy.REPLACE,
-                    workRequest
-                )
-
-                _userMessage.value = "Đã khởi chạy tiến trình nạp truyện ngầm."
+                if (enqueued) {
+                    hasActiveUploadSession = true
+                    _userMessage.value = context.getString(R.string.upload_started_background)
+                } else {
+                    hasActiveUploadSession = false
+                    _userMessage.value = context.getString(R.string.upload_already_running)
+                    _uploadJobState.value = null
+                }
             } catch (e: Exception) {
+                hasActiveUploadSession = false
                 _userMessage.value = "Lỗi chuẩn bị file upload: ${e.message}"
                 _uploadJobState.value = null
             }
@@ -323,6 +326,7 @@ class LibraryViewModel @Inject constructor(
      * Hủy bỏ hoàn toàn tác vụ nạp truyện đang chạy ngầm trong [WorkManager].
      */
     fun cancelUploadWork() {
+        hasActiveUploadSession = false
         isDialogDismissedByUser = false
         WorkManager.getInstance(context).cancelUniqueWork(EpubImportWorker.UNIQUE_WORK_NAME)
         _uploadJobState.value = null

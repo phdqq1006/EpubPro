@@ -4,6 +4,7 @@ import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ServerPreferencesManager
 import com.epubpro.domain.model.*
 import com.epubpro.domain.repository.OnlineNovelRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -168,7 +169,7 @@ class OnlineNovelRepositoryImpl @Inject constructor(
         novelId: String?,
         autoScanCharacters: Boolean
     ): Result<ImportJobStatus> = withContext(Dispatchers.IO) {
-        runCatching {
+        runCatchingCancellable {
             val file = File(filePath)
             if (!file.exists()) {
                 throw IllegalArgumentException("File không tồn tại: $filePath")
@@ -191,12 +192,28 @@ class OnlineNovelRepositoryImpl @Inject constructor(
      * Lấy trạng thái của tiến trình upload.
      */
     override suspend fun getImportJobStatus(jobId: String): Result<ImportJobStatus> = withContext(Dispatchers.IO) {
-        runCatching {
+        runCatchingCancellable {
             val dto = apiService.getImportJobStatus(jobId)
             mapToImportJobStatus(dto)
         }
     }
 
+    /**
+     * Thực thi khối mạng và giữ nguyên trạng thái hủy của coroutine.
+     *
+     * @param block Khối suspend thực hiện request mạng.
+     * @return Kết quả thành công hoặc lỗi của request.
+     * @throws CancellationException Khi coroutine bị hủy.
+     */
+    private suspend fun <T> runCatchingCancellable(block: suspend () -> T): Result<T> {
+        return try {
+            Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
     private fun mapToImportJobStatus(dto: ImportJobStatusDto): ImportJobStatus {
         return ImportJobStatus(
             jobId = dto.jobId,
@@ -231,7 +248,7 @@ class OnlineNovelRepositoryImpl @Inject constructor(
      * Kiểm tra ping kết nối tới server.
      */
     override suspend fun testServerConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
-        runCatching {
+        runCatchingCancellable {
             apiService.getNovels()
             true
         }

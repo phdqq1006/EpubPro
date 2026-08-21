@@ -18,6 +18,7 @@ import com.epubpro.domain.model.ImportJobStatus
 import com.epubpro.domain.repository.OnlineNovelRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -195,6 +196,8 @@ class EpubImportWorker @AssistedInject constructor(
             }
 
             return Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val errorMsg = e.message ?: "Lỗi không xác định"
             showErrorNotification(
@@ -202,6 +205,8 @@ class EpubImportWorker @AssistedInject constructor(
                 error = appContext.getString(R.string.epub_import_notification_failed, errorMsg)
             )
             return Result.failure(workDataOf(KEY_ERROR_MESSAGE to errorMsg))
+        } finally {
+            file.delete()
         }
     }
 
@@ -329,7 +334,8 @@ class EpubImportWorker @AssistedInject constructor(
         const val UNIQUE_WORK_NAME = "epub_import_work"
         const val CHANNEL_ID = "epub_import_channel"
         const val NOTIFICATION_ID = 4001
-        private const val POLL_INTERVAL_MS = 2500L
+        // Render Free cần chu kỳ thăm dò thưa hơn để tránh tạo quá nhiều request.
+        private const val POLL_INTERVAL_MS = 10_000L
         private const val MAX_CONSECUTIVE_NETWORK_ERRORS = 12
 
         const val KEY_FILE_PATH = "file_path"

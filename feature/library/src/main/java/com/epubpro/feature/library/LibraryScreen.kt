@@ -124,7 +124,8 @@ fun LibraryScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = status.currentStep ?: stringResource(R.string.epub_import_notification_starting),
+                        text = status.currentStep?.let { it.substringAfter("): ", it) }
+                            ?: stringResource(R.string.epub_import_notification_starting),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

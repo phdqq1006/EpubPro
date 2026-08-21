@@ -85,13 +85,7 @@ object NetworkModule {
             redactHeader("X-Book-Bible-Client-Key")
             redactHeader("X-Api-Key")
             redactHeader("Authorization")
-            val currentUrl = serverPreferencesManager.getBaseUrl()
-            val isLocalhost = currentUrl.contains("127.0.0.1") || currentUrl.contains("10.0.2.2") || currentUrl.contains("localhost")
-            level = if (isLocalhost) {
-                HttpLoggingInterceptor.Level.BODY
-            } else {
-                HttpLoggingInterceptor.Level.BODY
-            }
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
         val authInterceptor = okhttp3.Interceptor { chain ->
@@ -124,7 +118,7 @@ object NetworkModule {
             .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()

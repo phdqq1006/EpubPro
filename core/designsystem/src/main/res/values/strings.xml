@@ -264,6 +264,8 @@
     <string name="server_test_failed">Không thể kết nối server. Hãy kiểm tra lại URL.</string>
     <string name="server_save">Lưu cấu hình</string>
     <string name="upload_success">Tải sách lên server thành công!</string>
+    <string name="upload_started_background">Đã khởi chạy tiến trình nạp truyện ngầm.</string>
+    <string name="upload_already_running">Đang có một tiến trình nạp truyện khác.</string>
     <string name="upload_failed">Tải sách lên thất bại</string>
     <string name="online_status_completed">Hoàn thành</string>
     <string name="online_status_ongoing">Đang ra</string>

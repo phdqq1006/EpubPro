@@ -1,17 +1,20 @@
 package com.epubpro.feature.library.online
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.AiPreferencesManager
-import com.epubpro.core.storage.EpubStorageManager
+import com.epubpro.core.storage.worker.EpubImportScheduler
 import com.epubpro.domain.model.DownloadState
 import com.epubpro.domain.model.OnlineNovelSummary
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
 import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -33,11 +36,12 @@ data class OnlineLibraryUiState(
 
 @HiltViewModel
 class OnlineLibraryViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val onlineNovelRepository: OnlineNovelRepository,
     private val bookRepository: BookRepository,
     private val searchRepository: SearchRepository,
-    private val storageManager: EpubStorageManager,
     private val epubEngine: EpubEngine,
+    private val epubImportScheduler: EpubImportScheduler,
     private val aiPreferencesManager: AiPreferencesManager
 ) : ViewModel() {
 
@@ -177,25 +181,22 @@ class OnlineLibraryViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
-                val tempFile = storageManager.importEpubFromUri(uri, originalName)
-                onlineNovelRepository.uploadEpub(tempFile.absolutePath, isTranslated)
-                    .onSuccess { msg ->
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                userMessage = "Tải sách lên server thành công!"
-                            )
+                val enqueued = epubImportScheduler.enqueue(
+                    uri = uri,
+                    originalName = originalName,
+                    isTranslated = isTranslated,
+                    autoScanCharacters = true
+                )
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        userMessage = if (enqueued) {
+                            context.getString(R.string.upload_started_background)
+                        } else {
+                            context.getString(R.string.upload_already_running)
                         }
-                        loadNovels(isRefresh = true)
-                    }
-                    .onFailure { err ->
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                errorMessage = "Upload thất bại: ${err.message}"
-                            )
-                        }
-                    }
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -206,7 +207,6 @@ class OnlineLibraryViewModel @Inject constructor(
             }
         }
     }
-
     fun clearUserMessage() {
         _uiState.update { it.copy(userMessage = null, errorMessage = null) }
     }

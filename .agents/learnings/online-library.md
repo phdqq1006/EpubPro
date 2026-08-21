@@ -1,7 +1,7 @@
 # Online Backend & Library Integration
 
 > Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow, WorkManager ngầm và chuẩn hóa quy định dự án theo AGENTS.md.
-> Cập nhật lần cuối: 2026-08-19
+> Cập nhật lần cuối: 2026-08-20
 
 ---
 
@@ -44,6 +44,15 @@
 
 ---
 
+### Tách Scheduler và Worker cho Upload EPUB
+- **Ngày**: 2026-08-20
+- **Chi tiết**: Dùng `EpubImportScheduler` để sao lưu URI ở `Dispatchers.IO`, chống enqueue trùng bằng `Mutex`, `ExistingWorkPolicy.KEEP` và ràng buộc mạng `CONNECTED`. `EpubImportWorker` chỉ chịu trách nhiệm upload, polling, thông báo và dọn file tạm.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportScheduler.kt`, `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
+
+### Polling thưa cho Backend Free Tier
+- **Ngày**: 2026-08-20
+- **Chi tiết**: Với Render Free, polling trạng thái import mỗi 10 giây giảm tải xuống khoảng 6 request/phút nhưng vẫn đủ để hiển thị tiến độ. Không nhầm HTTP 200 của endpoint status với trạng thái job thành công; phải đọc trường `status` trong JSON.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
 ## Bugs & Solutions
 
 ### Lỗi Dialog tự mở lại liên tục khi người dùng nhấn "Chạy ngầm"
@@ -97,6 +106,26 @@
 
 ---
 
+### Thông báo thành công cũ xuất hiện lại sau khi mở app
+- **Ngày**: 2026-08-20
+- **Vấn đề**: WorkManager giữ `WorkInfo` ở trạng thái `SUCCEEDED`; ViewModel mới đọc lại và phát Snackbar cũ.
+- **Root cause**: Collector xử lý mọi trạng thái terminal giống một sự kiện mới.
+- **Fix**: Theo dõi `hasActiveUploadSession`; chỉ thông báo terminal khi phiên upload đang hoạt động trong process hiện tại, sau đó reset cờ.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryViewModel.kt`
+
+### Upload HTTP thành công nhưng EPUB bị server từ chối
+- **Ngày**: 2026-08-20
+- **Vấn đề**: POST upload và các GET polling đều trả HTTP 200, nhưng job kết thúc `failed` với `Không tìm thấy nội dung chương hợp lệ trong file EPUB`, `current_chapter=0`.
+- **Root cause**: Lỗi parser/cấu trúc nội dung EPUB phía server, không phải lỗi truyền file hoặc WorkManager.
+- **Fix**: Kiểm tra JSON trạng thái job; cần validate EPUB trước upload hoặc bổ sung hỗ trợ cấu trúc EPUB ở backend.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelApiService.kt`
+
+### Hiển thị nhầm hai hệ số chương trong tiến độ
+- **Ngày**: 2026-08-20
+- **Vấn đề**: Chuỗi `Đang nạp chương 35 (35/135): Chương 647` khiến số thứ tự trong file bị hiểu là số chương gốc.
+- **Root cause**: UI hiển thị nguyên `current_step` từ backend.
+- **Fix**: Chỉ hiển thị phần sau `): `, giữ lại tên chương gốc như `Chương 647: ...`.
+- **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`
 ## How-To
 
 ### Cách tích hợp WorkManager kèm Foreground Notification cho tác vụ upload dài
@@ -128,6 +157,14 @@
 
 ---
 
+### Điều tra một job upload bất đồng bộ bằng logcat
+- **Ngày**: 2026-08-20
+- **Bước thực hiện**:
+  1. Lọc logcat theo PID `com.epubpro.app` và tìm POST upload, GET polling, `Worker result`.
+  2. Lấy `job_id` từ URL polling hoặc response POST.
+  3. Gọi `GET /library/import-jobs/{job_id}` để đọc `status`, `error_message`, `current_chapter` và `total_chapters`.
+  4. Phân biệt HTTP transport thành công với job xử lý thất bại ở backend.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelApiService.kt`
 ## Patterns
 
 ### Smart Dialog Dismissal with Background Worker Progress Pattern
@@ -144,3 +181,8 @@
 - **Ngày**: 2026-08-17
 - **Chi tiết**: Thay vì mở trực tiếp File Picker khi bấm nút Add (`+`), mở một Material 3 `ModalBottomSheet` hiển thị danh sách các nguồn nhập sách (Kho truyện Online, File máy, Upload lên Server) giúp mở rộng tính năng mà không phá vỡ UX cũ.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/AddBookBottomSheet.kt`
+
+### Cleanup và Cancellation cho CoroutineWorker
+- **Ngày**: 2026-08-20
+- **Chi tiết**: Đặt `file.delete()` trong `finally` để dọn file tạm cả khi thành công, thất bại hoặc bị hủy. Bắt và ném lại `CancellationException`, không chuyển cancellation thành lỗi nghiệp vụ.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
