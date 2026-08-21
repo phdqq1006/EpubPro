@@ -379,10 +379,10 @@
 
     <!-- Story Progress Screen -->
     <string name="story_progress_title">Tiến trình truyện</string>
-    <string name="story_progress_subtitle">Duyệt truyện và mở Book Bible</string>
+    <string name="story_progress_subtitle">Chọn truyện để duyệt tiến trình nhân vật</string>
     <string name="story_progress_load_error">Không thể tải tiến trình truyện</string>
     <string name="story_progress_empty_title">Chưa có truyện trong tiến trình</string>
-    <string name="story_progress_empty_desc">Chưa có truyện local hoặc dữ liệu Book Bible đã lưu để duyệt.</string>
+    <string name="story_progress_empty_desc">Chưa có sách hoặc dữ liệu Book Bible để duyệt.</string>
     <string name="story_progress_untitled">Truyện chưa đặt tên</string>
     <string name="story_progress_author_format">Tác giả: %1$s</string>
     <string name="story_progress_source_local">EPUB trên thiết bị</string>
@@ -398,4 +398,43 @@
     <string name="story_progress_latest_chapter_format">Đến chương %1$d</string>
     <string name="story_progress_not_started">Chưa mở chương</string>
     <string name="story_progress_open_book_bible">Mở Book Bible</string>
+    <string name="story_progress_open_review">Mở danh sách duyệt</string>
+    <string name="story_progress_pending_events_format">Chờ duyệt: %1$d sự kiện</string>
+
+    <!-- Story Review Screen -->
+    <string name="story_review_title">Duyệt tiến trình</string>
+    <string name="story_review_book_format">Sách: %1$s</string>
+    <string name="story_review_load_error">Không thể tải danh sách sự kiện</string>
+    <string name="story_review_empty_title">Không có sự kiện chờ duyệt</string>
+    <string name="story_review_empty_desc">Các sự kiện mới của truyện sẽ xuất hiện tại đây.</string>
+    <string name="story_review_chapter_format">Chương %1$d</string>
+    <string name="story_review_category_format">Nhóm: %1$s</string>
+    <string name="story_review_attribute_format">Thuộc tính: %1$s</string>
+    <string name="story_review_operation_format">Thao tác: %1$s</string>
+    <string name="story_review_value_label">Giá trị</string>
+    <string name="story_review_no_value">Chưa có giá trị</string>
+    <string name="story_review_evidence_label">Dẫn chứng</string>
+    <string name="story_review_no_evidence">Chưa có dẫn chứng</string>
+    <string name="story_review_confidence_format">Độ tin cậy: %1$.2f</string>
+    <string name="story_review_approve">Duyệt</string>
+    <string name="story_review_reject">Từ chối</string>
+    <string name="story_review_edit">Sửa</string>
+    <string name="story_review_approve_all">Duyệt tất cả</string>
+    <string name="story_review_approve_all_title">Duyệt toàn bộ sự kiện?</string>
+    <string name="story_review_approve_all_desc">Tất cả sự kiện đang chờ của truyện này sẽ được chuyển sang đã duyệt.</string>
+    <string name="story_review_confirm">Xác nhận</string>
+    <string name="story_review_cancel">Hủy</string>
+    <string name="story_review_edit_title">Sửa sự kiện</string>
+    <string name="story_review_value_json_label">Giá trị JSON hoặc văn bản</string>
+    <string name="story_review_evidence_input_label">Dẫn chứng</string>
+    <string name="story_review_confidence_input_label">Độ tin cậy</string>
+    <string name="story_review_value_hint">Ví dụ: {&quot;realm&quot;:&quot;Trúc Cơ&quot;}</string>
+    <string name="story_review_evidence_hint">Nhập trích đoạn hoặc ghi chú xác minh</string>
+    <string name="story_review_confidence_hint">0.0 đến 1.0</string>
+    <string name="story_review_action_approved">Đã duyệt sự kiện</string>
+    <string name="story_review_action_rejected">Đã từ chối sự kiện</string>
+    <string name="story_review_action_updated">Đã cập nhật sự kiện</string>
+    <string name="story_review_action_approved_all">Đã duyệt toàn bộ sự kiện</string>
+    <string name="story_review_action_error">Không thể cập nhật sự kiện</string>
+    <string name="story_review_back">Quay lại</string>
 </resources>

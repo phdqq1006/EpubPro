@@ -184,6 +184,128 @@ class BookBibleRepositoryImpl @Inject constructor(
             .flowOn(Dispatchers.IO)
     }
 
+    /**
+     * Lấy danh sách sách có sự kiện cần duyệt từ Book Bible backend.
+     *
+     * @return [Result] chứa danh sách sách đã chuyển sang model domain.
+     */
+    override suspend fun getReviewBooks(): Result<List<BookBibleReviewBook>> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.getReviewBooks().map { dto ->
+                BookBibleReviewBook(
+                    bookId = dto.bookId,
+                    title = dto.title,
+                    author = dto.author,
+                    language = dto.language,
+                    revision = dto.revision,
+                    editionCount = dto.editionCount,
+                    eventCount = dto.eventCount,
+                    pendingEventCount = dto.pendingEventCount
+                )
+            }
+        }
+    }
+
+    /**
+     * Lấy các sự kiện pending của một cuốn sách để màn hình duyệt hiển thị.
+     *
+     * @param bookId Mã sách trên backend.
+     * @param status Trạng thái cần lọc.
+     * @param canonicalChapter Chương canonical cần lọc, nếu có.
+     * @return [Result] chứa các sự kiện đã chuyển sang model domain.
+     */
+    override suspend fun getReviewEvents(
+        bookId: String,
+        status: String,
+        canonicalChapter: Int?
+    ): Result<List<BookBibleReviewEvent>> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.getReviewEvents(
+                status = status,
+                bookId = bookId,
+                canonicalChapter = canonicalChapter
+            ).map(::mapDtoToReviewEvent)
+        }
+    }
+
+    /**
+     * Duyệt một sự kiện và gửi các chỉnh sửa tùy chọn lên backend.
+     *
+     * @param eventId Mã sự kiện cần duyệt.
+     * @param edit Dữ liệu chỉnh sửa gửi kèm.
+     * @return [Result] chứa sự kiện sau khi duyệt.
+     */
+    override suspend fun approveReviewEvent(
+        eventId: String,
+        edit: BookBibleReviewEventEdit
+    ): Result<BookBibleReviewEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.approveReviewEvent(
+                eventId = eventId,
+                body = ReviewEventApproveRequestDto(
+                    evidence = edit.evidence,
+                    value = parseReviewValue(edit.valueJson)
+                )
+            ).let(::mapDtoToReviewEvent)
+        }
+    }
+
+    /**
+     * Cập nhật một sự kiện tiến trình trước khi người dùng duyệt lại.
+     *
+     * @param eventId Mã sự kiện cần cập nhật.
+     * @param edit Dữ liệu mới của sự kiện.
+     * @return [Result] chứa sự kiện sau khi cập nhật.
+     */
+    override suspend fun updateReviewEvent(
+        eventId: String,
+        edit: BookBibleReviewEventEdit
+    ): Result<BookBibleReviewEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.updateReviewEvent(
+                eventId = eventId,
+                body = ReviewEventUpdateRequestDto(
+                    value = parseReviewValue(edit.valueJson),
+                    evidence = edit.evidence,
+                    confidence = edit.confidence
+                )
+            ).let(::mapDtoToReviewEvent)
+        }
+    }
+
+    /**
+     * Từ chối một sự kiện tiến trình.
+     *
+     * @param eventId Mã sự kiện cần từ chối.
+     * @return [Result] chứa sự kiện sau khi từ chối.
+     */
+    override suspend fun rejectReviewEvent(eventId: String): Result<BookBibleReviewEvent> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.rejectReviewEvent(eventId).let(::mapDtoToReviewEvent)
+        }
+    }
+
+    /**
+     * Duyệt toàn bộ sự kiện pending của một cuốn sách.
+     *
+     * @param bookId Mã sách trên backend.
+     * @param canonicalChapter Chương canonical cần giới hạn, nếu có.
+     * @return [Result] chứa các sự kiện đã được xử lý.
+     */
+    override suspend fun approveAllReviewEvents(
+        bookId: String,
+        canonicalChapter: Int?
+    ): Result<List<BookBibleReviewEvent>> = withContext(Dispatchers.IO) {
+        runCatching {
+            apiService.approveAllReviewEvents(
+                ApproveAllReviewEventsRequestDto(
+                    bookId = bookId,
+                    canonicalChapter = canonicalChapter
+                )
+            ).map(::mapDtoToReviewEvent)
+        }
+    }
+
     override suspend fun refreshSnapshot(
         source: BookBibleSource,
         chapterNumber: Int
@@ -1010,6 +1132,50 @@ class BookBibleRepositoryImpl @Inject constructor(
             evidence = dto.evidence,
             confidence = dto.confidence
         )
+    }
+
+    /**
+     * Chuyển DTO sự kiện review sang model domain và giữ nguyên value JSON để có thể sửa lại.
+     *
+     * @param dto DTO sự kiện từ backend.
+     * @return Model sự kiện dùng bởi màn hình duyệt.
+     */
+    private fun mapDtoToReviewEvent(dto: CharacterEventDto): BookBibleReviewEvent {
+        return BookBibleReviewEvent(
+            eventId = dto.eventId.orEmpty(),
+            bookId = dto.bookId.orEmpty(),
+            characterId = dto.characterId.orEmpty(),
+            characterOriginalName = dto.characterOriginalName.orEmpty(),
+            canonicalChapter = if (dto.canonicalChapter > 0) dto.canonicalChapter else (dto.chapter ?: 1),
+            category = dto.category,
+            attributeKey = dto.attributeKey,
+            operation = dto.operation,
+            valueJson = dto.value?.takeUnless { it.isJsonNull }?.toString(),
+            displayValue = dto.displayValue ?: sanitizeAttributeValue(dto.value),
+            certainty = dto.certainty,
+            status = dto.status ?: "pending",
+            evidence = dto.evidence,
+            confidence = dto.confidence,
+            sourceGroupId = dto.sourceGroupId,
+            sourceSubmissionId = dto.sourceSubmissionId,
+            createdAt = dto.createdAt
+        )
+    }
+
+    /**
+     * Phân tích chuỗi value do người dùng nhập thành JSON; chuỗi thường được bọc thành JSON string.
+     *
+     * @param valueJson Chuỗi JSON hoặc văn bản người dùng nhập.
+     * @return [com.google.gson.JsonElement] phù hợp để gửi lên API, hoặc `null` nếu để trống.
+     */
+    private fun parseReviewValue(valueJson: String?): com.google.gson.JsonElement? {
+        val value = valueJson?.trim().orEmpty()
+        if (value.isBlank()) return null
+        return runCatching {
+            gson.fromJson(value, com.google.gson.JsonElement::class.java)
+        }.getOrElse {
+            com.google.gson.JsonPrimitive(value)
+        }
     }
 
     private fun formatOperationVietnamese(op: String): String {

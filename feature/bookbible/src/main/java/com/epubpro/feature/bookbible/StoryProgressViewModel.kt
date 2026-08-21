@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.BookBibleProgressSummary
+import com.epubpro.domain.model.BookBibleReviewBook
 import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.domain.model.BookBibleSourceType
 import com.epubpro.domain.repository.BookBibleRepository
@@ -47,6 +48,7 @@ class StoryProgressViewModel @Inject constructor(
 
     private val localBooks = MutableStateFlow<List<Book>>(emptyList())
     private val bibleSummaries = MutableStateFlow<List<BookBibleProgressSummary>>(emptyList())
+    private val reviewBooks = MutableStateFlow<List<BookBibleReviewBook>>(emptyList())
     private val sourceError = MutableStateFlow<String?>(null)
     private var observeJob: Job? = null
 
@@ -81,11 +83,17 @@ class StoryProgressViewModel @Inject constructor(
                     .collect { bibleSummaries.value = it }
             }
             launch {
-                combine(localBooks, bibleSummaries) {
+                bookBibleRepository.getReviewBooks()
+                    .onSuccess { reviewBooks.value = it }
+                    .onFailure { error -> sourceError.value = error.message ?: error.toString() }
+            }
+            launch {
+                combine(localBooks, bibleSummaries, reviewBooks) {
                         books,
-                        summaries
+                        summaries,
+                        remoteBooks
                     ->
-                    mergeStorySources(books, summaries)
+                    mergeStorySources(books, summaries, remoteBooks)
                 }.collect { items ->
                     _uiState.update { state ->
                         state.copy(
@@ -105,18 +113,22 @@ class StoryProgressViewModel @Inject constructor(
      *
      * @param books Danh sách EPUB đã nhập vào thiết bị.
      * @param summaries Các tiến trình Book Bible đã lưu trong Room.
+     * @param remoteBooks Danh sách sách và số lượng event từ backend.
      * @return Danh sách truyện duy nhất, đã gắn trạng thái Book Bible nếu có.
      */
     private fun mergeStorySources(
         books: List<Book>,
-        summaries: List<BookBibleProgressSummary>
+        summaries: List<BookBibleProgressSummary>,
+        remoteBooks: List<BookBibleReviewBook>
     ): List<BookBibleProgressSummary> {
         val summariesByKey = summaries.associateBy { it.source.uniqueKey }
+        val remoteByBookId = remoteBooks.associateBy { it.bookId }
         val visibleKeys = mutableSetOf<String>()
 
         val localItems = books.map { book ->
             val source = BookBibleSource(BookBibleSourceType.LOCAL_EPUB, book.id)
             visibleKeys += source.uniqueKey
+            val remoteMatch = book.onlineNovelId?.let { remoteByBookId[it] }
             mergeWithProgress(
                 source = source,
                 title = book.title,
@@ -124,12 +136,30 @@ class StoryProgressViewModel @Inject constructor(
                 totalChapters = book.totalChapters,
                 updatedAt = maxOf(book.lastReadAt, book.addedAt),
                 progress = summariesByKey[source.uniqueKey]
+            ).copy(
+                backendBookId = book.onlineNovelId,
+                eventCount = remoteMatch?.eventCount ?: 0,
+                pendingEventCount = remoteMatch?.pendingEventCount ?: 0
             )
         }
         val cachedOnlyItems = summaries.filterNot { it.source.uniqueKey in visibleKeys }
 
-        return (localItems + cachedOnlyItems)
-            .distinctBy { it.source.uniqueKey }
+        val remoteItems = remoteBooks.map { book ->
+            BookBibleProgressSummary(
+                source = BookBibleSource(BookBibleSourceType.ONLINE_NOVEL, book.bookId),
+                title = book.title,
+                author = book.author,
+                totalChapters = 0,
+                latestChapterNumber = 0,
+                updatedAt = 0L,
+                backendBookId = book.bookId,
+                eventCount = book.eventCount,
+                pendingEventCount = book.pendingEventCount
+            )
+        }
+
+        return (localItems + remoteItems + cachedOnlyItems)
+            .distinctBy { it.backendBookId ?: it.source.sourceId }
             .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.title })
     }
 

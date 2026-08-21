@@ -29,8 +29,18 @@
 
 ### Màn Tiến trình truyện ưu tiên Local/Cache
 - **Ngày**: 2026-08-21
-- **Chi tiết**: Màn cấp ứng dụng để duyệt truyện và mở Book Bible nên đọc `BookRepository` cùng `BookBibleRepository` trước. Các bản ghi online đã cache vẫn hiển thị, nhưng màn này không tự gọi danh sách online; việc duyệt catalog online thuộc `OnlineLibraryViewModel` và tab Duyệt.
+- **Chi tiết**: Màn cấp ứng dụng đọc `BookRepository` và `BookBibleRepository` trước để luôn có fallback local/cache. Khi vào tab, màn gọi riêng `GET /api/v1/book-bible/books` để lấy số event pending phục vụ duyệt tiến trình; tuyệt đối không gọi `GET /api/v1/library/novels`, vì catalog online thuộc `OnlineLibraryViewModel` và tab Duyệt.
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressScreen.kt`
+
+### Hàng đợi duyệt Character Events trong app
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Tab Tiến trình hiển thị danh sách sách từ Book Bible backend, click dòng sách mở route `story_review/{bookId}`. Màn review gọi `GET /book-bible/events?status=pending&book_id=...`, cho phép sửa value/evidence/confidence, duyệt, từ chối hoặc duyệt tất cả. Nút Book Bible riêng trên dòng sách vẫn giữ entry point xem snapshot trực tiếp.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/BookBibleApiService.kt`, `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryReviewScreen.kt`, `app/src/main/java/com/epubpro/app/navigation/AppNavigation.kt`
+
+### Canonical Book Identity & Trách nhiệm Chống trùng lặp (Single Source of Truth)
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Quản lý danh mục tác phẩm và định danh duy nhất (`canonical_book_id`) thuộc trách nhiệm của Server backend để tránh phân mảnh sự kiện và ấn bản. Client giữ vai trò Thin Client: map `book.onlineNovelId` từ sách local với `book_id` của server để gắn kết trạng thái đọc offline và sự kiện review. Backend chịu trách nhiệm chuẩn hóa metadata khi import, xử lý alias và gộp bản ghi duplicate.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/BookBibleApiService.kt`
 
 ---
 
@@ -71,6 +81,20 @@
 - **Fix**: Bỏ dependency/call online khỏi ViewModel Tiến trình; giữ catalog online ở `OnlineLibraryViewModel`, còn dữ liệu online đã cache vẫn được giữ qua Room.
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryViewModel.kt`
 
+### Phân biệt API catalog với API review
+- **Ngày**: 2026-08-21
+- **Vấn đề**: Sau khi thêm hàng đợi duyệt, dễ nhầm việc lấy danh sách sách review với catalog `/library/novels`, dẫn đến phụ thuộc endpoint đang lỗi hoặc hiển thị sai nguồn dữ liệu.
+- **Root cause**: Catalog online phục vụ duyệt/truy cập truyện, còn Book Bible `/books` phục vụ số lượng event và định danh sách cần kiểm duyệt.
+- **Fix**: `StoryProgressViewModel` chỉ gọi `BookBibleRepository.getReviewBooks()`; `OnlineLibraryViewModel` giữ trách nhiệm gọi `OnlineNovelRepository.getNovels()`. Các thao tác event dùng riêng namespace `/book-bible/events`.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/BookBibleApiService.kt`
+
+### Lỗi trùng lặp đầu sách do backend tồn tại nhiều book_id cho cùng tác phẩm
+- **Ngày**: 2026-08-21
+- **Vấn đề**: Màn hình Tiến trình truyện hiển thị đồng thời 2 thẻ cho cùng 1 bộ truyện (ví dụ: *"Ta Tại Bệnh Viện Tâm Thần Học Trảm Thần [AI]"* và *"Trảm Thần: Ta Học Trảm Thần Ở Bệnh Viện Tâm Thần"* của cùng tác giả Tam Cửu Âm Vực).
+- **Root cause**: Database backend lưu 2 bản ghi `book_id` khác nhau cho cùng tác phẩm (một từ online novel catalog, một từ EPUB import/resolve trước đó). Client lọc theo `distinctBy { it.backendBookId ?: it.source.sourceId }` nên không thể nhận diện nếu ID khác nhau.
+- **Fix**: Chuẩn hóa và gộp bản ghi trùng tại server database, cập nhật các bảng con (`editions`, `character_events`, `submissions`) trỏ về `book_id` chuẩn; phía Android map `backendBookId` với `book.onlineNovelId` của local book để hợp nhất thẻ hiển thị.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/BookBibleApiService.kt`
+
 ---
 
 ## How-To
@@ -91,8 +115,9 @@
 - **Bước thực hiện**:
   1. Thêm projection tiến trình theo `BookBibleSource.uniqueKey` ở Domain/Room.
   2. Ghép danh sách `Book` với summary cache trong ViewModel và tạo summary mặc định cho truyện chưa có snapshot.
-  3. Điều hướng trực tiếp tới `Screen.BookBible` với source type, source ID và chương gần nhất.
-  4. Chỉ gọi API online trong màn catalog chuyên trách để màn tiến trình vẫn hoạt động offline.
+  3. Overlay danh sách sách backend review bằng `backendBookId`, `eventCount` và `pendingEventCount`.
+  4. Điều hướng dòng sách tới `Screen.StoryReview`; giữ nút phụ điều hướng tới `Screen.BookBible` với source type, source ID và chương gần nhất.
+  5. Có fallback local/cache khi API review lỗi, nhưng không thay API review bằng catalog `/library/novels`.
 - **Files liên quan**: `core/database/src/main/java/com/epubpro/core/database/dao/BookBibleDao.kt`, `app/src/main/java/com/epubpro/app/navigation/AppNavigation.kt`
 
 ### Cách đóng khung Pretty Box Logger và Redact Header bảo mật
@@ -118,8 +143,13 @@
 
 ### Pattern Cache-First cho danh sách tiến trình
 - **Ngày**: 2026-08-21
-- **Chi tiết**: Cho phép mỗi truyện xuất hiện trước khi có snapshot bằng `BookBibleProgressSummary` mặc định (`latestChapterNumber = 0`), sau đó overlay status/chapter từ Room bằng `LOCAL_EPUB:<id>` hoặc `ONLINE_NOVEL:<id>`. Khi backend lỗi, thao tác duyệt cache không phụ thuộc mạng.
+- **Chi tiết**: Cho phép mỗi truyện xuất hiện trước khi có snapshot bằng `BookBibleProgressSummary` mặc định (`latestChapterNumber = 0`), sau đó overlay status/chapter từ Room bằng `LOCAL_EPUB:<id>` hoặc `ONLINE_NOVEL:<id>`. Danh sách review từ backend được ưu tiên để có `pendingEventCount`; nếu request lỗi, local/cache vẫn giữ được entry point Book Bible.
 - **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`
+
+### Pattern giữ value JSON cho màn chỉnh sửa event
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Model review lưu đồng thời `valueJson` và `displayValue`. UI hiển thị `displayValue`, còn dialog chỉnh sửa dùng `valueJson`; repository parse JSON hợp lệ và bọc văn bản thường thành `JsonPrimitive` trước khi gọi PATCH/approve.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`, `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryReviewScreen.kt`
 
 ### Pattern sắp xếp ưu tiên Nhân vật chính (Protagonist Priority Ordering)
 - **Ngày**: 2026-08-19

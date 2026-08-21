@@ -8,6 +8,77 @@ import retrofit2.http.*
 interface BookBibleApiService {
 
     /**
+     * Lấy danh sách sách và số lượng sự kiện đang chờ duyệt.
+     *
+     * @return Danh sách sách từ Book Bible backend.
+     */
+    @GET("book-bible/books")
+    suspend fun getReviewBooks(): List<BookBibleReviewBookDto>
+
+    /**
+     * Lấy danh sách sự kiện tiến trình theo bộ lọc duyệt.
+     *
+     * @param status Trạng thái sự kiện cần lọc.
+     * @param bookId Mã sách cần lọc.
+     * @param canonicalChapter Chương canonical cần lọc.
+     * @return Danh sách sự kiện phù hợp.
+     */
+    @GET("book-bible/events")
+    suspend fun getReviewEvents(
+        @Query("status") status: String? = null,
+        @Query("book_id") bookId: String? = null,
+        @Query("canonical_chapter") canonicalChapter: Int? = null
+    ): List<CharacterEventDto>
+
+    /**
+     * Duyệt một sự kiện và có thể ghi đè bằng chứng hoặc giá trị.
+     *
+     * @param eventId Mã sự kiện cần duyệt.
+     * @param body Dữ liệu tùy chọn gửi kèm.
+     * @return Sự kiện sau khi duyệt.
+     */
+    @POST("book-bible/events/{event_id}/approve")
+    suspend fun approveReviewEvent(
+        @Path("event_id") eventId: String,
+        @Body body: ReviewEventApproveRequestDto
+    ): CharacterEventDto
+
+    /**
+     * Cập nhật giá trị, bằng chứng và độ tin cậy của một sự kiện.
+     *
+     * @param eventId Mã sự kiện cần cập nhật.
+     * @param body Dữ liệu mới.
+     * @return Sự kiện sau khi cập nhật.
+     */
+    @PATCH("book-bible/events/{event_id}")
+    suspend fun updateReviewEvent(
+        @Path("event_id") eventId: String,
+        @Body body: ReviewEventUpdateRequestDto
+    ): CharacterEventDto
+
+    /**
+     * Từ chối một sự kiện.
+     *
+     * @param eventId Mã sự kiện cần từ chối.
+     * @return Sự kiện sau khi từ chối.
+     */
+    @POST("book-bible/events/{event_id}/reject")
+    suspend fun rejectReviewEvent(
+        @Path("event_id") eventId: String
+    ): CharacterEventDto
+
+    /**
+     * Duyệt toàn bộ sự kiện đang chờ của một cuốn sách.
+     *
+     * @param body Bộ lọc sách và chương canonical.
+     * @return Danh sách sự kiện đã được xử lý.
+     */
+    @POST("book-bible/events/approve-all")
+    suspend fun approveAllReviewEvents(
+        @Body body: ApproveAllReviewEventsRequestDto
+    ): List<CharacterEventDto>
+
+    /**
      * Định danh cuốn sách dựa trên tiêu đề, tác giả, ngôn ngữ và fingerprints cấu trúc tệp.
      *
      * @param clientKey Khóa xác thực Trusted Client (Header X-Book-Bible-Client-Key).

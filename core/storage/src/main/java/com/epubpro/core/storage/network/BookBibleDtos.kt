@@ -221,3 +221,42 @@ data class CharacterEventDto(
     @SerializedName("source_submission_id") val sourceSubmissionId: String? = null,
     @SerializedName("created_at") val createdAt: String? = null
 )
+
+/**
+ * DTO sách trong hàng đợi duyệt tiến trình.
+ */
+data class BookBibleReviewBookDto(
+    @SerializedName("book_id") val bookId: String = "",
+    @SerializedName("title") val title: String = "",
+    @SerializedName("author") val author: String = "",
+    @SerializedName("language") val language: String = "vi",
+    @SerializedName("revision") val revision: Int = 0,
+    @SerializedName("edition_count") val editionCount: Int = 0,
+    @SerializedName("event_count") val eventCount: Int = 0,
+    @SerializedName("pending_event_count") val pendingEventCount: Int = 0
+)
+
+/**
+ * DTO request duyệt sự kiện với các trường tùy chọn được phép cập nhật.
+ */
+data class ReviewEventApproveRequestDto(
+    @SerializedName("evidence") val evidence: String? = null,
+    @SerializedName("value") val value: JsonElement? = null
+)
+
+/**
+ * DTO request cập nhật đầy đủ dữ liệu một sự kiện.
+ */
+data class ReviewEventUpdateRequestDto(
+    @SerializedName("value") val value: JsonElement? = null,
+    @SerializedName("evidence") val evidence: String? = null,
+    @SerializedName("confidence") val confidence: Double? = null
+)
+
+/**
+ * DTO request duyệt hàng loạt các sự kiện của một cuốn sách.
+ */
+data class ApproveAllReviewEventsRequestDto(
+    @SerializedName("book_id") val bookId: String,
+    @SerializedName("canonical_chapter") val canonicalChapter: Int? = null
+)

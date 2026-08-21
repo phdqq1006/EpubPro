@@ -1,6 +1,9 @@
 package com.epubpro.domain.repository
 
 import com.epubpro.domain.model.BookBibleProgressSummary
+import com.epubpro.domain.model.BookBibleReviewBook
+import com.epubpro.domain.model.BookBibleReviewEvent
+import com.epubpro.domain.model.BookBibleReviewEventEdit
 import com.epubpro.domain.model.BookBibleSnapshot
 import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.domain.model.CharacterTimeline
@@ -55,6 +58,71 @@ interface BookBibleRepository {
      * @return [Flow] phát ra danh sách tóm tắt tiến trình, sắp xếp theo lần cập nhật gần nhất.
      */
     fun observeProgressSummaries(): Flow<List<BookBibleProgressSummary>>
+
+    /**
+     * Lấy danh sách sách có dữ liệu Book Bible từ backend để hiển thị hàng đợi duyệt.
+     *
+     * @return [Result] chứa danh sách sách và số lượng sự kiện đang chờ duyệt.
+     */
+    suspend fun getReviewBooks(): Result<List<BookBibleReviewBook>>
+
+    /**
+     * Lấy các sự kiện tiến trình theo sách và trạng thái duyệt.
+     *
+     * @param bookId Mã sách trên backend.
+     * @param status Trạng thái cần lọc, mặc định là `pending`.
+     * @param canonicalChapter Có thể giới hạn theo chương canonical.
+     * @return [Result] chứa danh sách sự kiện cần hiển thị.
+     */
+    suspend fun getReviewEvents(
+        bookId: String,
+        status: String = "pending",
+        canonicalChapter: Int? = null
+    ): Result<List<BookBibleReviewEvent>>
+
+    /**
+     * Duyệt một sự kiện và có thể cập nhật bằng chứng hoặc giá trị đi kèm.
+     *
+     * @param eventId Mã sự kiện cần duyệt.
+     * @param edit Dữ liệu chỉnh sửa gửi kèm request.
+     * @return [Result] chứa sự kiện sau khi duyệt.
+     */
+    suspend fun approveReviewEvent(
+        eventId: String,
+        edit: BookBibleReviewEventEdit = BookBibleReviewEventEdit()
+    ): Result<BookBibleReviewEvent>
+
+    /**
+     * Cập nhật giá trị, bằng chứng và độ tin cậy của một sự kiện.
+     *
+     * @param eventId Mã sự kiện cần cập nhật.
+     * @param edit Dữ liệu mới của sự kiện.
+     * @return [Result] chứa sự kiện sau khi cập nhật.
+     */
+    suspend fun updateReviewEvent(
+        eventId: String,
+        edit: BookBibleReviewEventEdit
+    ): Result<BookBibleReviewEvent>
+
+    /**
+     * Từ chối một sự kiện tiến trình.
+     *
+     * @param eventId Mã sự kiện cần từ chối.
+     * @return [Result] chứa sự kiện sau khi từ chối.
+     */
+    suspend fun rejectReviewEvent(eventId: String): Result<BookBibleReviewEvent>
+
+    /**
+     * Duyệt toàn bộ sự kiện đang chờ của một cuốn sách.
+     *
+     * @param bookId Mã sách trên backend.
+     * @param canonicalChapter Có thể giới hạn thao tác theo chương canonical.
+     * @return [Result] chứa danh sách sự kiện đã được backend xử lý.
+     */
+    suspend fun approveAllReviewEvents(
+        bookId: String,
+        canonicalChapter: Int? = null
+    ): Result<List<BookBibleReviewEvent>>
 
     /**
      * Làm mới dữ liệu Snapshot từ máy chủ backend qua mạng và cập nhật giao dịch vào Room cache.

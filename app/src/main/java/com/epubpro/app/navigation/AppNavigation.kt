@@ -23,7 +23,6 @@ import androidx.compose.ui.res.stringResource
 import com.epubpro.core.designsystem.R
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsOpenBookRequest
-import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.feature.bookmark.BookmarkScreen
 import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
@@ -165,7 +164,10 @@ fun AppNavHost(
 
             composable(Screen.StoryProgress.route) {
                 com.epubpro.feature.bookbible.StoryProgressScreen(
-                    onOpenBookBible = { source: BookBibleSource, chapterNumber: Int ->
+                    onOpenReview = { bookId ->
+                        navController.navigate(Screen.StoryReview.createRoute(bookId))
+                    },
+                    onOpenBookBible = { source, chapterNumber ->
                         navController.navigate(
                             Screen.BookBible.createRoute(
                                 sourceType = source.type.name,
@@ -174,6 +176,15 @@ fun AppNavHost(
                             )
                         )
                     }
+                )
+            }
+
+            composable(
+                route = Screen.StoryReview.route,
+                arguments = listOf(navArgument("bookId") { type = NavType.StringType })
+            ) {
+                com.epubpro.feature.bookbible.StoryReviewScreen(
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
 
@@ -321,6 +332,9 @@ sealed class Screen(val route: String) {
 
     object Bookshelf : Screen("bookshelf")
     object StoryProgress : Screen("story_progress")
+    object StoryReview : Screen("story_review/{bookId}") {
+        fun createRoute(bookId: String): String = "story_review/${Uri.encode(bookId)}"
+    }
     object Profile : Screen("profile")
     object AudioSettings : Screen("audio_settings")
     object ReadingDefaults : Screen("reading_defaults")

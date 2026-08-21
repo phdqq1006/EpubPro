@@ -51,6 +51,9 @@ data class BookBibleChapter(
  * @property snapshotStatus Trạng thái snapshot mới nhất, nếu đã có snapshot.
  * @property submissionState Trạng thái submission mới nhất, nếu chưa có snapshot.
  * @property updatedAt Thời điểm cập nhật tiến trình gần nhất theo mili-giây.
+ * @property backendBookId Mã sách Book Bible dùng cho thao tác duyệt, nếu backend đã cung cấp.
+ * @property eventCount Tổng số sự kiện tiến trình trên backend.
+ * @property pendingEventCount Số sự kiện đang chờ duyệt trên backend.
  */
 data class BookBibleProgressSummary(
     val source: BookBibleSource,
@@ -60,7 +63,87 @@ data class BookBibleProgressSummary(
     val latestChapterNumber: Int,
     val snapshotStatus: SnapshotStatus? = null,
     val submissionState: SubmissionState? = null,
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val backendBookId: String? = null,
+    val eventCount: Int = 0,
+    val pendingEventCount: Int = 0
+)
+
+/**
+ * Tóm tắt một cuốn sách có dữ liệu tiến trình trên backend để đưa vào hàng đợi duyệt.
+ *
+ * @property bookId Mã sách trên backend.
+ * @property title Tên sách.
+ * @property author Tác giả.
+ * @property language Ngôn ngữ của sách.
+ * @property revision Revision hiện tại của Book Bible.
+ * @property editionCount Số ấn bản đã đăng ký.
+ * @property eventCount Tổng số sự kiện đã trích xuất.
+ * @property pendingEventCount Số sự kiện đang chờ người dùng duyệt.
+ */
+data class BookBibleReviewBook(
+    val bookId: String,
+    val title: String,
+    val author: String = "",
+    val language: String = "vi",
+    val revision: Int = 0,
+    val editionCount: Int = 0,
+    val eventCount: Int = 0,
+    val pendingEventCount: Int = 0
+)
+
+/**
+ * Sự kiện tiến trình nhân vật đang được người dùng xem xét.
+ *
+ * @property eventId Mã sự kiện.
+ * @property bookId Mã sách chứa sự kiện.
+ * @property characterId Mã định danh nhân vật.
+ * @property characterOriginalName Tên gốc của nhân vật.
+ * @property canonicalChapter Chương canonical nơi sự kiện xuất hiện.
+ * @property category Nhóm thông tin của sự kiện.
+ * @property attributeKey Khóa thuộc tính bị thay đổi.
+ * @property operation Phép thay đổi, ví dụ set, add hoặc remove.
+ * @property valueJson Giá trị gốc ở dạng JSON để hỗ trợ chỉnh sửa chính xác.
+ * @property displayValue Giá trị đã được backend định dạng để hiển thị, nếu có.
+ * @property certainty Mức độ chắc chắn của sự kiện.
+ * @property status Trạng thái duyệt hiện tại.
+ * @property evidence Bằng chứng văn bản đi kèm.
+ * @property confidence Độ tin cậy do bộ trích xuất cung cấp.
+ * @property sourceGroupId Nhóm nguồn sinh ra sự kiện.
+ * @property sourceSubmissionId Submission sinh ra sự kiện.
+ * @property createdAt Thời điểm tạo sự kiện ở backend.
+ */
+data class BookBibleReviewEvent(
+    val eventId: String,
+    val bookId: String,
+    val characterId: String,
+    val characterOriginalName: String,
+    val canonicalChapter: Int,
+    val category: String,
+    val attributeKey: String,
+    val operation: String,
+    val valueJson: String? = null,
+    val displayValue: String? = null,
+    val certainty: String? = "observed",
+    val status: String = "pending",
+    val evidence: String? = null,
+    val confidence: Double? = null,
+    val sourceGroupId: String? = null,
+    val sourceSubmissionId: String? = null,
+    val createdAt: String? = null
+)
+
+/**
+ * Dữ liệu người dùng gửi khi sửa hoặc duyệt một sự kiện tiến trình.
+ *
+ * @property valueJson Giá trị mới ở dạng JSON hoặc chuỗi thông thường.
+ * @property evidence Bằng chứng mới, có thể để trống để xóa.
+ * @property confidence Độ tin cậy mới, nếu người dùng có thay đổi.
+ */
+data class BookBibleReviewEventEdit(
+    val valueJson: String? = null,
+    val evidence: String? = null,
+    val confidence: Double? = null
 )
 
 /**

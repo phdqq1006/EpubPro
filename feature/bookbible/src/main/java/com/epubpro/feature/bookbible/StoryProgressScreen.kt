@@ -54,12 +54,14 @@ import com.epubpro.domain.model.SubmissionState
 /**
  * Hiển thị tab Tiến trình truyện, nơi người dùng duyệt các truyện đã có Book Bible và mở hồ sơ theo mốc chương gần nhất.
  *
- * @param onOpenBookBible Callback mở màn hình Book Bible của một truyện tại mốc chương được chọn.
+ * @param onOpenReview Callback mở danh sách sự kiện cần duyệt của một truyện.
+ * @param onOpenBookBible Callback mở Book Bible trực tiếp tại mốc chương gần nhất.
  * @param viewModel ViewModel cung cấp dữ liệu tiến trình từ Room cache.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StoryProgressScreen(
+    onOpenReview: (bookId: String) -> Unit,
     onOpenBookBible: (source: BookBibleSource, chapterNumber: Int) -> Unit,
     viewModel: StoryProgressViewModel = hiltViewModel()
 ) {
@@ -149,6 +151,7 @@ fun StoryProgressScreen(
                 else -> {
                     StoryProgressList(
                         items = uiState.items,
+                        onOpenReview = onOpenReview,
                         onOpenBookBible = onOpenBookBible
                     )
                 }
@@ -161,11 +164,13 @@ fun StoryProgressScreen(
  * Hiển thị danh sách tóm tắt tiến trình Book Bible theo thứ tự cập nhật gần nhất.
  *
  * @param items Các truyện cần hiển thị.
- * @param onOpenBookBible Callback khi người dùng chọn một truyện.
+ * @param onOpenReview Callback mở danh sách sự kiện cần duyệt của một truyện.
+ * @param onOpenBookBible Callback mở Book Bible trực tiếp.
  */
 @Composable
 private fun StoryProgressList(
     items: List<BookBibleProgressSummary>,
+    onOpenReview: (String) -> Unit,
     onOpenBookBible: (BookBibleSource, Int) -> Unit
 ) {
     LazyColumn(
@@ -177,6 +182,9 @@ private fun StoryProgressList(
             StoryProgressCard(
                 item = item,
                 onClick = {
+                    onOpenReview(item.backendBookId ?: item.source.sourceId)
+                },
+                onOpenBookBible = {
                     onOpenBookBible(item.source, maxOf(1, item.latestChapterNumber))
                 }
             )
@@ -185,15 +193,17 @@ private fun StoryProgressList(
 }
 
 /**
- * Hiển thị một dòng tiến trình truyện với mốc chương, trạng thái xử lý và hành động mở Book Bible.
+ * Hiển thị một dòng tiến trình truyện với số sự kiện đang chờ và hành động mở danh sách duyệt.
  *
  * @param item Dữ liệu tóm tắt của truyện.
  * @param onClick Callback khi người dùng chọn dòng truyện.
+ * @param onOpenBookBible Callback mở Book Bible trực tiếp.
  */
 @Composable
 private fun StoryProgressCard(
     item: BookBibleProgressSummary,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onOpenBookBible: () -> Unit
 ) {
     val statusText = when (item.snapshotStatus) {
         SnapshotStatus.COMPLETE -> stringResource(R.string.book_bible_status_complete)
@@ -233,7 +243,7 @@ private fun StoryProgressCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
+            Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -313,13 +323,38 @@ private fun StoryProgressCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (item.eventCount > 0) {
+                    Spacer(modifier = Modifier.size(6.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.story_progress_pending_events_format,
+                            item.pendingEventCount
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (item.pendingEventCount > 0) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = stringResource(R.string.story_progress_open_book_bible),
-                tint = Color.Gray,
-                modifier = Modifier.padding(start = 8.dp)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenBookBible) {
+                    Icon(
+                        imageVector = Icons.Outlined.Book,
+                        contentDescription = stringResource(R.string.story_progress_open_book_bible),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = stringResource(R.string.story_progress_open_review),
+                    tint = Color.Gray,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
         }
     }
 }
