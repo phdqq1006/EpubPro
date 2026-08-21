@@ -3,11 +3,14 @@ package com.epubpro.core.storage.bookbible
 import android.content.Context
 import com.epubpro.core.database.dao.BookDao
 import com.epubpro.core.database.dao.BookBibleDao
+import com.epubpro.core.database.dao.BookBibleProgressEntry
 import com.epubpro.core.database.entity.BookBibleEditionEntity
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.network.*
 import com.epubpro.domain.model.*
 import com.google.gson.Gson
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
@@ -172,6 +175,35 @@ class BookBibleRepositoryImplTest {
         val attrMap = character.extraAttributes.associate { it.label to it.value }
         assertEquals("Cấp ba", attrMap["Hồn Lực"])
         assertEquals("50 điểm (sau 7 quan)", attrMap["Điểm sát hạch"])
+    }
+
+    /**
+     * Kiểm tra repository chuyển đúng bản ghi tổng hợp từ Room thành tiến trình domain cho màn hình cấp ứng dụng.
+     */
+    @Test
+    fun testObserveProgressSummariesMapsDaoEntry() = runBlocking {
+        val entry = BookBibleProgressEntry(
+            localSourceKey = "ONLINE_NOVEL:novel_1",
+            title = "Truyện thử nghiệm",
+            author = "Tác giả",
+            chapterCount = 120,
+            latestSnapshotChapter = 18,
+            latestSubmissionChapter = 20,
+            snapshotStatus = "PARTIAL",
+            submissionState = "PROCESSING",
+            latestSnapshotUpdatedAt = 18L,
+            latestSubmissionUpdatedAt = 20L,
+            updatedAt = 42L
+        )
+        whenever(mockBookBibleDao.observeProgressEntries()).thenReturn(flowOf(listOf(entry)))
+
+        val summary = repository.observeProgressSummaries().first().single()
+
+        assertEquals(BookBibleSourceType.ONLINE_NOVEL, summary.source.type)
+        assertEquals("novel_1", summary.source.sourceId)
+        assertEquals(20, summary.latestChapterNumber)
+        assertNull(summary.snapshotStatus)
+        assertTrue(summary.submissionState is SubmissionState.Processing)
     }
 
     @Test

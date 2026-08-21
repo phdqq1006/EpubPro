@@ -8,6 +8,35 @@ import com.epubpro.core.database.entity.BookBibleTimelineEntity
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Bản ghi tổng hợp một truyện và tiến trình Book Bible mới nhất của truyện đó.
+ *
+ * @property localSourceKey Khóa nguồn truyện cục bộ.
+ * @property title Tên truyện.
+ * @property author Tác giả truyện.
+ * @property chapterCount Tổng số chương.
+ * @property latestSnapshotChapter Chương lớn nhất đã có snapshot.
+ * @property latestSubmissionChapter Chương lớn nhất đã có submission.
+ * @property snapshotStatus Trạng thái snapshot mới nhất.
+ * @property submissionState Trạng thái submission mới nhất.
+ * @property latestSnapshotUpdatedAt Thời điểm snapshot cập nhật gần nhất.
+ * @property latestSubmissionUpdatedAt Thời điểm submission cập nhật gần nhất.
+ * @property updatedAt Thời điểm cập nhật gần nhất.
+ */
+data class BookBibleProgressEntry(
+    val localSourceKey: String,
+    val title: String,
+    val author: String,
+    val chapterCount: Int,
+    val latestSnapshotChapter: Int,
+    val latestSubmissionChapter: Int,
+    val snapshotStatus: String?,
+    val submissionState: String?,
+    val latestSnapshotUpdatedAt: Long,
+    val latestSubmissionUpdatedAt: Long,
+    val updatedAt: Long
+)
+
+/**
  * Data Access Object quản lý toàn bộ thao tác truy vấn và lưu trữ dữ liệu Book Bible trong Room Database.
  */
 @Dao
@@ -29,6 +58,60 @@ interface BookBibleDao {
      */
     @Query("SELECT * FROM book_bible_editions WHERE localSourceKey = :localSourceKey LIMIT 1")
     suspend fun getEditionByLocalSourceKey(localSourceKey: String): BookBibleEditionEntity?
+
+    /**
+     * Quan sát danh sách truyện đã có edition Book Bible cùng snapshot hoặc submission gần nhất.
+     *
+     * @return [Flow] phát ra các bản ghi tổng hợp theo thời điểm cập nhật giảm dần.
+     */
+    @Query("""
+        SELECT
+            e.localSourceKey AS localSourceKey,
+            e.title AS title,
+            e.author AS author,
+            e.chapterCount AS chapterCount,
+            COALESCE(
+                (SELECT MAX(s.chapterNumber)
+                 FROM book_bible_snapshots s
+                 WHERE s.localSourceKey = e.localSourceKey),
+                0
+            ) AS latestSnapshotChapter,
+            COALESCE(
+                (SELECT MAX(sub.chapterNumber)
+                 FROM book_bible_submissions sub
+                 WHERE sub.localSourceKey = e.localSourceKey),
+                0
+            ) AS latestSubmissionChapter,
+            (SELECT s.status
+             FROM book_bible_snapshots s
+             WHERE s.localSourceKey = e.localSourceKey
+             ORDER BY s.chapterNumber DESC, s.updatedAt DESC
+             LIMIT 1) AS snapshotStatus,
+            (SELECT sub.state
+             FROM book_bible_submissions sub
+             WHERE sub.localSourceKey = e.localSourceKey
+             ORDER BY sub.chapterNumber DESC, sub.updatedAt DESC
+             LIMIT 1) AS submissionState,
+            COALESCE((SELECT MAX(s.updatedAt)
+                      FROM book_bible_snapshots s
+                      WHERE s.localSourceKey = e.localSourceKey), 0) AS latestSnapshotUpdatedAt,
+            COALESCE((SELECT MAX(sub.updatedAt)
+                      FROM book_bible_submissions sub
+                      WHERE sub.localSourceKey = e.localSourceKey), 0) AS latestSubmissionUpdatedAt,
+            MAX(
+                e.updatedAt,
+                COALESCE((SELECT MAX(s.updatedAt)
+                          FROM book_bible_snapshots s
+                          WHERE s.localSourceKey = e.localSourceKey), 0),
+                COALESCE((SELECT MAX(sub.updatedAt)
+                          FROM book_bible_submissions sub
+                          WHERE sub.localSourceKey = e.localSourceKey), 0)
+            ) AS updatedAt
+        FROM book_bible_editions e
+        GROUP BY e.localSourceKey
+        ORDER BY updatedAt DESC
+    """)
+    fun observeProgressEntries(): Flow<List<BookBibleProgressEntry>>
 
     // --- Submissions ---
 

@@ -14,20 +14,6 @@ enum class TopLevelDestination(
     @StringRes val iconTextId: Int,
     @StringRes val titleTextId: Int
 ) {
-    HOME(
-        route = Screen.Library.route,
-        selectedIcon = Icons.Filled.Home,
-        unselectedIcon = Icons.Outlined.Home,
-        iconTextId = R.string.nav_home,
-        titleTextId = R.string.nav_home
-    ),
-    BROWSE(
-        route = Screen.Browse.route,
-        selectedIcon = Icons.Filled.Search,
-        unselectedIcon = Icons.Outlined.Search,
-        iconTextId = R.string.nav_browse,
-        titleTextId = R.string.nav_browse
-    ),
     LIBRARY(
         route = Screen.Bookshelf.route,
         selectedIcon = Icons.Filled.Book,
@@ -35,12 +21,19 @@ enum class TopLevelDestination(
         iconTextId = R.string.nav_library,
         titleTextId = R.string.nav_library
     ),
-    NOTEBOOK(
-        route = Screen.Notebook.route,
-        selectedIcon = Icons.Filled.Edit,
-        unselectedIcon = Icons.Outlined.Edit,
-        iconTextId = R.string.nav_notebook,
-        titleTextId = R.string.nav_notebook
+    BROWSE(
+        route = Screen.Browse.route,
+        selectedIcon = Icons.Filled.Cloud,
+        unselectedIcon = Icons.Outlined.Cloud,
+        iconTextId = R.string.nav_browse,
+        titleTextId = R.string.nav_browse
+    ),
+    STORY_PROGRESS(
+        route = Screen.StoryProgress.route,
+        selectedIcon = Icons.Filled.Timeline,
+        unselectedIcon = Icons.Outlined.Timeline,
+        iconTextId = R.string.nav_story_progress,
+        titleTextId = R.string.nav_story_progress
     ),
     PROFILE(
         route = Screen.Profile.route,

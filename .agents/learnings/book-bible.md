@@ -1,7 +1,7 @@
 # Book Bible (Tiến trình nhân vật & Dòng thời gian)
 
 > Tổng hợp kiến thức về hệ thống Chapter-Aware Character Profile Book Bible (Tiến trình hồ sơ nhân vật theo chương không spoiler) trong dự án.
-> Cập nhật lần cuối: 2026-08-19
+> Cập nhật lần cuối: 2026-08-21
 
 ---
 
@@ -26,6 +26,11 @@
 - **Ngày**: 2026-08-19
 - **Chi tiết**: Trường `role` từ backend là câu mô tả dài (không phải nhãn ngắn), nếu đặt ngang dạng badge sẽ gây vỡ layout và tràn chữ. Sử dụng layout dọc 3 dòng (Tên + Tên gốc $\to$ Vai trò/Mô tả $\to$ Cảnh giới/Thế lực) trên thẻ danh sách full-width kết hợp Hero Card nổi bật cho nhân vật chính.
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/BookBibleScreen.kt`
+
+### Màn Tiến trình truyện ưu tiên Local/Cache
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Màn cấp ứng dụng để duyệt truyện và mở Book Bible nên đọc `BookRepository` cùng `BookBibleRepository` trước. Các bản ghi online đã cache vẫn hiển thị, nhưng màn này không tự gọi danh sách online; việc duyệt catalog online thuộc `OnlineLibraryViewModel` và tab Duyệt.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressScreen.kt`
 
 ---
 
@@ -59,6 +64,13 @@
 - **Fix**: Chuẩn hóa toàn bộ bằng `.lowercase(Locale.ROOT)` và `titlecase(Locale.ROOT)` trên toàn bộ codebase.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`, `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`
 
+### Lỗi 502 do gọi catalog online ngoài ngữ cảnh
+- **Ngày**: 2026-08-21
+- **Vấn đề**: Mở tab Tiến trình phát sinh `GET /library/novels` và nhận HTTP 502 khi Render không có deployment hoạt động (`x-render-routing: no-deploy`).
+- **Root cause**: `StoryProgressViewModel` gọi `OnlineNovelRepository.getNovels()` trong `init`, dù màn chỉ cần dữ liệu local và Book Bible cache.
+- **Fix**: Bỏ dependency/call online khỏi ViewModel Tiến trình; giữ catalog online ở `OnlineLibraryViewModel`, còn dữ liệu online đã cache vẫn được giữ qua Room.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineLibraryViewModel.kt`
+
 ---
 
 ## How-To
@@ -73,6 +85,15 @@
   5. Thêm `ProfileSectionCard` tương ứng trong `BookBibleScreen.kt`.
   6. Viết Unit Test trong `BookBibleRepositoryImplTest.kt` và `BookBibleViewModelTest.kt`.
 - **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/BookBibleScreen.kt`
+
+### Cách thêm entry point duyệt Book Bible cấp ứng dụng
+- **Ngày**: 2026-08-21
+- **Bước thực hiện**:
+  1. Thêm projection tiến trình theo `BookBibleSource.uniqueKey` ở Domain/Room.
+  2. Ghép danh sách `Book` với summary cache trong ViewModel và tạo summary mặc định cho truyện chưa có snapshot.
+  3. Điều hướng trực tiếp tới `Screen.BookBible` với source type, source ID và chương gần nhất.
+  4. Chỉ gọi API online trong màn catalog chuyên trách để màn tiến trình vẫn hoạt động offline.
+- **Files liên quan**: `core/database/src/main/java/com/epubpro/core/database/dao/BookBibleDao.kt`, `app/src/main/java/com/epubpro/app/navigation/AppNavigation.kt`
 
 ### Cách đóng khung Pretty Box Logger và Redact Header bảo mật
 - **Ngày**: 2026-08-19
@@ -94,6 +115,11 @@
 - **Ngày**: 2026-08-19
 - **Chi tiết**: Khi backend trả về các key động từ LLM prompt (dạng snake_case hoặc tiếng Anh), sử dụng một `Map<String, String>` dịch tự động các thuật ngữ quen thuộc (như hồn lực, cảnh giới, võ hồn, điểm sát hạch) trước khi hiển thị cho người dùng.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`
+
+### Pattern Cache-First cho danh sách tiến trình
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Cho phép mỗi truyện xuất hiện trước khi có snapshot bằng `BookBibleProgressSummary` mặc định (`latestChapterNumber = 0`), sau đó overlay status/chapter từ Room bằng `LOCAL_EPUB:<id>` hoặc `ONLINE_NOVEL:<id>`. Khi backend lỗi, thao tác duyệt cache không phụ thuộc mạng.
+- **Files liên quan**: `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`, `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`
 
 ### Pattern sắp xếp ưu tiên Nhân vật chính (Protagonist Priority Ordering)
 - **Ngày**: 2026-08-19

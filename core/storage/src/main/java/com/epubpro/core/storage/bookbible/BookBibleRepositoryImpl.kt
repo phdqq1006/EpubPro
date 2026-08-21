@@ -136,6 +136,54 @@ class BookBibleRepositoryImpl @Inject constructor(
             .flowOn(Dispatchers.IO)
     }
 
+    /**
+     * Quan sát danh sách tiến trình Book Bible đã được lưu trong Room để màn hình cấp ứng dụng có thể duyệt truyện offline.
+     *
+     * @return [Flow] phát ra các tóm tắt tiến trình theo lần cập nhật gần nhất.
+     */
+    override fun observeProgressSummaries(): Flow<List<BookBibleProgressSummary>> {
+        return bookBibleDao.observeProgressEntries()
+            .map { entries ->
+                entries.mapNotNull { entry ->
+                    val sourceParts = entry.localSourceKey.split(":", limit = 2)
+                    val sourceType = sourceParts.firstOrNull()?.let {
+                        runCatching { BookBibleSourceType.valueOf(it) }.getOrNull()
+                    } ?: return@mapNotNull null
+                    val sourceId = sourceParts.getOrNull(1)?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+
+                    val snapshotStatus = entry.snapshotStatus
+                        ?.takeIf { entry.latestSnapshotUpdatedAt >= entry.latestSubmissionUpdatedAt }
+                        ?.let { runCatching { SnapshotStatus.valueOf(it) }.getOrNull() }
+                    val submissionState = when (entry.submissionState) {
+                        "PENDING" -> SubmissionState.Pending
+                        "SUBMITTING" -> SubmissionState.Submitting
+                        "ACCEPTED" -> SubmissionState.Accepted
+                        "PROCESSING" -> SubmissionState.Processing
+                        "COMPLETED" -> SubmissionState.Completed
+                        "RETRYABLE_FAILURE" -> SubmissionState.RetryableFailure("")
+                        "PERMANENT_FAILURE" -> SubmissionState.PermanentFailure("")
+                        else -> null
+                    }
+
+                    BookBibleProgressSummary(
+                        source = BookBibleSource(sourceType, sourceId),
+                        title = entry.title,
+                        author = entry.author,
+                        totalChapters = entry.chapterCount,
+                        latestChapterNumber = maxOf(
+                            entry.latestSnapshotChapter,
+                            entry.latestSubmissionChapter
+                        ),
+                        snapshotStatus = snapshotStatus,
+                        submissionState = submissionState,
+                        updatedAt = entry.updatedAt
+                    )
+                }
+            }
+            .flowOn(Dispatchers.IO)
+    }
+
     override suspend fun refreshSnapshot(
         source: BookBibleSource,
         chapterNumber: Int

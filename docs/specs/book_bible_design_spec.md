@@ -10,7 +10,7 @@ Book Bible provides a spoiler-safe character profile for the chapter currently o
 
 When a source chapter is opened, Android stores an idempotent submission job and WorkManager sends the stable source text when any network is available. Only chapters actually opened are submitted. The profile can therefore be partial when earlier chapters were skipped; the UI must disclose this state without submitting missing chapters automatically.
 
-The user opens Book Bible from the Reader overflow menu. A dedicated full-screen feature shows the character list, a character profile, and a timeline bounded by the current chapter. Cached snapshots and timelines remain available offline and are refreshed in the background when connectivity exists.
+The user can open Book Bible from the Reader overflow menu or from the top-level Story Progress tab. The tab lists local Book Bible editions and their latest cached submission/snapshot status, then opens the full-screen feature at the latest known chapter. Cached snapshots and timelines remain available offline and are refreshed in the background when connectivity exists.
 
 ## 2. Confirmed Product Decisions
 
@@ -25,7 +25,7 @@ The user opens Book Bible from the Reader overflow menu. A dedicated full-screen
 - Preserve proper names; normalize profile descriptions and attributes to Vietnamese.
 - Model data around characters, with standard groups plus an extensible "Other" section.
 - Display chapter, change, value, and evidence in timeline events; confidence is logging-only.
-- Keep the MVP read-only and accessible only from a Reader.
+- Keep the MVP read-only; Reader remains the contextual entry point while Story Progress provides cross-story browsing.
 - Cache data for offline use and apply cache-first/background-refresh behavior.
 - Keep backend and Android releases independently deployable and backward compatible.
 
@@ -38,13 +38,13 @@ The user opens Book Bible from the Reader overflow menu. A dedicated full-screen
 - Previously loaded profiles must open immediately from cache and work offline.
 - Backend responses must never contain events after the requested chapter.
 - Partial chapter coverage must be represented explicitly.
+- Story Progress must browse cached Book Bible editions without requiring the Reader to be open.
 
 ### Non-goals
 
 - Syncing page, CFI, chapter, or other user reading progress.
 - Processing unopened chapters or automatically filling chapter gaps.
 - Editing, correcting, reporting, or moderating extracted data in Android.
-- A global Book Bible library outside the Reader.
 - User accounts, device tokens, or authenticated submissions in the MVP.
 - Reworking Reader pagination, WebView rendering, chapter transitions, TTS, or AI Vietnamese behavior.
 
@@ -52,7 +52,7 @@ The user opens Book Bible from the Reader overflow menu. A dedicated full-screen
 
 ### `domain`
 
-Add pure Kotlin models and a `BookBibleRepository` contract. The contract exposes enqueue, observe snapshot, refresh snapshot, observe submission, retry, and load timeline operations. It uses an explicit 1-based `chapterNumber`; existing local EPUB indices are converted at the Reader boundary.
+Add pure Kotlin models and a `BookBibleRepository` contract. The contract exposes enqueue, observe progress summaries, observe snapshot, refresh snapshot, observe submission, retry, and load timeline operations. It uses an explicit 1-based `chapterNumber`; existing local EPUB indices are converted at the Reader boundary.
 
 ### `core:database`
 
@@ -64,7 +64,7 @@ Add Retrofit DTOs/service, DTO-domain mappers, the repository implementation, an
 
 ### `feature:bookbible`
 
-Add the Compose screens and Hilt ViewModel. The feature depends on `domain`, `core:common`, and `core:designsystem`; it does not parse EPUB or call Retrofit directly.
+Add the Compose screens and Hilt ViewModels for the full-screen Book Bible and the top-level Story Progress list. The feature depends on `domain`, `core:common`, and `core:designsystem`; it does not parse EPUB or call Retrofit directly.
 
 ### Reader integrations
 
@@ -72,7 +72,7 @@ Add the Compose screens and Hilt ViewModel. The feature depends on `domain`, `co
 
 The online Reader currently defaults to translated content and knows only `novelId` and chapter number. Its integration must fetch novel metadata and the `original` chapter version in a separate background path before enqueueing. This fetch must not replace, delay, or mutate the translated content being displayed. If the original version is unavailable, Android records a retryable source-content failure and does not fall back to the translated display text.
 
-`app` owns the route `book_bible/{sourceType}/{sourceId}/{chapterNumber}` and supplies navigation callbacks.
+`app` owns the routes `book_bible/{sourceType}/{sourceId}/{chapterNumber}` and `story_progress`, and supplies navigation callbacks.
 
 ## 5. Domain Model
 
@@ -182,6 +182,8 @@ The Book Bible feature uses two full-screen states under one navigation destinat
 - Character list: current chapter, snapshot/coverage state, and list items sorted by changed-in-current-chapter first, then name.
 - Character detail: Profile and Timeline tabs. Profile presents standard sections followed by Other; Timeline lists bounded events with evidence.
 
+The Story Progress tab is a top-level destination replacing the former Notebook placeholder. It lists one row per cached Book Bible edition, shows the latest snapshot/submission status and chapter, and opens the Book Bible destination without going through Reader.
+
 The selected character ID and selected tab are stored in `SavedStateHandle`, so process recreation restores the detail state. Back returns from detail to the character list, then to the Reader.
 
 Required UI states are cached data with background refresh, first load, processing with automatic update, partial coverage, empty snapshot, offline without cache, retryable failure, permanent payload failure, and normal content. All display text belongs in `core/designsystem/src/main/res/values/strings.xml`.
@@ -213,7 +215,7 @@ These risks must be documented in release notes and revisited before public scal
 - Storage tests: DTO mapping, edition reuse, deterministic idempotency, duplicate enqueue, transient/permanent HTTP handling, payload cleanup, and response size limits.
 - WorkManager tests: connected-network constraint, retry/backoff, process recreation, and unique-work replacement rules.
 - ViewModel tests: cache-first rendering, refresh, partial/processing/empty/error states, polling cancellation, timeline lazy load, and stale response rejection.
-- Navigation tests: URL encoding and exact 1-based conversion for both Reader types.
+- Navigation tests: URL encoding and exact 1-based conversion for both Reader types, plus Story Progress to Book Bible routing.
 - Regression tests: existing EPUB parser, renderer, playback, Reader transition, and app assembly suites.
 - Manual device tests: local EPUB and online novel, offline queue/reconnect, cache-only profile, skipped chapters, process death, duplicate reopen, and Reader forward/back chapter transitions.
 

@@ -3,20 +3,22 @@
     <string name="app_name">EpubPro</string>
     <string name="action_back">Trở về</string>
     <string name="action_delete">Xóa</string>
-    <string name="action_search">Tìm kiếm</string>
     <string name="action_menu">Menu</string>
     <string name="action_close">Đóng</string>
     <string name="action_cancel">Hủy</string>
     <string name="action_background">Chạy ngầm</string>
     <string name="action_expand">Mở rộng</string>
+    <string name="action_collapse">Thu gọn</string>
+    <string name="action_see_more">Xem thêm...</string>
     <string name="action_stop">Tắt</string>
+    <string name="online_download_full_epub">Tải toàn bộ EPUB về máy (Đọc Offline)</string>
     <string name="reader_reading_now">Đang đọc</string>
     <string name="coming_soon_suffix">%1$s (Coming Soon)</string>
 
     <!-- Navigation -->
-    <string name="nav_home">Trang chủ</string>
-    <string name="nav_browse">Duyệt</string>
+    <string name="nav_browse">Kho truyện</string>
     <string name="nav_library">Thư viện</string>
+    <string name="nav_story_progress">Tiến trình</string>
     <string name="nav_notebook">Sổ tay</string>
     <string name="nav_profile">Cá nhân</string>
 
@@ -244,8 +246,19 @@
     <string name="online_library_empty">Không tìm thấy truyện nào trên server</string>
     <string name="online_library_retry">Thử lại</string>
     <string name="online_library_download">Tải về máy</string>
+    <string name="online_action_download_short">Tải về</string>
     <string name="online_library_downloading">Đang tải %1$d%%...</string>
     <string name="online_library_downloaded">Đã có trong tủ sách</string>
+    <string name="online_filter_all">Tất cả</string>
+    <string name="online_library_loading">Đang kết nối thư viện online...</string>
+    <string name="online_library_load_error_title">Không thể tải danh sách truyện</string>
+    <string name="online_novel_count_format">%1$d bộ truyện</string>
+    <string name="online_search_count_format">Tìm thấy %1$d bộ truyện</string>
+    <string name="online_novel_author_label">Tác giả: %1$s</string>
+    <string name="online_novel_detail_desc_empty">Chưa có mô tả chi tiết cho bộ truyện này</string>
+    <string name="online_novel_detail_author_format">Tác giả: %1$s</string>
+    <string name="online_novel_detail_translated_format">Đã dịch: %1$d/%2$d chương</string>
+    <string name="online_novel_detail_empty">Không tìm thấy thông tin truyện</string>
     <string name="online_novel_detail_title">Chi tiết truyện</string>
     <string name="online_novel_chapters">Mục lục chương (%1$d)</string>
     <string name="online_novel_translate_btn">Dịch AI</string>
@@ -271,6 +284,8 @@
     <string name="online_status_ongoing">Đang ra</string>
     <string name="online_novel_version_vietnamese">Tiếng Việt</string>
     <string name="online_novel_version_original_btn">Bản Gốc</string>
+    <string name="online_chapter_status_translated">Đã dịch</string>
+    <string name="online_word_count_format">%1$d chữ</string>
     <string name="online_chapter_format">Chương %1$d</string>
     <string name="online_chapter_title_format">Chương %1$d: %2$s</string>
     <string name="online_chapters_count_badge">%1$d/%2$d c</string>
@@ -297,6 +312,7 @@
     <string name="book_bible_status_partial">Dữ liệu một phần</string>
     <string name="book_bible_status_processing">Đang phân tích dữ liệu AI...</string>
     <string name="book_bible_status_empty">Chưa có dữ liệu nhân vật</string>
+    <string name="book_bible_status_failed">Phân tích thất bại</string>
     <string name="book_bible_coverage_format">Đã phân tích: %1$s • Chưa mở: %2$s</string>
     <string name="book_bible_coverage_range_format">c.%1$d-%2$d</string>
     <string name="book_bible_changed_badge">Cập nhật ở chương này</string>
@@ -337,4 +353,26 @@
     <string name="book_bible_search_placeholder">Tìm tên, cảnh giới, thế lực...</string>
     <string name="book_bible_no_search_results">Không tìm thấy nhân vật phù hợp</string>
     <string name="book_bible_clear_search">Xóa tìm kiếm</string>
+
+    <!-- Story Progress Screen -->
+    <string name="story_progress_title">Tiến trình truyện</string>
+    <string name="story_progress_subtitle">Duyệt truyện và mở Book Bible</string>
+    <string name="story_progress_load_error">Không thể tải tiến trình truyện</string>
+    <string name="story_progress_empty_title">Chưa có truyện trong tiến trình</string>
+    <string name="story_progress_empty_desc">Chưa có truyện local hoặc dữ liệu Book Bible đã lưu để duyệt.</string>
+    <string name="story_progress_untitled">Truyện chưa đặt tên</string>
+    <string name="story_progress_author_format">Tác giả: %1$s</string>
+    <string name="story_progress_source_local">EPUB trên thiết bị</string>
+    <string name="story_progress_source_online">Truyện online</string>
+    <string name="story_progress_submission_pending">Đang chờ gửi</string>
+    <string name="story_progress_submission_submitting">Đang gửi dữ liệu</string>
+    <string name="story_progress_submission_accepted">Đã nhận yêu cầu</string>
+    <string name="story_progress_submission_completed">Đã gửi xong</string>
+    <string name="story_progress_submission_retryable">Sẽ thử lại</string>
+    <string name="story_progress_submission_failed">Gửi thất bại</string>
+    <string name="story_progress_status_waiting">Chưa có snapshot</string>
+    <string name="story_progress_chapter_format">Chương %1$d/%2$d</string>
+    <string name="story_progress_latest_chapter_format">Đến chương %1$d</string>
+    <string name="story_progress_not_started">Chưa mở chương</string>
+    <string name="story_progress_open_book_bible">Mở Book Bible</string>
 </resources>

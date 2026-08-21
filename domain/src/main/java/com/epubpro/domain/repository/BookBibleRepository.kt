@@ -1,5 +1,6 @@
 package com.epubpro.domain.repository
 
+import com.epubpro.domain.model.BookBibleProgressSummary
 import com.epubpro.domain.model.BookBibleSnapshot
 import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.domain.model.CharacterTimeline
@@ -47,6 +48,13 @@ interface BookBibleRepository {
         source: BookBibleSource,
         chapterNumber: Int
     ): Flow<BookBibleSnapshot?>
+
+    /**
+     * Quan sát danh sách các truyện đã được đăng ký hoặc có dữ liệu Book Bible trong bộ nhớ cục bộ.
+     *
+     * @return [Flow] phát ra danh sách tóm tắt tiến trình, sắp xếp theo lần cập nhật gần nhất.
+     */
+    fun observeProgressSummaries(): Flow<List<BookBibleProgressSummary>>
 
     /**
      * Làm mới dữ liệu Snapshot từ máy chủ backend qua mạng và cập nhật giao dịch vào Room cache.

@@ -37,7 +37,6 @@ import com.epubpro.feature.library.components.GeneratedBookCover
 fun LibraryScreen(
     onBookClick: (bookId: String) -> Unit,
     onNavigateToBookmarks: () -> Unit,
-    onNavigateToSearch: () -> Unit,
     onNavigateToOnlineLibrary: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
@@ -175,9 +174,6 @@ fun LibraryScreen(
                 actions = {
                     IconButton(onClick = onNavigateToOnlineLibrary) {
                         Icon(Icons.Default.CloudDownload, contentDescription = stringResource(R.string.add_book_online))
-                    }
-                    IconButton(onClick = onNavigateToSearch) {
-                        Icon(Icons.Default.Search, contentDescription = stringResource(R.string.action_search))
                     }
                     IconButton(onClick = onNavigateToBookmarks) {
                         Icon(Icons.Default.Bookmark, contentDescription = stringResource(R.string.library_bookmarks_highlights))
