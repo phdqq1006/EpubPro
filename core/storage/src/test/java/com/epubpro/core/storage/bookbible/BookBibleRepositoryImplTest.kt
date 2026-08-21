@@ -340,4 +340,99 @@ class BookBibleRepositoryImplTest {
         // Kiểm tra không bị raw JSON mà format thành "Xưng hô với Thẩm Dập (Tự xưng: chúng em/em • Gọi: Thẩm lão sư)"
         assertEquals("Xưng hô với Thẩm Dập (Tự xưng: chúng em/em • Gọi: Thẩm lão sư)", timeline.events[2].displayValue)
     }
+
+    /**
+     * Kiểm tra cơ chế tự động gộp trùng thuộc tính (vo_hun + Võ Hồn, Đoán Tạo Sư + blacksmith_rank)
+     * và tự động chuyển các trường vũ khí/học viện/công pháp vào danh mục chuyên biệt.
+     */
+    @Test
+    fun testDeduplicationAndCategoryPromotionInCharacterProfile() = runBlocking {
+        val source = BookBibleSource(BookBibleSourceType.LOCAL_EPUB, "book_1")
+        val editionEntity = BookBibleEditionEntity(
+            localSourceKey = source.uniqueKey,
+            backendBookId = "real_backend_book_id",
+            backendEditionId = "backend_edition_123",
+            title = "Đấu La Đại Lục 3",
+            author = "Đường Gia Tam Thiếu",
+            chapterCount = 305
+        )
+        whenever(mockBookBibleDao.getEditionByLocalSourceKey(source.uniqueKey)).thenReturn(editionEntity)
+        whenever(mockBookBibleDao.getTotalCacheByteSize()).thenReturn(1024L)
+
+        val characterJson = """
+            {
+                "character_id": "char-dvl",
+                "original_name": "Đường Vũ Lân",
+                "attributes": {
+                    "profile": {
+                        "role": "Nam chính",
+                        "vi_name": "Đường Vũ Lân"
+                    },
+                    "hon_luc_level": "Tiên Thiên Hồn Lực cấp ba",
+                    "vo_hun": "Lam Ngân Thảo",
+                    "Hồn Lực": "Sơ bộ cảm ứng được Hồn Lực và Lam Ngân Thảo",
+                    "lớp học": "lớp Hồn Sư",
+                    "Học nghề": ["Học rèn với Mang Thiên"],
+                    "Đoán Tạo Sư": "Đoán Tạo Sư cấp 5 (sơ cấp)",
+                    "Hồn lực": "Nhị hoàn",
+                    "Võ Hồn": ["Lam Ngân Thảo"],
+                    "blacksmith_rank": "Tông Tượng cấp Đoán Tạo Sư",
+                    "weapon": "Linh Đoán Trầm Ngân Chuy",
+                    "hoc_sinh_su_lai_khac": "Công đọc sinh Ngoại viện Sử Lai Khắc",
+                    "Học viện": ["Sử Lai Khắc học viện"],
+                    "Loạn Phi Phong Chuy Pháp": "49 chuy",
+                    "membership": ["Sử Lai Khắc Đoán Tạo Sư Hiệp Hội"]
+                }
+            }
+        """.trimIndent()
+        val charDto = gson.fromJson(characterJson, CharacterProfileDto::class.java)
+
+        val apiResponse = CharacterSnapshotResponseDto(
+            bookId = "real_backend_book_id",
+            editionId = "backend_edition_123",
+            requestedChapter = 305,
+            canonicalChapter = 305,
+            bookRevision = 9,
+            projectionRevision = 9,
+            projectionStatus = "ready",
+            snapshotStatus = "complete",
+            completeThroughChapter = 305,
+            pendingChapters = emptyList(),
+            coverage = CoverageDto(processedRanges = listOf(listOf(1, 305)), missingRanges = emptyList()),
+            characters = listOf(charDto)
+        )
+        whenever(mockApiService.getSnapshot("backend_edition_123", 305)).thenReturn(apiResponse)
+
+        val result = repository.refreshSnapshot(source, 305)
+        assertTrue(result.isSuccess)
+        val character = result.getOrNull()!!.characters.first()
+
+        // 1. Kiểm tra vũ khí được đưa vào items
+        assertTrue(character.items.contains("Linh Đoán Trầm Ngân Chuy"))
+
+        // 2. Kiểm tra học viện và membership được đưa vào affiliations
+        assertTrue(character.affiliations.contains("Sử Lai Khắc học viện"))
+        assertTrue(character.affiliations.contains("Sử Lai Khắc Đoán Tạo Sư Hiệp Hội"))
+
+        // 3. Kiểm tra Loạn Phi Phong Chùy Pháp được đưa vào techniques
+        assertTrue(character.techniques.any { it.contains("Loạn Phi Phong Chuy Pháp") })
+
+        // 4. Kiểm tra extraAttributes đã được gộp sạch chống trùng:
+        val attrMap = character.extraAttributes.associate { it.label to it.value }
+
+        // Võ hồn gộp 1 dòng
+        assertEquals("Lam Ngân Thảo", attrMap["Võ hồn"])
+
+        // Đoán Tạo Sư gộp 1 dòng (ưu tiên giá trị cập nhật nhất)
+        assertEquals("Tông Tượng cấp Đoán Tạo Sư", attrMap["Đoán Tạo Sư"])
+
+        // Hồn lực gộp 1 dòng
+        assertEquals("Nhị hoàn", attrMap["Hồn Lực"])
+
+        // Các thuộc tính không còn key thô/bị trùng
+        assertNull(attrMap["weapon"])
+        assertNull(attrMap["Học viện"])
+        assertNull(attrMap["membership"])
+        assertNull(attrMap["Loạn Phi Phong Chuy Pháp"])
+    }
 }

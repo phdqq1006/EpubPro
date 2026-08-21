@@ -720,23 +720,50 @@ class BookBibleRepositoryImpl @Inject constructor(
                 "affiliations", "titles", "last_changed_chapter",
                 "address_terms", "addressTerms", "xưng_hô", "xung_ho", "is_main", "is_protagonist"
             )
-            val extraAttributes = mutableListOf<ExtraAttribute>()
+            val absorbedKeys = mutableSetOf<String>()
+
+            // 1. Tự động nhận diện và chuyển các trường Vũ khí / Trang bị vào danh mục items
+            val extractedItems = mutableListOf<String>()
+            extractedItems.addAll(extractStringList(dto.items, dto.attributes?.get("items")))
+            listOf("weapon", "vũ_khí", "vu_khi", "trang_bị", "trang_bi", "equipment", "pháp_bảo", "phap_bao").forEach { key ->
+                val v = dto.attributes?.get(key)
+                if (v != null) {
+                    absorbedKeys.add(key)
+                    extractedItems.addAll(extractStringList(null, v))
+                }
+            }
+
+            // 2. Tự động nhận diện và chuyển các trường Học viện / Thế lực / Hội nhóm vào danh mục affiliations
+            val extractedAffiliations = mutableListOf<String>()
+            extractedAffiliations.addAll(extractStringList(dto.affiliations, dto.attributes?.get("affiliations")))
+            listOf("Học viện", "học_viện", "hoc_vien", "membership", "tông_môn", "tong_mon", "gia_tộc", "gia_toc", "môn_phái", "mon_phai", "tổ_chức", "to_chuc").forEach { key ->
+                val v = dto.attributes?.get(key)
+                if (v != null) {
+                    absorbedKeys.add(key)
+                    extractedAffiliations.addAll(extractStringList(null, v))
+                }
+            }
+
+            // 3. Tự động nhận diện và chuyển các công pháp / kỹ năng dạng "Loạn Phi Phong Chùy Pháp" vào techniques
+            val extractedTechniques = mutableListOf<String>()
+            extractedTechniques.addAll(extractStringList(dto.techniques, dto.attributes?.get("techniques")))
+            val techniqueSuffixes = listOf(
+                "phap", "quyet", "cong", "kiem", "dao", "quyen", "chuong", "bo",
+                "chuy phap", "tuyet ky", "than thong", "tam phap", "than phap", "tran", "phap tran"
+            )
             dto.attributes?.forEach { (k, v) ->
-                if (k !in standardKeys) {
-                    val cleanVal = sanitizeAttributeValue(v)
-                    if (cleanVal != null) {
-                        extraAttributes.add(ExtraAttribute(key = k, label = formatAttributeLabel(k), value = cleanVal))
+                val normK = stripAccents(k.trim().lowercase(java.util.Locale.ROOT))
+                if (techniqueSuffixes.any { normK.endsWith(it) } && k !in standardKeys && k !in absorbedKeys) {
+                    val strVal = sanitizeAttributeValue(v)
+                    if (strVal != null) {
+                        absorbedKeys.add(k)
+                        extractedTechniques.add(if (strVal.isNotBlank() && strVal != "true") "$k ($strVal)" else k)
                     }
                 }
             }
-            dto.extraAttributes?.forEach { (k, v) ->
-                if (k !in standardKeys) {
-                    val cleanVal = sanitizeAttributeValue(v)
-                    if (cleanVal != null) {
-                        extraAttributes.add(ExtraAttribute(key = k, label = formatAttributeLabel(k), value = cleanVal))
-                    }
-                }
-            }
+
+            val allStandardKeys = standardKeys + absorbedKeys
+            val extraAttributes = extractDeduplicatedExtraAttributes(dto.attributes, dto.extraAttributes, allStandardKeys)
 
             val allTitles = (extractStringList(dto.titles, dto.attributes?.get("titles")) + aliases).distinct()
             val pets = extractPetList(dto.pets ?: profileObj?.get("pets") ?: dto.attributes?.get("pets"))
@@ -758,13 +785,13 @@ class BookBibleRepositoryImpl @Inject constructor(
                 changedInCurrentChapter = changedInCurr,
                 lastChangedChapter = lastChanged,
                 cultivationRealm = realm,
-                techniques = extractStringList(dto.techniques, dto.attributes?.get("techniques")),
+                techniques = extractedTechniques.distinct(),
                 skills = extractStringList(dto.skills, dto.attributes?.get("skills")),
-                items = extractStringList(dto.items, dto.attributes?.get("items")),
+                items = extractedItems.distinct(),
                 pets = pets,
                 addressTerms = addressTerms,
                 relationships = relationships,
-                affiliations = extractStringList(dto.affiliations, dto.attributes?.get("affiliations")),
+                affiliations = extractedAffiliations.distinct(),
                 titles = allTitles,
                 extraAttributes = extraAttributes
             )
@@ -813,16 +840,25 @@ class BookBibleRepositoryImpl @Inject constructor(
 
     private fun extractStringList(field: List<String>?, jsonElem: com.google.gson.JsonElement?): List<String> {
         if (!field.isNullOrEmpty()) return field
-        if (jsonElem != null && jsonElem.isJsonArray) {
+        if (jsonElem == null || jsonElem.isJsonNull) return emptyList()
+        if (jsonElem.isJsonArray) {
             val list = mutableListOf<String>()
             val array = jsonElem.asJsonArray
             for (i in 0 until array.size()) {
                 val elem = array.get(i)
-                if (elem != null && elem.isJsonPrimitive && elem.asJsonPrimitive.isString) {
-                    list.add(elem.asString)
+                if (elem != null && !elem.isJsonNull) {
+                    val str = elem.asStringOrJson().trim()
+                    if (str.isNotBlank() && str != "null" && str != "None" && str != "undefined") {
+                        list.add(str)
+                    }
                 }
             }
             return list
+        } else if (jsonElem.isJsonPrimitive) {
+            val str = jsonElem.asStringOrJson().trim()
+            if (str.isNotBlank() && str != "null" && str != "None" && str != "undefined") {
+                return listOf(str)
+            }
         }
         return emptyList()
     }
@@ -992,14 +1028,123 @@ class BookBibleRepositoryImpl @Inject constructor(
         return raw
     }
 
+    /**
+     * Thu thập và gộp nhóm các thuộc tính mở rộng (extraAttributes) chống trùng lặp ngữ nghĩa.
+     *
+     * @param attributes Map các thuộc tính từ DTO gốc.
+     * @param extraAttributesDto Map các thuộc tính phụ trợ từ DTO.
+     * @param standardKeys Tập các key đã được xử lý ở các trường thông tin chuẩn.
+     * @return Danh sách [ExtraAttribute] đã được chuẩn hóa nhãn tiếng Việt và lọc sạch trùng lặp.
+     */
+    private fun extractDeduplicatedExtraAttributes(
+        attributes: Map<String, com.google.gson.JsonElement>?,
+        extraAttributesDto: Map<String, com.google.gson.JsonElement>?,
+        standardKeys: Set<String>
+    ): List<ExtraAttribute> {
+        val rawEntries = mutableListOf<Pair<String, String>>()
+
+        attributes?.forEach { (k, v) ->
+            if (k !in standardKeys) {
+                val cleanVal = sanitizeAttributeValue(v)
+                if (cleanVal != null) {
+                    rawEntries.add(k to cleanVal)
+                }
+            }
+        }
+        extraAttributesDto?.forEach { (k, v) ->
+            if (k !in standardKeys) {
+                val cleanVal = sanitizeAttributeValue(v)
+                if (cleanVal != null) {
+                    rawEntries.add(k to cleanVal)
+                }
+            }
+        }
+
+        // Gộp nhóm theo nhãn tiếng Việt chuẩn hóa (bỏ dấu, lowercase)
+        val groupedByNormalizedLabel = LinkedHashMap<String, MutableList<Pair<String, String>>>()
+        rawEntries.forEach { (rawKey, value) ->
+            val label = formatAttributeLabel(rawKey)
+            val normalizedKey = stripAccents(label.lowercase(java.util.Locale.ROOT))
+            groupedByNormalizedLabel.getOrPut(normalizedKey) { mutableListOf() }.add(label to value)
+        }
+
+        val result = mutableListOf<ExtraAttribute>()
+        groupedByNormalizedLabel.forEach { (_, items) ->
+            if (items.size == 1) {
+                val (label, value) = items.first()
+                result.add(ExtraAttribute(key = label, label = label, value = value))
+            } else {
+                // Nhiều key trùng ngữ nghĩa (ví dụ: "vo_hun" và "Võ Hồn", hoặc "Hồn Lực" và "hon_luc_level")
+                // Chọn nhãn hiển thị có dấu chuẩn nhất (ưu tiên nhãn có dấu tiếng Việt)
+                val bestLabel = items.map { it.first }
+                    .maxByOrNull { label -> (if (containsVietnameseDiacritics(label)) 100 else 0) + label.length }
+                    ?: items.last().first
+
+                // Nếu các giá trị trùng nhau: chỉ giữ 1 giá trị; nếu khác nhau, ưu tiên giá trị sau cùng (mới nhất)
+                val distinctValues = items.map { it.second }.distinct()
+                val mergedValue = if (distinctValues.size == 1) {
+                    distinctValues.first()
+                } else {
+                    items.last().second
+                }
+                result.add(ExtraAttribute(key = bestLabel, label = bestLabel, value = mergedValue))
+            }
+        }
+        return result
+    }
+
+    /**
+     * Bỏ toàn bộ dấu tiếng Việt khỏi chuỗi văn bản phục vụ so khớp và tìm kiếm an toàn.
+     *
+     * @param str Chuỗi nguồn cần xóa dấu.
+     * @return Chuỗi ASCII không dấu.
+     */
+    private fun stripAccents(str: String): String {
+        val nfd = java.text.Normalizer.normalize(str, java.text.Normalizer.Form.NFD)
+        return nfd.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+            .replace('đ', 'd').replace('Đ', 'D')
+    }
+
+    /**
+     * Kiểm tra xem chuỗi có chứa ký tự tiếng Việt có dấu hay không.
+     *
+     * @param str Chuỗi cần kiểm tra.
+     * @return True nếu chuỗi có ít nhất một ký tự tiếng Việt có dấu.
+     */
+    private fun containsVietnameseDiacritics(str: String): Boolean {
+        val vietnameseChars = "àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ"
+        return str.any { it in vietnameseChars }
+    }
+
+    /**
+     * Định dạng và chuẩn hóa khóa thuộc tính thành nhãn tiếng Việt tự nhiên và đẹp mắt.
+     *
+     * @param key Khóa thuộc tính thô từ backend hoặc LLM.
+     * @return Nhãn tiếng Việt có dấu chuẩn xác.
+     */
     private fun formatAttributeLabel(key: String): String {
-        val normalized = key.trim().lowercase(java.util.Locale.ROOT).replace("-", "_")
+        val trimmed = key.trim()
+        val normalized = trimmed.lowercase(java.util.Locale.ROOT).replace("-", "_")
+        val stripped = stripAccents(normalized)
+
         val translated = ATTRIBUTE_LABEL_TRANSLATIONS[normalized]
             ?: ATTRIBUTE_LABEL_TRANSLATIONS[normalized.replace("_", " ")]
+            ?: ATTRIBUTE_LABEL_TRANSLATIONS[stripped]
+            ?: ATTRIBUTE_LABEL_TRANSLATIONS[stripped.replace("_", " ")]
         if (translated != null) return translated
 
-        return key.replace("_", " ")
-            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() }
+        // Nếu key đã là tiếng Việt có dấu
+        if (containsVietnameseDiacritics(trimmed)) {
+            return trimmed.replace("_", " ")
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() }
+        }
+
+        return trimmed.replace("_", " ")
+            .split(" ")
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { word ->
+                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.ROOT) else it.toString() }
+            }
     }
 
     companion object {
@@ -1008,51 +1153,176 @@ class BookBibleRepositoryImpl @Inject constructor(
 
         /** Bảng dịch thuật ngữ các thuộc tính sang tiếng Việt chuẩn xác */
         private val ATTRIBUTE_LABEL_TRANSLATIONS = mapOf(
+            // Sát hạch / Thi cử
             "exam_score" to "Điểm sát hạch",
             "exam score" to "Điểm sát hạch",
             "exam_scores" to "Điểm các môn sát hạch",
             "test_score" to "Điểm thi",
+            "score" to "Điểm số",
+            "assessment" to "Khảo hạch / Đánh giá",
+
+            // Võ hồn / Hồn lực (Đấu La)
             "martial_soul" to "Võ hồn",
             "martial soul" to "Võ hồn",
             "martial_souls" to "Võ hồn",
-            "soul_rings" to "Hồn hoàn",
-            "soul_ring" to "Hồn hoàn",
-            "soul_bones" to "Hồn cốt",
-            "soul_bone" to "Hồn cốt",
+            "martial_spirit" to "Võ hồn",
+            "vo_hon" to "Võ hồn",
+            "vo_hun" to "Võ hồn",
+            "võ_hồn" to "Võ hồn",
+            "võ hồn" to "Võ hồn",
             "soul_power" to "Hồn lực",
             "soul power" to "Hồn lực",
+            "soul_power_level" to "Cấp bậc Hồn lực",
+            "hon_luc" to "Hồn Lực",
+            "hon_luc_level" to "Cấp bậc Hồn lực",
+            "hồn_lực" to "Hồn Lực",
+            "hồn lực" to "Hồn Lực",
+            "cap_hon_luc" to "Cấp bậc Hồn lực",
+            "cấp_hồn_lực" to "Cấp bậc Hồn lực",
+            "soul_ring" to "Hồn hoàn",
+            "soul_rings" to "Hồn hoàn",
+            "hon_hoan" to "Hồn hoàn",
+            "hồn_hoàn" to "Hồn hoàn",
+            "soul_bone" to "Hồn cốt",
+            "soul_bones" to "Hồn cốt",
+            "hon_cot" to "Hồn cốt",
+            "hồn_cốt" to "Hồn cốt",
+
+            // Tu vi / Cảnh giới / Thể chất / Linh căn
+            "cultivation" to "Tu vi / Cảnh giới",
+            "cultivation_realm" to "Tu vi / Cảnh giới",
+            "canh_gioi" to "Cảnh giới",
+            "cảnh_giới" to "Cảnh giới",
+            "tu_vi" to "Tu vi",
+            "realm" to "Cảnh giới",
+            "spiritual_root" to "Linh căn",
+            "linh_can" to "Linh căn",
+            "linh_căn" to "Linh căn",
             "spirit_power" to "Tinh thần lực",
+            "tinh_than_luc" to "Tinh thần lực",
+            "tinh thần lực" to "Tinh thần lực",
             "bloodline" to "Huyết mạch",
             "bloodline_power" to "Sức mạnh huyết mạch",
-            "cultivation" to "Tu vi / Cảnh giới",
+            "huyet_mach" to "Huyết mạch",
+            "huyết_mạch" to "Huyết mạch",
             "physique" to "Thể chất",
+            "the_chat" to "Thể chất",
+            "thể_chất" to "Thể chất",
             "innate_ability" to "Thiên phú",
             "innate ability" to "Thiên phú",
+            "talent" to "Thiên phú",
+            "thien_phu" to "Thiên phú",
+            "thiên_phú" to "Thiên phú",
             "domain" to "Lĩnh vực",
-            "age" to "Tuổi",
-            "gender" to "Giới tính",
-            "status" to "Trạng thái",
-            "identity" to "Thân phận",
-            "personality" to "Tính cách",
-            "appearance" to "Ngoại hình",
+            "linh_vuc" to "Lĩnh vực",
+            "lĩnh_vực" to "Lĩnh vực",
+
+            // Học viện / Nghề nghiệp / Thân phận / Học nghề
+            "class" to "Lớp học",
+            "class_name" to "Lớp học",
+            "lop_hoc" to "Lớp học",
+            "lớp_học" to "Lớp học",
+            "lớp học" to "Lớp học",
+            "academy" to "Học viện",
+            "school" to "Học viện",
+            "hoc_vien" to "Học viện",
+            "học_viện" to "Học viện",
+            "học viện" to "Học viện",
+            "occupation" to "Nghề nghiệp",
+            "profession" to "Nghề nghiệp",
+            "nghe_nghiep" to "Nghề nghiệp",
+            "nghề_nghiệp" to "Nghề nghiệp",
+            "hoc_nghe" to "Học nghề",
+            "học_nghề" to "Học nghề",
+            "học nghề" to "Học nghề",
+            "blacksmith_rank" to "Đoán Tạo Sư",
+            "doan_tao_su" to "Đoán Tạo Sư",
+            "đoán_tạo_sư" to "Đoán Tạo Sư",
+            "đoán tạo sư" to "Đoán Tạo Sư",
+            "membership" to "Tổ chức / Hiệp hội",
+            "hoi_vien" to "Hội viên",
+            "thanh_vien" to "Thành viên",
+            "hoc_sinh_su_lai_khac" to "Học sinh Sử Lai Khắc",
+            "học_sinh_sử_lai_khắc" to "Học sinh Sử Lai Khắc",
+
+            // Trang bị / Vũ khí / Công pháp
             "weapon" to "Vũ khí",
+            "vu_khi" to "Vũ khí",
+            "vũ_khí" to "Vũ khí",
+            "vũ khí" to "Vũ khí",
             "equipment" to "Trang bị",
+            "trang_bi" to "Trang bị",
+            "trang_bị" to "Trang bị",
+            "trang bị" to "Trang bị",
+            "phap_bao" to "Pháp bảo",
+            "pháp_bảo" to "Pháp bảo",
+            "technique" to "Công pháp",
+            "techniques" to "Công pháp",
+            "cong_phap" to "Công pháp",
+            "công_pháp" to "Công pháp",
+            "skill" to "Kỹ năng",
+            "skills" to "Kỹ năng",
+            "ky_nang" to "Kỹ năng",
+            "kỹ_năng" to "Kỹ năng",
+
+            // Thông tin cá nhân & Thế lực
+            "age" to "Tuổi",
+            "tuoi" to "Tuổi",
+            "tuổi" to "Tuổi",
+            "gender" to "Giới tính",
+            "gioi_tinh" to "Giới tính",
+            "giới_tính" to "Giới tính",
+            "status" to "Trạng thái",
+            "trang_thai" to "Trạng thái",
+            "trạng_thái" to "Trạng thái",
+            "identity" to "Thân phận",
+            "than_phan" to "Thân phận",
+            "thân_phận" to "Thân phận",
+            "personality" to "Tính cách",
+            "tinh_cach" to "Tính cách",
+            "tính_cách" to "Tính cách",
+            "appearance" to "Ngoại hình",
+            "ngoai_hinh" to "Ngoại hình",
+            "ngoại_hình" to "Ngoại hình",
             "background" to "Bối cảnh",
+            "boi_canh" to "Bối cảnh",
+            "bối_cảnh" to "Bối cảnh",
             "origin" to "Xuất thân",
+            "xuat_than" to "Xuất thân",
+            "xuất_thân" to "Xuất thân",
             "element" to "Thuộc tính",
+            "thuoc_tinh" to "Thuộc tính",
+            "thuộc_tính" to "Thuộc tính",
             "alignment" to "Trận doanh",
+            "tran_doanh" to "Trận doanh",
+            "trận_doanh" to "Trận doanh",
             "grade" to "Phẩm cấp",
+            "pham_cap" to "Phẩm cấp",
+            "phẩm_cấp" to "Phẩm cấp",
             "rank" to "Đẳng cấp",
+            "dang_cap" to "Đẳng cấp",
+            "đẳng_cấp" to "Đẳng cấp",
             "level" to "Cấp bậc",
-            "score" to "Điểm số",
+            "cap_bac" to "Cấp bậc",
+            "cấp_bậc" to "Cấp bậc",
             "achievement" to "Thành tựu",
-            "assessment" to "Khảo hạch / Đánh giá",
+            "thanh_tuu" to "Thành tựu",
+            "thành_tựu" to "Thành tựu",
             "location" to "Địa điểm",
+            "dia_diem" to "Địa điểm",
+            "địa_điểm" to "Địa điểm",
             "current_location" to "Vị trí hiện tại",
             "sect" to "Tông môn",
+            "tong_mon" to "Tông môn",
+            "tông_môn" to "Tông môn",
+            "mon_phai" to "Môn phái",
+            "môn_phái" to "Môn phái",
             "family" to "Gia tộc",
+            "gia_toc" to "Gia tộc",
+            "gia_tộc" to "Gia tộc",
             "organization" to "Tổ chức",
-            "occupation" to "Nghề nghiệp"
+            "to_chuc" to "Tổ chức",
+            "tổ_chức" to "Tổ chức"
         )
     }
 

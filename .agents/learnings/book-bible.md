@@ -95,6 +95,16 @@
 - **Fix**: Chuẩn hóa và gộp bản ghi trùng tại server database, cập nhật các bảng con (`editions`, `character_events`, `submissions`) trỏ về `book_id` chuẩn; phía Android map `backendBookId` với `book.onlineNovelId` của local book để hợp nhất thẻ hiển thị.
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/StoryProgressViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/BookBibleApiService.kt`
 
+### Lỗi tràn text thô không dấu và trùng lặp thuộc tính trong card "Thông tin khác"
+- **Ngày**: 2026-08-21
+- **Vấn đề**: Màn hình chi tiết nhân vật (`CharacterDetailSheet`) hiển thị hàng loạt text thô không dấu (ví dụ: `Hon luc level`, `Vo hun`, `Hoc sinh su lai khac`, `blacksmith_rank`) và bị trùng lặp nhiều lần (ví dụ: cả `vo_hun` và `Võ Hồn`, cả `Đoán Tạo Sư` và `blacksmith_rank`, cả `weapon`, `Học viện`, `Loạn Phi Phong Chùy Pháp`).
+- **Root cause**: Backend tích lũy sự kiện qua các chương với key không đồng nhất (`vo_hun`, `Võ Hồn`, `hon_luc_level`, `Hồn Lực`, `Hồn lực`, `weapon`, `membership`). Client mapper cũ chỉ lọc một số `standardKeys` cố định và hiển thị toàn bộ phần còn lại vào `extraAttributes` mà không gộp trùng hay chuyển mục.
+- **Fix**:
+  1. Tự động bóc tách và phân loại chuyên biệt (Category Promotion): chuyển các key vũ khí/pháp bảo (`weapon`, `vũ_khí`, `trang_bị`) vào `items`; chuyển trường học viện/hội nhóm (`Học viện`, `membership`, `tông_môn`) vào `affiliations`; chuyển công pháp (`Loạn Phi Phong Chùy Pháp`) vào `techniques`.
+  2. Mở rộng `ATTRIBUTE_LABEL_TRANSLATIONS` với từ điển thể loại tiên hiệp/huyền huyễn/kiếm hiệp đầy đủ.
+  3. Xây dựng thuật toán `extractDeduplicatedExtraAttributes`: gộp nhóm các key trùng ngữ nghĩa (bỏ dấu/lowercase), giữ lại nhãn tiếng Việt có dấu đẹp nhất và chọn giá trị mới nhất/đầy đủ nhất.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`, `core/storage/src/test/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImplTest.kt`
+
 ---
 
 ## How-To
