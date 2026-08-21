@@ -247,9 +247,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
     /**
      * Kiểm tra ping kết nối tới server.
      */
-    override suspend fun testServerConnection(): Result<Boolean> = withContext(Dispatchers.IO) {
+    override suspend fun testServerConnection(baseUrl: String): Result<Boolean> = withContext(Dispatchers.IO) {
         runCatchingCancellable {
-            apiService.getNovels()
+            apiService.getNovelsFromBaseUrl(serverPreferencesManager.normalizeUrl(baseUrl))
             true
         }
     }

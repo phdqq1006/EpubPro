@@ -95,6 +95,17 @@ interface OnlineNovelApiService {
     suspend fun getNovels(): List<NovelSummaryDto>
 
     /**
+     * Lấy danh sách truyện bằng Base URL ứng viên để kiểm tra kết nối mà không thay đổi cấu hình đã lưu.
+     *
+     * @param baseUrl Base URL chỉ áp dụng cho request kiểm tra hiện tại.
+     * @return Danh sách truyện trả về từ server ứng viên.
+     */
+    @GET("library/novels")
+    suspend fun getNovelsFromBaseUrl(
+        @Header(DynamicBaseUrlInterceptor.BASE_URL_OVERRIDE_HEADER) baseUrl: String
+    ): List<NovelSummaryDto>
+
+    /**
      * Lấy chi tiết bộ truyện và mục lục các chương theo ID truyện.
      *
      * @param novelId Mã định danh duy nhất của bộ truyện.

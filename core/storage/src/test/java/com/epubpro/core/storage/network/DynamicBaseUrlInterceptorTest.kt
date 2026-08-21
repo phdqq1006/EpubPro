@@ -52,4 +52,53 @@ class DynamicBaseUrlInterceptorTest {
         val expectedUrl = "https://epubbackend.onrender.com/api/v1/library/novels/pham-nhan-tu-tien/chapters/1/content?version=translated"
         assertEquals(expectedUrl, executedRequest?.url.toString())
     }
+
+    /**
+     * Xác minh Base URL override chỉ áp dụng cho request hiện tại và không đọc cấu hình đã lưu.
+     */
+    @Test
+    fun testInterceptUsesRequestOverrideWithoutLeakingHeader() {
+        val serverPreferencesManager = mock(ServerPreferencesManager::class.java)
+        val interceptor = DynamicBaseUrlInterceptor(serverPreferencesManager)
+        val originalRequest = Request.Builder()
+            .url("https://default.example/api/v1/library/novels")
+            .header(
+                DynamicBaseUrlInterceptor.BASE_URL_OVERRIDE_HEADER,
+                "http://192.168.1.10:8000/api/v1/"
+            )
+            .build()
+        var executedRequest: Request? = null
+        val fakeChain = object : Interceptor.Chain {
+            override fun request(): Request = originalRequest
+
+            override fun proceed(request: Request): Response {
+                executedRequest = request
+                return Response.Builder()
+                    .request(request)
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("{}".toResponseBody("application/json".toMediaType()))
+                    .build()
+            }
+
+            override fun connection(): Connection? = null
+            override fun call(): Call = throw UnsupportedOperationException()
+            override fun connectTimeoutMillis(): Int = 1000
+            override fun withConnectTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+            override fun readTimeoutMillis(): Int = 1000
+            override fun withReadTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+            override fun writeTimeoutMillis(): Int = 1000
+            override fun withWriteTimeout(timeout: Int, unit: TimeUnit): Interceptor.Chain = this
+        }
+
+        interceptor.intercept(fakeChain)
+
+        assertEquals(
+            "http://192.168.1.10:8000/api/v1/library/novels",
+            executedRequest?.url.toString()
+        )
+        assertEquals(null, executedRequest?.header(DynamicBaseUrlInterceptor.BASE_URL_OVERRIDE_HEADER))
+        org.mockito.Mockito.verifyNoInteractions(serverPreferencesManager)
+    }
 }

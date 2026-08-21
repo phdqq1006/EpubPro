@@ -62,7 +62,7 @@ class ServerPreferencesManager @Inject constructor(
      * @param url Chuỗi URL đầu vào cần chuẩn hóa.
      * @return Chuỗi URL hoàn chỉnh và hợp lệ.
      */
-    private fun normalizeUrl(url: String): String {
+    internal fun normalizeUrl(url: String): String {
         var clean = url.trim()
         if (clean.isBlank()) {
             clean = DEFAULT_BASE_URL

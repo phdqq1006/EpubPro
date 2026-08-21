@@ -104,7 +104,8 @@ interface OnlineNovelRepository {
     /**
      * Kiểm tra ping kết nối mạng tới máy chủ backend bằng cách gọi thử endpoint lấy danh sách truyện.
      *
+     * @param baseUrl Địa chỉ server ứng viên cần kiểm tra mà chưa lưu thành cấu hình chính thức.
      * @return [Result] trả về `true` nếu kết nối thông suốt, `false` hoặc exception nếu thất bại.
      */
-    suspend fun testServerConnection(): Result<Boolean>
+    suspend fun testServerConnection(baseUrl: String): Result<Boolean>
 }

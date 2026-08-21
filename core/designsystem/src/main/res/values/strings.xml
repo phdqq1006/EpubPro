@@ -70,6 +70,7 @@
     <string name="profile_highlight_tags_subtitle">Sửa nhãn</string>
     <string name="profile_section_advanced">Nâng cao</string>
     <string name="profile_content_filter_title">Lọc nội dung</string>
+    <string name="profile_coming_soon">Sắp có</string>
     <string name="profile_content_filter_subtitle">Xóa các đoạn văn bản chứa từ khóa</string>
     <string name="profile_navigate_to_format">Đi tới %1$s</string>
 

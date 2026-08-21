@@ -1,7 +1,7 @@
 # Online Backend & Library Integration
 
 > Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow, WorkManager ngầm và chuẩn hóa quy định dự án theo AGENTS.md.
-> Cập nhật lần cuối: 2026-08-20
+> Cập nhật lần cuối: 2026-08-21
 
 ---
 
@@ -42,8 +42,6 @@
 - **Chi tiết**: Khi ViewModel cần kích hoạt lại việc thu thập Flow từ Repository dựa trên event (ví dụ kiểm tra sách đã tải sau khi fetch API chi tiết), luôn quản lý collector bằng một biến `private var collectJob: Job? = null` và gọi `collectJob?.cancel()` trước khi `launch` mới. Tránh rò rỉ và chồng chéo nhiều coroutine collectors chạy song song.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineNovelDetailViewModel.kt`
 
----
-
 ### Tách Scheduler và Worker cho Upload EPUB
 - **Ngày**: 2026-08-20
 - **Chi tiết**: Dùng `EpubImportScheduler` để sao lưu URI ở `Dispatchers.IO`, chống enqueue trùng bằng `Mutex`, `ExistingWorkPolicy.KEEP` và ràng buộc mạng `CONNECTED`. `EpubImportWorker` chỉ chịu trách nhiệm upload, polling, thông báo và dọn file tạm.
@@ -53,6 +51,9 @@
 - **Ngày**: 2026-08-20
 - **Chi tiết**: Với Render Free, polling trạng thái import mỗi 10 giây giảm tải xuống khoảng 6 request/phút nhưng vẫn đủ để hiển thị tiến độ. Không nhầm HTTP 200 của endpoint status với trạng thái job thành công; phải đọc trường `status` trong JSON.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
+
+---
+
 ## Bugs & Solutions
 
 ### Lỗi Dialog tự mở lại liên tục khi người dùng nhấn "Chạy ngầm"
@@ -104,8 +105,6 @@
 - **Fix**: Gán vào biến cục bộ trước khi kiểm tra: `val desc = detail.description; if (!desc.isNullOrBlank()) { ... }`.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/online/OnlineNovelDetailScreen.kt`
 
----
-
 ### Thông báo thành công cũ xuất hiện lại sau khi mở app
 - **Ngày**: 2026-08-20
 - **Vấn đề**: WorkManager giữ `WorkInfo` ở trạng thái `SUCCEEDED`; ViewModel mới đọc lại và phát Snackbar cũ.
@@ -126,6 +125,16 @@
 - **Root cause**: UI hiển thị nguyên `current_step` từ backend.
 - **Fix**: Chỉ hiển thị phần sau `): `, giữ lại tên chương gốc như `Chương 647: ...`.
 - **Files liên quan**: `feature/library/src/main/java/com/epubpro/feature/library/LibraryScreen.kt`
+
+### Ping kiểm tra Server làm thay đổi Base URL đã lưu
+- **Ngày**: 2026-08-21
+- **Vấn đề**: Khi bấm nút "Kiểm tra kết nối" với một URL thử nghiệm trong dialog cài đặt, cấu hình Base URL bị lưu đè vào SharedPreferences ngay cả khi người dùng không bấm "Lưu" hoặc test thất bại.
+- **Root cause**: Hàm `testServerConnection()` cũ gọi `saveBaseUrl(urlText)` trước khi thực hiện request ping.
+- **Fix**: Sử dụng header nội bộ `BASE_URL_OVERRIDE_HEADER` truyền vào request ping để `DynamicBaseUrlInterceptor` định tuyến riêng lẻ mà không làm biến đổi SharedPreferences.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptor.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelRepositoryImpl.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/ServerSettingsDialog.kt`
+
+---
+
 ## How-To
 
 ### Cách tích hợp WorkManager kèm Foreground Notification cho tác vụ upload dài
@@ -155,8 +164,6 @@
   4. Lấy link public `https://xxx.onrender.com/api/v1/` cấu hình vào App.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/ServerPreferencesManager.kt`
 
----
-
 ### Điều tra một job upload bất đồng bộ bằng logcat
 - **Ngày**: 2026-08-20
 - **Bước thực hiện**:
@@ -165,6 +172,9 @@
   3. Gọi `GET /library/import-jobs/{job_id}` để đọc `status`, `error_message`, `current_chapter` và `total_chapters`.
   4. Phân biệt HTTP transport thành công với job xử lý thất bại ở backend.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelApiService.kt`
+
+---
+
 ## Patterns
 
 ### Smart Dialog Dismissal with Background Worker Progress Pattern
@@ -186,3 +196,13 @@
 - **Ngày**: 2026-08-20
 - **Chi tiết**: Đặt `file.delete()` trong `finally` để dọn file tạm cả khi thành công, thất bại hoặc bị hủy. Bắt và ném lại `CancellationException`, không chuyển cancellation thành lỗi nghiệp vụ.
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/EpubImportWorker.kt`
+
+### Stateless Candidate Connection Testing with Request-Scoped Base URL Override
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Để kiểm tra kết nối server ứng viên trong `ServerSettingsDialog` mà không gây side-effect (không ghi đè SharedPreferences trước khi người dùng bấm Lưu), sử dụng header nội bộ `X-EpubPro-Base-Url-Override` qua `DynamicBaseUrlInterceptor`. Interceptor phát hiện header này, trỏ URL request tới server ứng viên và bóc xóa header trước khi phát ra mạng.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/DynamicBaseUrlInterceptor.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelApiService.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelRepositoryImpl.kt`
+
+### Server Settings Dialog UX & Accessibility Pattern
+- **Ngày**: 2026-08-21
+- **Chi tiết**: Trong `ServerSettingsDialog`, dùng `rememberSaveable` cho text URL tránh mất dữ liệu khi xoay màn hình; bọc bằng `verticalScroll` + `heightIn(max = 640.dp)` và `FlowRow` tránh vỡ layout trên màn hình nhỏ/landscape; gắn cờ `testInProgress` để disable inputs/buttons khi đang ping; gắn `semantics { liveRegion = LiveRegionMode.Polite }` cho thông báo trạng thái.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/ServerSettingsDialog.kt`

@@ -10,12 +10,18 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,8 +36,7 @@ fun ProfileScreen(
     onNavigateToContentFilter: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    var notificationsEnabled by remember { mutableStateOf(true) }
-    var showServerSettingsDialog by remember { mutableStateOf(false) }
+    var showServerSettingsDialog by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -47,7 +52,8 @@ fun ProfileScreen(
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 16.dp, bottom = 12.dp),
+                    .padding(top = 16.dp, bottom = 12.dp)
+                    .semantics { heading() },
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
@@ -64,7 +70,8 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_drive_sync_title),
                 subtitle = stringResource(R.string.profile_drive_sync_subtitle),
                 icon = Icons.Default.CloudSync,
-                onClick = { }
+                onClick = { },
+                enabled = false
             )
         }
 
@@ -81,7 +88,8 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_nav_custom_title),
                 subtitle = stringResource(R.string.profile_nav_custom_subtitle),
                 icon = Icons.Default.ViewCarousel,
-                onClick = { }
+                onClick = { },
+                enabled = false
             )
         }
 
@@ -90,7 +98,8 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_appearance_title),
                 subtitle = stringResource(R.string.profile_appearance_subtitle),
                 icon = Icons.Default.Palette,
-                onClick = { }
+                onClick = { },
+                enabled = false
             )
         }
 
@@ -117,7 +126,8 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_highlight_tags_title),
                 subtitle = stringResource(R.string.profile_highlight_tags_subtitle),
                 icon = Icons.Default.Label,
-                onClick = { }
+                onClick = { },
+                enabled = false
             )
         }
 
@@ -167,6 +177,7 @@ fun ProfileSectionHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
+            .semantics { heading() }
     ) {
         Box(
             modifier = Modifier
@@ -198,19 +209,35 @@ fun ProfileItem(
     title: String,
     subtitle: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
+    val contentColor = if (enabled) {
+        MaterialTheme.colorScheme.onBackground
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    }
+    val iconColor = if (enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                if (!enabled) disabled()
+            }
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = title,
-            tint = MaterialTheme.colorScheme.primary,
+            contentDescription = null,
+            tint = iconColor,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -219,7 +246,7 @@ fun ProfileItem(
                 text = title,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onBackground
+                color = contentColor
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
@@ -228,12 +255,20 @@ fun ProfileItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = stringResource(R.string.profile_navigate_to_format, title),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(20.dp)
-        )
+        if (enabled) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Text(
+                text = stringResource(R.string.profile_coming_soon),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -253,7 +288,7 @@ fun ProfileItemWithSwitch(
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = title,
+            contentDescription = null,
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(24.dp)
         )

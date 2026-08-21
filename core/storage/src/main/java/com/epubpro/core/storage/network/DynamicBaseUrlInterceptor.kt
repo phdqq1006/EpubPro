@@ -26,10 +26,23 @@ class DynamicBaseUrlInterceptor @Inject constructor(
      */
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
-        val currentBaseUrlString = serverPreferencesManager.getBaseUrl()
-        val newBaseUrl = currentBaseUrlString.toHttpUrlOrNull() ?: return chain.proceed(originalRequest)
+        val overrideBaseUrl = originalRequest.header(BASE_URL_OVERRIDE_HEADER)
+        val request = if (overrideBaseUrl != null) {
+            originalRequest.newBuilder()
+                .removeHeader(BASE_URL_OVERRIDE_HEADER)
+                .build()
+        } else {
+            originalRequest
+        }
+        val currentBaseUrlString = overrideBaseUrl ?: serverPreferencesManager.getBaseUrl()
+        val newBaseUrl = currentBaseUrlString.toHttpUrlOrNull()
+            ?: if (overrideBaseUrl != null) {
+                throw IllegalArgumentException("Invalid base URL override: $overrideBaseUrl")
+            } else {
+                return chain.proceed(request)
+            }
 
-        val originalUrl = originalRequest.url
+        val originalUrl = request.url
         
         // Bóc tách relative path segments từ endpoint gốc (bỏ qua /api/v1 ở đầu nếu có)
         val relativePathSegments = originalUrl.pathSegments
@@ -51,10 +64,15 @@ class DynamicBaseUrlInterceptor @Inject constructor(
         
         newUrlBuilder.encodedQuery(originalUrl.encodedQuery)
 
-        val newRequest = originalRequest.newBuilder()
+        val newRequest = request.newBuilder()
             .url(newUrlBuilder.build())
             .build()
 
         return chain.proceed(newRequest)
+    }
+
+    companion object {
+        /** Header nội bộ dùng để ghi đè Base URL cho riêng một request và được xóa trước khi gửi lên server. */
+        const val BASE_URL_OVERRIDE_HEADER = "X-EpubPro-Base-Url-Override"
     }
 }

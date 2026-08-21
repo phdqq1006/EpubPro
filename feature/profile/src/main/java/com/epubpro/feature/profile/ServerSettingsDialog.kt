@@ -1,5 +1,7 @@
 package com.epubpro.feature.profile
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -8,9 +10,13 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -20,6 +26,7 @@ import com.epubpro.core.storage.ServerPreferencesManager
 import com.epubpro.domain.repository.OnlineNovelRepository
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ServerSettingsDialog(
     onDismissRequest: () -> Unit,
@@ -27,17 +34,23 @@ fun ServerSettingsDialog(
     onlineNovelRepository: OnlineNovelRepository
 ) {
     val coroutineScope = rememberCoroutineScope()
-    var urlText by remember { mutableStateOf(serverPreferencesManager.getBaseUrl()) }
+    var urlText by rememberSaveable { mutableStateOf(serverPreferencesManager.getBaseUrl()) }
     var testResult by remember { mutableStateOf<Result<Boolean>?>(null) }
-    var isTesting by remember { mutableStateOf(false) }
+    var testInProgress by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismissRequest) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 640.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.Dns,
@@ -61,6 +74,7 @@ fun ServerSettingsDialog(
                         testResult = null
                     },
                     label = { Text(stringResource(R.string.server_url_label)) },
+                    enabled = !testInProgress,
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -71,8 +85,9 @@ fun ServerSettingsDialog(
                 // Presets
                 Text(stringResource(R.string.server_preset_label), style = MaterialTheme.typography.labelMedium)
                 Spacer(modifier = Modifier.height(4.dp))
-                Row(
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     FilterChip(
@@ -82,6 +97,7 @@ fun ServerSettingsDialog(
                             testResult = null
                         },
                         label = { Text(stringResource(R.string.server_preset_cloud_render), fontSize = 11.sp) },
+                        enabled = !testInProgress,
                         shape = RoundedCornerShape(8.dp)
                     )
                     FilterChip(
@@ -91,6 +107,7 @@ fun ServerSettingsDialog(
                             testResult = null
                         },
                         label = { Text(stringResource(R.string.server_preset_emulator), fontSize = 11.sp) },
+                        enabled = !testInProgress,
                         shape = RoundedCornerShape(8.dp)
                     )
                     FilterChip(
@@ -100,6 +117,7 @@ fun ServerSettingsDialog(
                             testResult = null
                         },
                         label = { Text(stringResource(R.string.server_preset_localhost), fontSize = 11.sp) },
+                        enabled = !testInProgress,
                         shape = RoundedCornerShape(8.dp)
                     )
                 }
@@ -107,20 +125,24 @@ fun ServerSettingsDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Test Connection feedback
-                if (isTesting) {
+                if (testInProgress) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        modifier = Modifier
+                            .padding(vertical = 4.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite }
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.server_checking_status), fontSize = 12.sp)
                     }
                 } else if (testResult != null) {
-                    if (testResult!!.isSuccess) {
+                    if (testResult?.getOrNull() == true) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                            modifier = Modifier
+                                .padding(vertical = 4.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
                         ) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -129,7 +151,9 @@ fun ServerSettingsDialog(
                     } else {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(vertical = 4.dp)
+                            modifier = Modifier
+                                .padding(vertical = 4.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite }
                         ) {
                             Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
@@ -140,32 +164,33 @@ fun ServerSettingsDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
                         onClick = {
-                            isTesting = true
+                            val candidateUrl = urlText
+                            testInProgress = true
                             testResult = null
                             coroutineScope.launch {
-                                serverPreferencesManager.saveBaseUrl(urlText)
-                                testResult = onlineNovelRepository.testServerConnection()
-                                isTesting = false
+                                testResult = onlineNovelRepository.testServerConnection(candidateUrl)
+                                testInProgress = false
                             }
                         },
+                        enabled = !testInProgress,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(stringResource(R.string.server_test_connection), fontSize = 12.sp)
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
 
                     Button(
                         onClick = {
                             serverPreferencesManager.saveBaseUrl(urlText)
                             onDismissRequest()
                         },
+                        enabled = !testInProgress,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(stringResource(R.string.server_save), fontSize = 12.sp)
