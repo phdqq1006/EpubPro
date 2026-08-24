@@ -1387,7 +1387,9 @@ object CssInjector {
 
                 window.epubproApplyContentFilter = function() {
                     try {
-                        var rules = JSON.parse($filterRulesJson);
+                        // filterRulesJson là JSON string đã được quote an toàn cho JavaScript,
+                        // nên cần parse hai lần để lấy lại mảng rule thực tế.
+                        var rules = JSON.parse(JSON.parse($filterRulesJson));
                         var isEnabled = $isFilterEnabled;
                         if (!isEnabled || !rules || rules.length === 0) return;
 
@@ -1396,7 +1398,12 @@ object CssInjector {
                             var r = rules[i];
                             if (!r.isEnabled || !r.pattern) continue;
                             if (r.isRegex) {
-                                activePatterns.push('(?:' + r.pattern + ')');
+                                try {
+                                    new RegExp(r.pattern, 'i');
+                                    activePatterns.push('(?:' + r.pattern + ')');
+                                } catch (regexError) {
+                                    dbg('FILTER_RULE_ERROR', regexError.toString());
+                                }
                             } else {
                                 var escaped = r.pattern.replace(/[.*+?^${'$'}{}()|[\]\\]/g, '\\${'$'}&');
                                 activePatterns.push('(?:' + escaped + ')');
@@ -1424,7 +1431,13 @@ object CssInjector {
                     }
                 };
 
-                window.epubproApplyContentFilter();
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', function() {
+                        window.epubproApplyContentFilter();
+                    });
+                } else {
+                    window.epubproApplyContentFilter();
+                }
             })();
         """.trimIndent()
     }

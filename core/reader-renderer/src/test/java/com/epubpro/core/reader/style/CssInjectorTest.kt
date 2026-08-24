@@ -4,6 +4,8 @@ import com.epubpro.domain.model.ReadingMode
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReaderThemeMode
 import com.epubpro.domain.model.TextAlignment
+import com.epubpro.domain.model.ContentFilterPreferences
+import com.epubpro.domain.model.ContentFilterRule
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -117,5 +119,44 @@ class CssInjectorTest {
         assertTrue(script.contains("window.epubproHighlightTtsParagraph"))
         assertTrue(script.contains("window.epubproApplyContentFilter"))
         assertTrue(script.contains("window.epubproIsHorizontal"))
+    }
+
+    /**
+     * Kiểm tra script giải mã đúng danh sách rule đã quote và chỉ chạy sau khi DOM sẵn sàng.
+     */
+    @Test
+    fun generateJsBridgeScriptParsesQuotedFilterRulesAfterDomReady() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = false,
+            filterPreferences = ContentFilterPreferences(
+                isFilterEnabled = true,
+                rules = listOf(ContentFilterRule(pattern = "quảng cáo"))
+            )
+        )
+
+        assertTrue(script.contains("var rules = JSON.parse(JSON.parse("))
+        assertTrue(script.contains("document.addEventListener('DOMContentLoaded'"))
+        assertTrue(script.contains("quảng cáo"))
+    }
+
+    /**
+     * Kiểm tra rule Regex lỗi không làm vô hiệu hóa các rule hợp lệ còn lại.
+     */
+    @Test
+    fun generateJsBridgeScriptSkipsInvalidRegexRuleWithoutDisablingValidRules() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = false,
+            filterPreferences = ContentFilterPreferences(
+                isFilterEnabled = true,
+                rules = listOf(
+                    ContentFilterRule(pattern = "[invalid", isRegex = true),
+                    ContentFilterRule(pattern = "hợp lệ")
+                )
+            )
+        )
+
+        assertTrue(script.contains("new RegExp(r.pattern, 'i')"))
+        assertTrue(script.contains("FILTER_RULE_ERROR"))
+        assertTrue(script.contains("hợp lệ"))
     }
 }

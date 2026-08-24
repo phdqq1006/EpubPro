@@ -254,6 +254,7 @@ fun EpubProWebView(
     val currentPreviousChapterHtml by rememberUpdatedState(previousChapterHtml)
     val currentNextChapterHtml by rememberUpdatedState(nextChapterHtml)
     val currentReaderSettings by rememberUpdatedState(settings)
+    val currentFilterPreferences by rememberUpdatedState(filterPreferences)
     val currentOnTextSelected by rememberUpdatedState(onTextSelected)
     val currentOnCfiChanged by rememberUpdatedState(onCfiChanged)
 
@@ -366,7 +367,7 @@ fun EpubProWebView(
                     }
                     if (adjacent != null) {
                         locallyCommittedHtmlKey =
-                            "${adjacent.hashCode()}_${currentReaderSettings.contentReloadKey()}"
+                            "${adjacent.hashCode()}_${currentReaderSettings.contentReloadKey()}_${currentFilterPreferences.hashCode()}"
                     }
                     if (direction > 0) currentOnNextChapter() else currentOnPreviousChapter()
                 }
@@ -603,7 +604,7 @@ fun EpubProWebView(
                 )
 
                 val newHtmlKey =
-                    "${sanitized.rawHtml.hashCode()}_${settings.contentReloadKey()}"
+                    "${sanitized.rawHtml.hashCode()}_${settings.contentReloadKey()}_${filterPreferences.hashCode()}"
                 if (loadedHtmlKey != newHtmlKey) {
                     loadedHtmlKey = newHtmlKey
                     if (locallyCommittedHtmlKey == newHtmlKey) {
