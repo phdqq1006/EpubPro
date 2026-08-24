@@ -1,16 +1,16 @@
 # Android Text-to-Speech & Background Media Architecture
 
 > Tổng hợp kiến thức về hệ thống TTS Engine, Sherpa-ONNX Offline AI Voice, Foreground Service, MediaSessionCompat và đồng bộ Highlight trong WebView EPUB Reader.
-> Cập nhật lần cuối: 2026-08-13
+> Cập nhật lần cuối: 2026-08-24
 
 ---
 
 ## Architecture
 
-### Clean & Modular TTS Engine Abstraction Layer
-- **Ngày**: 2026-07-27
-- **Chi tiết**: Tách biệt hợp đồng phát giọng đọc qua interface `TtsEngine`. Phase 1 bọc Android System `TextToSpeech` (`AndroidNativeTtsEngine`), sẵn sàng gắn thêm Online AI Voice adapter ở Phase 2 mà không làm thay đổi UI hay ViewModels.
-- **Files liên quan**: `core/reader/src/main/java/com/epubpro/core/reader/tts/TtsEngine.kt`, `core/reader/src/main/java/com/epubpro/core/reader/tts/AndroidNativeTtsEngine.kt`
+### Centralized Offline Voice Catalog & Comprehensive Vietnamese Voice Models
+- **Ngày**: 2026-08-24
+- **Chi tiết**: Metadata giọng AI offline tập trung tại `TtsVoiceCatalog` với 25 model giọng đọc Tiếng Việt ONNX từ repo HuggingFace `doof-ferb/nghitts-copy`. Mỗi model định nghĩa rõ `voiceId`, `displayName`, `language`, `downloadSize`, và `onnxFileName`. Toàn bộ model dùng chung `tokens.txt` và bộ ngữ âm `espeak-ng-data`. Trạng thái đã tải (`isDownloaded`) được tính tại runtime từ filesystem.
+- **Files liên quan**: `core/tts/src/main/java/com/epubpro/core/tts/TtsVoiceCatalog.kt`, `core/tts/src/main/java/com/epubpro/core/tts/VoiceModelDownloader.kt`, `core/tts/src/test/java/com/epubpro/core/tts/TtsVoiceCatalogTest.kt`
 
 ### Foreground Service with MediaSession & Audio Focus
 - **Ngày**: 2026-07-27

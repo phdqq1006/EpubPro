@@ -18,7 +18,7 @@ class TtsVoiceCatalogTest {
 
     @Test
     fun `AI catalog only exposes supported language`() {
-        assertEquals(7, TtsVoiceCatalog.forLanguage("vi").size)
+        assertEquals(25, TtsVoiceCatalog.forLanguage("vi").size)
         assertTrue(TtsVoiceCatalog.forLanguage("en").isEmpty())
     }
 
