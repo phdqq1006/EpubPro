@@ -14,11 +14,13 @@ import com.epubpro.domain.model.OnlineNovelSummary
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.work.WorkInfo
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 data class OnlineLibraryUiState(
@@ -138,22 +140,79 @@ class OnlineLibraryViewModel @Inject constructor(
         }
     }
 
+    private val pendingDownloadNovelIds = mutableSetOf<String>()
+    private val trackedDownloadWorkIds = mutableMapOf<String, UUID>()
+
     /**
-     * Đồng bộ tiến độ các job WorkManager đang tải với trạng thái giao diện.
+     * Đồng bộ tiến độ các job WorkManager đang tải với trạng thái giao diện và thông báo kết quả.
      */
     private fun observeDownloadWorks() {
         viewModelScope.launch {
             onlineDownloadScheduler.observeAll().collect { workInfos ->
-                val progressByNovel = workInfos
-                    .filter { !it.state.isFinished }
-                    .mapNotNull { info ->
-                        info.tags.firstOrNull { it.startsWith(OnlineNovelDownloadScheduler.NOVEL_TAG_PREFIX) }
-                            ?.removePrefix(OnlineNovelDownloadScheduler.NOVEL_TAG_PREFIX)
-                            ?.let { novelId ->
-                                novelId to info.progress.getInt(OnlineNovelDownloadWorker.KEY_PROGRESS, 0)
-                            }
+                val workInfosByNovel = workInfos.mapNotNull { info ->
+                    val novelId = info.tags
+                        .firstOrNull { it.startsWith(OnlineNovelDownloadScheduler.NOVEL_TAG_PREFIX) }
+                        ?.removePrefix(OnlineNovelDownloadScheduler.NOVEL_TAG_PREFIX)
+                        ?: return@mapNotNull null
+                    novelId to info
+                }.groupBy(
+                    keySelector = { (novelId, _) -> novelId },
+                    valueTransform = { (_, info) -> info }
+                )
+
+                val activeWorkByNovel = workInfosByNovel.mapNotNull { (novelId, infos) ->
+                    infos.firstOrNull { !it.state.isFinished }?.let { novelId to it }
+                }.toMap()
+
+                val progressByNovel = pendingDownloadNovelIds
+                    .associateWith { 0 }
+                    .toMutableMap()
+
+                activeWorkByNovel.forEach { (novelId, info) ->
+                    trackedDownloadWorkIds[novelId] = info.id
+                    progressByNovel[novelId] = info.progress.getInt(
+                        OnlineNovelDownloadWorker.KEY_PROGRESS,
+                        0
+                    )
+                }
+
+                workInfosByNovel.forEach { (novelId, infos) ->
+                    if (activeWorkByNovel.containsKey(novelId)) return@forEach
+
+                    val trackedWorkId = trackedDownloadWorkIds[novelId] ?: return@forEach
+                    val finishedWork = infos.firstOrNull {
+                        it.id == trackedWorkId && it.state.isFinished
+                    } ?: return@forEach
+
+                    trackedDownloadWorkIds.remove(novelId)
+                    pendingDownloadNovelIds.remove(novelId)
+
+                    val title = finishedWork.outputData.getString(OnlineNovelDownloadWorker.KEY_TITLE)
+                        ?: _uiState.value.novels.firstOrNull { it.novelId == novelId }?.title
+                        ?: novelId
+
+                    when (finishedWork.state) {
+                        WorkInfo.State.SUCCEEDED -> {
+                            refreshDownloadedNovelIds()
+                            _events.send(
+                                UserMessage(
+                                    textRes = R.string.online_library_download_success,
+                                    formatArgs = listOf(title)
+                                )
+                            )
+                        }
+                        WorkInfo.State.FAILED -> {
+                            _events.send(
+                                UserMessage(
+                                    textRes = R.string.online_library_download_failed,
+                                    formatArgs = listOf(title)
+                                )
+                            )
+                        }
+                        else -> Unit
                     }
-                    .toMap()
+                }
+
                 _uiState.update { it.copy(downloadingNovels = progressByNovel) }
             }
         }
@@ -260,6 +319,7 @@ class OnlineLibraryViewModel @Inject constructor(
     fun downloadNovel(novel: OnlineNovelSummary) {
         if (_uiState.value.downloadingNovels.containsKey(novel.novelId)) return
 
+        pendingDownloadNovelIds.add(novel.novelId)
         _uiState.update { state ->
             state.copy(
                 downloadingNovels = state.downloadingNovels + (novel.novelId to 0)
@@ -272,7 +332,12 @@ class OnlineLibraryViewModel @Inject constructor(
                     title = novel.title,
                     author = novel.author
                 )
+            }.onSuccess { workId ->
+                pendingDownloadNovelIds.remove(novel.novelId)
+                trackedDownloadWorkIds[novel.novelId] = workId
             }.onFailure {
+                pendingDownloadNovelIds.remove(novel.novelId)
+                trackedDownloadWorkIds.remove(novel.novelId)
                 _uiState.update { state ->
                     state.copy(downloadingNovels = state.downloadingNovels - novel.novelId)
                 }

@@ -322,6 +322,13 @@
     <string name="online_detail_load_error">Không thể tải chi tiết truyện</string>
     <string name="online_download_fail_http">Tải sách thất bại (HTTP %1$d): %2$s</string>
     <string name="online_download_error">Lỗi khi tải file EPUB từ server</string>
+    <string name="online_download_error_server_busy">Máy chủ đang bận xử lý hoặc không thể xuất EPUB (HTTP %1$d).</string>
+    <string name="online_download_error_session_expired">Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.</string>
+    <string name="online_download_error_file_not_found">Không tìm thấy file EPUB trên máy chủ (HTTP 404).</string>
+    <string name="online_download_error_timeout">Hết thời gian chờ phản hồi từ máy chủ. Vui lòng thử lại sau.</string>
+    <string name="online_download_error_network">Không thể kết nối tới máy chủ. Vui lòng kiểm tra kết nối mạng.</string>
+    <string name="online_download_error_invalid_epub">File EPUB không hợp lệ</string>
+    <string name="online_download_error_processing">Lỗi khi xử lý truyện offline</string>
     <string name="server_checking_status">Đang kiểm tra...</string>
     <string name="server_preset_label">Chọn nhanh:</string>
     <string name="server_preset_cloud_render">Cloud Server (Render)</string>
@@ -446,6 +453,7 @@
     <string name="online_download_notification_indexing">Đang lập chỉ mục chương %1$d...</string>
     <string name="online_download_notification_success">Đã tải "%1$s" thành công</string>
     <string name="online_download_notification_failed">Tải "%1$s" thất bại: %2$s</string>
+    <string name="online_download_notification_failed_generic">Tải "%1$s" thất bại. Mở ứng dụng để xem chi tiết.</string>
 
     <!-- Authentication & User Profile -->
     <string name="auth_login_title">Đăng nhập</string>

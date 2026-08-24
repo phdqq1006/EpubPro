@@ -1,7 +1,7 @@
 # Online Backend & Library Integration
 
 > Tổng hợp kiến thức về hệ thống kết nối Backend API, Kho Truyện Online, Retrofit, Dynamic Base URL, Cloudflare Workers/R2/Render, quản lý Coroutine/Flow, WorkManager ngầm và chuẩn hóa quy định dự án theo AGENTS.md.
-> Cập nhật lần cuối: 2026-08-21
+> Cập nhật lần cuối: 2026-08-24
 
 ---
 
@@ -60,6 +60,20 @@
 ---
 
 ## Bugs & Solutions
+
+### Lỗi Notification Channel bị khóa IMPORTANCE_LOW trên Android 14+ / Samsung One UI
+- **Ngày**: 2026-08-24
+- **Vấn đề**: Dù người dùng đã cấp quyền runtime `POST_NOTIFICATIONS`, tiến trình tải truyện chạy nhưng không hiện icon trên status bar đỉnh máy hay thông báo nổi.
+- **Root cause**: Channel được khởi tạo lần đầu với `IMPORTANCE_LOW` (mức 2). Android OS lưu cache vĩnh viễn mức ưu tiên này, gom thông báo vào khu vực "im lặng" và không cho phép code tự nâng độ ưu tiên nếu giữ nguyên Channel ID cũ.
+- **Fix**: Nâng cấp Channel ID sang `online_novel_downloads_v2` với `NotificationManager.IMPORTANCE_DEFAULT` (hoặc `HIGH`), đồng thời gọi `deleteNotificationChannel("online_novel_downloads")` để dọn kênh cũ.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/worker/OnlineNovelDownloadWorker.kt`
+
+### Lỗi kẹt tiến độ 0% và âm thầm retry vô tận khi gặp HTTP 502 / Timeout
+- **Ngày**: 2026-08-24
+- **Vấn đề**: Khi backend Render bị OOM/timeout (HTTP 502/SocketTimeoutException), app không báo lỗi mà kẹt ở 0% và âm thầm retry ngầm.
+- **Root cause**: Code cũ đánh dấu `isRetryable = true` cho mọi lỗi >= 500, khiến WorkManager gọi `Result.retry()` rơi vào trạng thái chờ ngầm vô tận.
+- **Fix**: Đánh dấu `isRetryable = false` khi gặp lỗi kết nối/502/timeout; gọi `showErrorNotification()` ngay lập tức; trả `Result.failure()` kèm message tiếng Việt cụ thể (`"Máy chủ đang bận xử lý hoặc không thể xuất EPUB (HTTP 502)"`); dọn file tạm `.part`.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/OnlineNovelRepositoryImpl.kt`, `core/storage/src/main/java/com/epubpro/core/storage/worker/OnlineNovelDownloadWorker.kt`
 
 ### Lỗi Dialog tự mở lại liên tục khi người dùng nhấn "Chạy ngầm"
 - **Ngày**: 2026-08-19

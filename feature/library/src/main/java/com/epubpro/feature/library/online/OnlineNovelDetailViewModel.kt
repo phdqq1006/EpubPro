@@ -57,6 +57,7 @@ class OnlineNovelDetailViewModel @Inject constructor(
 
     private var checkDownloadedJob: Job? = null
     private var activeDownloadWorkId: UUID? = null
+    private var pendingDownloadRequest = false
 
     init {
         loadDetail()
@@ -90,12 +91,11 @@ class OnlineNovelDetailViewModel @Inject constructor(
     private fun observeDownloadWork() {
         viewModelScope.launch {
             onlineDownloadScheduler.observeNovel(novelId).collect { workInfos ->
-                val workInfo = workInfos.firstOrNull { !it.state.isFinished }
-                    ?: workInfos.maxByOrNull { it.runAttemptCount }
-                if (workInfo == null) return@collect
-
-                if (!workInfo.state.isFinished) {
-                    val progress = workInfo.progress.getInt(
+                val activeWork = workInfos.firstOrNull { !it.state.isFinished }
+                if (activeWork != null) {
+                    activeDownloadWorkId = activeWork.id
+                    pendingDownloadRequest = false
+                    val progress = activeWork.progress.getInt(
                         OnlineNovelDownloadWorker.KEY_PROGRESS,
                         0
                     )
@@ -103,8 +103,22 @@ class OnlineNovelDetailViewModel @Inject constructor(
                     return@collect
                 }
 
-                if (workInfo.id != activeDownloadWorkId) return@collect
-                when (workInfo.state) {
+                val trackedWorkId = activeDownloadWorkId
+                val finishedWork = trackedWorkId?.let { workId ->
+                    workInfos.firstOrNull {
+                        it.id == workId && it.state.isFinished
+                    }
+                }
+                if (finishedWork == null) {
+                    if (!pendingDownloadRequest) {
+                        _uiState.update { it.copy(downloadPercent = null) }
+                    }
+                    return@collect
+                }
+
+                activeDownloadWorkId = null
+                pendingDownloadRequest = false
+                when (finishedWork.state) {
                     WorkInfo.State.SUCCEEDED -> _uiState.update {
                         it.copy(
                             downloadPercent = null,
@@ -113,13 +127,16 @@ class OnlineNovelDetailViewModel @Inject constructor(
                         )
                     }
 
-                    WorkInfo.State.FAILED -> _uiState.update {
-                        it.copy(
-                            downloadPercent = null,
-                            errorMessage = workInfo.outputData.getString(
-                                OnlineNovelDownloadWorker.KEY_ERROR_MESSAGE
-                            ) ?: "Không thể tải file EPUB"
+                    WorkInfo.State.FAILED -> {
+                        val errorMsg = finishedWork.outputData.getString(
+                            OnlineNovelDownloadWorker.KEY_ERROR_MESSAGE
                         )
+                        _uiState.update {
+                            it.copy(
+                                downloadPercent = null,
+                                errorMessage = errorMsg ?: "Không thể tải file EPUB"
+                            )
+                        }
                     }
 
                     WorkInfo.State.CANCELLED -> _uiState.update {
@@ -131,6 +148,7 @@ class OnlineNovelDetailViewModel @Inject constructor(
             }
         }
     }
+
     /**
      * Tải thông tin chi tiết và mục lục chương của bộ truyện từ server backend.
      */
@@ -162,6 +180,8 @@ class OnlineNovelDetailViewModel @Inject constructor(
         val detail = _uiState.value.novelDetail ?: return
         if (_uiState.value.downloadPercent != null) return
 
+        activeDownloadWorkId = null
+        pendingDownloadRequest = true
         _uiState.update { it.copy(downloadPercent = 0, errorMessage = null) }
         viewModelScope.launch {
             runCatching {
@@ -173,6 +193,7 @@ class OnlineNovelDetailViewModel @Inject constructor(
             }.onSuccess { workId ->
                 activeDownloadWorkId = workId
             }.onFailure { error ->
+                pendingDownloadRequest = false
                 _uiState.update {
                     it.copy(
                         downloadPercent = null,
@@ -182,6 +203,7 @@ class OnlineNovelDetailViewModel @Inject constructor(
             }
         }
     }
+
     /**
      * Yêu cầu máy chủ backend gọi AI dịch một chương cụ thể.
      *

@@ -1,8 +1,12 @@
 package com.epubpro.feature.library.online
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -80,6 +84,26 @@ fun OnlineLibraryScreen(
                     )
                 )
             }
+        }
+    }
+
+    var pendingDownloadNovel by remember { mutableStateOf<OnlineNovelSummary?>(null) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        pendingDownloadNovel?.let { viewModel.downloadNovel(it) }
+        pendingDownloadNovel = null
+    }
+
+    val onStartDownload: (OnlineNovelSummary) -> Unit = { novel ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownloadNovel = novel
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.downloadNovel(novel)
         }
     }
 
@@ -404,7 +428,7 @@ fun OnlineLibraryScreen(
                                 isDownloaded = isDownloaded,
                                 downloadPercent = downloadPercent,
                                 onClick = { onNovelClick(novel.novelId) },
-                                onDownload = { viewModel.downloadNovel(novel) }
+                                onDownload = { onStartDownload(novel) }
                             )
                         }
                     }

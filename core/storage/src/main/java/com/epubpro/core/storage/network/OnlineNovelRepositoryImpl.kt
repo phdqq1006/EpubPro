@@ -1,9 +1,12 @@
 package com.epubpro.core.storage.network
 
+import android.content.Context
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.storage.EpubStorageManager
 import com.epubpro.core.storage.ServerPreferencesManager
 import com.epubpro.domain.model.*
 import com.epubpro.domain.repository.OnlineNovelRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -16,6 +19,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +29,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class OnlineNovelRepositoryImpl @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val apiService: OnlineNovelApiService,
     private val storageManager: EpubStorageManager,
     private val serverPreferencesManager: ServerPreferencesManager
@@ -134,15 +139,26 @@ class OnlineNovelRepositoryImpl @Inject constructor(
 
             val body = response.body()
             if (!response.isSuccessful || body == null) {
-                emit(
-                    DownloadState.Error(
-                        message = "Tải sách thất bại (HTTP " + response.code() + "): " + response.message(),
-                        isRetryable = response.code() == 408 || response.code() == 429 || response.code() >= 500
+                val responseCode = response.code()
+                val errorMsg = when (responseCode) {
+                    502, 504 -> appContext.getString(
+                        R.string.online_download_error_server_busy,
+                        responseCode
                     )
-                )
+                    401, 403 -> appContext.getString(R.string.online_download_error_session_expired)
+                    404 -> appContext.getString(R.string.online_download_error_file_not_found)
+                    else -> appContext.getString(
+                        R.string.online_download_fail_http,
+                        responseCode,
+                        response.message()
+                    )
+                }
+                val isRetryable = responseCode == 408 ||
+                    responseCode == 429 ||
+                    responseCode >= 500
+                emit(DownloadState.Error(message = errorMsg, isRetryable = isRetryable))
                 return@flow
             }
-
             val append = resumeOffset > 0 && response.code() == 206
             val initialBytes = if (append) resumeOffset else 0L
             if (!append && resumeOffset > 0) {
@@ -163,9 +179,12 @@ class OnlineNovelRepositoryImpl @Inject constructor(
                 initialBytes = initialBytes,
                 totalBytes = totalBytes
             ) { downloaded, total ->
-                val percent = total?.takeIf { it > 0L }
-                    ?.let { (downloaded * 100L / it).toInt().coerceIn(0, 99) }
-                    ?: 0
+                val percent = if (total != null && total > 0L) {
+                    (downloaded * 100L / total).toInt().coerceIn(0, 99)
+                } else {
+                    // Ước lượng tiến độ theo dung lượng nhận được khi server dùng Transfer-Encoding: chunked
+                    ((downloaded / (256 * 1024L)) * 5).toInt().coerceIn(1, 90)
+                }
                 val shouldEmit = percent != lastProgressPercent ||
                     downloaded - lastProgressBytes >= PROGRESS_UPDATE_BYTES
                 if (shouldEmit) {
@@ -178,13 +197,36 @@ class OnlineNovelRepositoryImpl @Inject constructor(
             emit(DownloadState.Success(targetFile.absolutePath))
         } catch (error: CancellationException) {
             throw error
+        } catch (error: java.net.SocketTimeoutException) {
+            emit(
+                DownloadState.Error(
+                    message = appContext.getString(R.string.online_download_error_timeout),
+                    isRetryable = true
+                )
+            )
+        } catch (error: java.net.UnknownHostException) {
+            emit(
+                DownloadState.Error(
+                    message = appContext.getString(R.string.online_download_error_network),
+                    isRetryable = true
+                )
+            )
+        } catch (error: IOException) {
+            emit(
+                DownloadState.Error(
+                    message = appContext.getString(R.string.online_download_error_network),
+                    isRetryable = true
+                )
+            )
         } catch (error: Exception) {
-            emit(DownloadState.Error(error.message ?: "Lỗi khi tải file EPUB từ server", isRetryable = true))
+            emit(
+                DownloadState.Error(
+                    message = error.message ?: appContext.getString(R.string.online_download_error),
+                    isRetryable = false
+                )
+            )
         }
     }.flowOn(Dispatchers.IO)
-    private companion object {
-        const val PROGRESS_UPDATE_BYTES = 1024L * 1024L
-    }
 
     /**
      * Yêu cầu AI dịch một chương truyện cụ thể.
@@ -273,6 +315,7 @@ class OnlineNovelRepositoryImpl @Inject constructor(
             Result.failure(e)
         }
     }
+
     private fun mapToImportJobStatus(dto: ImportJobStatusDto): ImportJobStatus {
         return ImportJobStatus(
             jobId = dto.jobId,
@@ -311,5 +354,9 @@ class OnlineNovelRepositoryImpl @Inject constructor(
             apiService.getNovelsFromBaseUrl(serverPreferencesManager.normalizeUrl(baseUrl))
             true
         }
+    }
+
+    private companion object {
+        const val PROGRESS_UPDATE_BYTES = 64L * 1024L
     }
 }

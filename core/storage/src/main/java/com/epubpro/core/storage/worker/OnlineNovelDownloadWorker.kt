@@ -102,18 +102,21 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
                 }
 
                 terminalError?.let { error ->
-                    if (error.isRetryable) {
-                        if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
-                            return Result.retry()
-                        }
-                        // Giữ .part và checkpoint để lần enqueue thủ công tiếp tục từ byte đã có.
-                        showErrorNotification(title, error.message, notificationId)
-                        return Result.failure(workDataOf(KEY_ERROR_MESSAGE to error.message))
+                    if (error.isRetryable && runAttemptCount < MAX_RETRY_ATTEMPTS) {
+                        return Result.retry()
                     }
-                    showErrorNotification(title, error.message, notificationId)
-                    storageManager.deleteOnlineDownloadFiles(novelId)
-                    checkpointStore.clear(novelId)
-                    return Result.failure(workDataOf(KEY_ERROR_MESSAGE to error.message))
+                    showErrorNotification(title, notificationId)
+                    if (!error.isRetryable) {
+                        storageManager.deleteOnlineDownloadFiles(novelId)
+                        checkpointStore.clear(novelId)
+                    }
+                    return Result.failure(
+                        workDataOf(
+                            KEY_NOVEL_ID to novelId,
+                            KEY_TITLE to title,
+                            KEY_ERROR_MESSAGE to error.message
+                        )
+                    )
                 }
             }
 
@@ -125,13 +128,15 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
             } catch (error: Exception) {
                 storageManager.deleteOnlineDownloadFiles(novelId)
                 checkpointStore.clear(novelId)
-                showErrorNotification(
-                    title,
-                    error.message ?: "File EPUB không hợp lệ",
-                    notificationId
-                )
+                showErrorNotification(title, notificationId)
                 return Result.failure(
-                    workDataOf(KEY_ERROR_MESSAGE to (error.message ?: "File EPUB không hợp lệ"))
+                    workDataOf(
+                        KEY_NOVEL_ID to novelId,
+                        KEY_TITLE to title,
+                        KEY_ERROR_MESSAGE to (
+                            error.message ?: appContext.getString(R.string.online_download_error_invalid_epub)
+                        )
+                    )
                 )
             }
 
@@ -187,16 +192,15 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
-                return Result.retry()
-            }
-            showErrorNotification(
-                title,
-                error.message ?: "Lỗi khi xử lý truyện offline",
-                notificationId
-            )
+            showErrorNotification(title, notificationId)
             return Result.failure(
-                workDataOf(KEY_ERROR_MESSAGE to (error.message ?: "Lỗi khi xử lý truyện offline"))
+                workDataOf(
+                    KEY_NOVEL_ID to novelId,
+                    KEY_TITLE to title,
+                    KEY_ERROR_MESSAGE to (
+                        error.message ?: appContext.getString(R.string.online_download_error_processing)
+                    )
+                )
             )
         }
     }
@@ -207,18 +211,25 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         progress: Int,
         notificationId: Int
     ) {
-        setForeground(createForegroundInfo(title, step, progress, notificationId))
+        runCatching {
+            setForeground(createForegroundInfo(title, step, progress, notificationId))
+        }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                notificationManager.deleteNotificationChannel("online_novel_downloads")
+            }
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 appContext.getString(R.string.online_download_channel_name),
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = appContext.getString(R.string.online_download_channel_desc)
-                setShowBadge(false)
+                setShowBadge(true)
+                enableVibration(true)
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -231,10 +242,13 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         notificationId: Int
     ): ForegroundInfo {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
-            .setContentTitle(appContext.getString(R.string.online_download_notification_title, title))
+            .setContentTitle(title)
             .setContentText(step)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setProgress(100, progress.coerceIn(0, 100), false)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(createLaunchAppPendingIntent())
@@ -253,20 +267,33 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
 
     private fun showSuccessNotification(title: String, notificationId: Int) {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
-            .setContentTitle(appContext.getString(R.string.online_download_channel_name))
+            .setContentTitle(title)
             .setContentText(appContext.getString(R.string.online_download_notification_success, title))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .setContentIntent(createLaunchAppPendingIntent())
             .build()
         notificationManager.notify(notificationId, notification)
     }
 
-    private fun showErrorNotification(title: String, error: String, notificationId: Int) {
+    private fun showErrorNotification(title: String, notificationId: Int) {
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
-            .setContentTitle(appContext.getString(R.string.online_download_notification_title, title))
-            .setContentText(appContext.getString(R.string.online_download_notification_failed, title, error))
+            .setContentTitle(title)
+            .setContentText(
+                appContext.getString(
+                    R.string.online_download_notification_failed_generic,
+                    title
+                )
+            )
             .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .setContentIntent(createLaunchAppPendingIntent())
             .build()
@@ -301,7 +328,7 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         const val PHASE_INDEX = "INDEX"
         const val PHASE_COMPLETE = "COMPLETE"
 
-        private const val CHANNEL_ID = "online_novel_downloads"
+        private const val CHANNEL_ID = "online_novel_downloads_v2"
         private const val MAX_RETRY_ATTEMPTS = 4
     }
 }

@@ -61,7 +61,7 @@ object NetworkModule {
         dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
         fallbackDns: FallbackDns,
         serverPreferencesManager: ServerPreferencesManager,
-        authPreferencesManager: AuthPreferencesManager
+        tokenRefreshManager: TokenRefreshManager
     ): OkHttpClient {
         val prettyLogger = HttpLoggingInterceptor.Logger { message ->
             val tag = "API_HTTP"
@@ -105,7 +105,7 @@ object NetworkModule {
 
             // Gắn Authorization Bearer token vào các request gọi tới Backend EpubPro
             if (!url.contains("supabase.co")) {
-                val token = authPreferencesManager.getAuthToken()
+                val token = tokenRefreshManager.getValidAuthToken()
                 if (!token.isNullOrBlank() && original.header("Authorization") == null) {
                     builder.header("Authorization", "Bearer $token")
                     android.util.Log.d("API_HTTP", "🔑 [AUTH] Đã đính kèm Authorization Bearer (${token.take(8)}...) vào request: ${original.method} ${original.url.encodedPath}")
@@ -134,13 +134,44 @@ object NetworkModule {
             chain.proceed(builder.build())
         }
 
+        val tokenAuthenticator = okhttp3.Authenticator { _, response ->
+            val originalRequest = response.request
+            val url = originalRequest.url.toString()
+            if (url.contains("supabase.co")) return@Authenticator null
+
+            // Kiểm tra số lần thử lại để tránh lặp vô tận khi refresh token không còn hiệu lực
+            var count = 1
+            var prior = response.priorResponse
+            while (prior != null) {
+                count++
+                prior = prior.priorResponse
+            }
+            if (count >= 2) {
+                android.util.Log.w("API_HTTP", "⚠️ [AUTH] Đã thử làm mới token nhưng vẫn thất bại (HTTP 401), dừng retry.")
+                return@Authenticator null
+            }
+
+            val failedAuthHeader = originalRequest.header("Authorization")
+            val failedToken = failedAuthHeader?.removePrefix("Bearer ")?.trim()
+
+            val newToken = tokenRefreshManager.refreshOn401(failedToken)
+            if (!newToken.isNullOrBlank()) {
+                android.util.Log.i("API_HTTP", "🔄 [AUTH] Thử lại request với Token mới: ${originalRequest.method} ${originalRequest.url.encodedPath}")
+                return@Authenticator originalRequest.newBuilder()
+                    .header("Authorization", "Bearer $newToken")
+                    .build()
+            }
+            null
+        }
+
         return OkHttpClient.Builder()
             .dns(fallbackDns)
             .addInterceptor(dynamicBaseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
+            .authenticator(tokenAuthenticator)
             .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
     }
