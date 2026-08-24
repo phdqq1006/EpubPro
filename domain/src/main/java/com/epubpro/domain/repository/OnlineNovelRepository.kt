@@ -42,9 +42,14 @@ interface OnlineNovelRepository {
      *
      * @param novelId Mã định danh của bộ truyện cần tải.
      * @param saveFileName Tên file `.epub` khi lưu vào bộ nhớ cục bộ.
+     * @param resumeFilePath Đường dẫn file tạm đã có dữ liệu, dùng để tiếp tục tải theo byte.
      * @return [Flow] phát ra các trạng thái tải [DownloadState] (tiến độ, thành công hoặc lỗi).
      */
-    fun downloadEpub(novelId: String, saveFileName: String): Flow<DownloadState>
+    fun downloadEpub(
+        novelId: String,
+        saveFileName: String,
+        resumeFilePath: String? = null
+    ): Flow<DownloadState>
 
     /**
      * Yêu cầu máy chủ backend thực hiện dịch tự động bằng AI cho một chương truyện chưa dịch.

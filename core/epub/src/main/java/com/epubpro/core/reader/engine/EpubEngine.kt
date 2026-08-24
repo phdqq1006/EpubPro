@@ -5,6 +5,7 @@ import com.epubpro.core.reader.engine.EpubReadLimits.readBoundedText
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -117,6 +118,46 @@ class EpubEngine @Inject constructor(
     }
 
     /**
+     * Kiểm tra EPUB tải xuống theo các điều kiện tối thiểu trước khi đưa vào thư viện.
+     *
+     * @param file Tệp EPUB đã tải xuống.
+     * @return Metadata của sách sau khi cấu trúc EPUB hợp lệ.
+     * @throws IllegalStateException Nếu file không phải EPUB hợp lệ hoặc vượt giới hạn đọc.
+     */
+    suspend fun parseEpubMetadataStrict(file: File): Book = withContext(Dispatchers.IO) {
+        if (!file.isFile) {
+            throw IllegalStateException("Không tìm thấy file EPUB tải xuống")
+        }
+        if (file.length() > EpubReadLimits.MAX_EPUB_FILE_SIZE) {
+            throw IllegalStateException("File EPUB vượt quá kích thước tối đa cho phép")
+        }
+
+        try {
+            ZipFile(file).use { zip ->
+                val mimetypeEntry = zip.getEntry("mimetype")
+                    ?: throw IllegalStateException("EPUB thiếu entry mimetype")
+                val mimetype = zip.getInputStream(mimetypeEntry).use { input ->
+                    val bytes = ByteArray(64)
+                    val count = input.read(bytes)
+                    String(bytes, 0, count.coerceAtLeast(0), Charsets.US_ASCII).trim()
+                }
+                check(mimetype == "application/epub+zip") {
+                    "EPUB có mimetype không hợp lệ"
+                }
+                val structure = EpubPackageStructureParser.parseStructure(zip)
+                check(structure.orderedEntries.isNotEmpty()) {
+                    "EPUB không có nội dung chương"
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw IllegalStateException("Không thể đọc file EPUB tải xuống", error)
+        }
+
+        parseEpubMetadata(file)
+    }
+    /**
      * Trích xuất danh sách tiêu đề chương gọn nhẹ ([EpubChapterHeader]) từ tệp EPUB mà không cần nạp toàn bộ HTML vào RAM.
      *
      * Tự động kiểm tra [EpubStructureCache] theo dấu vân tay [EpubCacheFingerprint]. Nếu trúng cache (hit),
@@ -226,44 +267,73 @@ class EpubEngine @Inject constructor(
      * @param searchRepository Repository tìm kiếm dữ liệu.
      */
     suspend fun indexBookContent(file: File, bookId: String, searchRepository: SearchRepository) = withContext(Dispatchers.IO) {
+        searchRepository.clearIndexForBook(bookId)
         try {
-            ZipFile(file).use { zip ->
-                val parsed = EpubPackageStructureParser.parseStructure(zip)
-                val orderedEntries = parsed.orderedEntries
-
-                val indexedChapters = mutableListOf<Pair<Int, Pair<String, String>>>()
-
-                orderedEntries.forEachIndexed { index, entry ->
-                    try {
-                        EpubReadLimits.validateZipEntry(entry)
-                        val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
-                        val plainText = stripHtmlTags(rawHtml)
-                        val title = parsed.chapterTitles[entry.name]
-                            ?: extractXmlTag(rawHtml, "title")
-                            ?: extractXmlTag(rawHtml, "h1")
-                            ?: "Chương ${index + 1}"
-                        indexedChapters.add(index to (title to plainText))
-
-                        // Batch index every 5 chapters to keep memory usage low
-                        if (indexedChapters.size >= 5) {
-                            searchRepository.indexBookContent(bookId, indexedChapters.toList())
-                            indexedChapters.clear()
-                        }
-                    } catch (e: Exception) {
-                        // Skip corrupted/invalid entry in indexer
-                    }
-                }
-
-                if (indexedChapters.isNotEmpty()) {
-                    searchRepository.indexBookContent(bookId, indexedChapters)
-                    indexedChapters.clear()
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+            indexBookContentResumable(
+                file = file,
+                bookId = bookId,
+                searchRepository = searchRepository,
+                startChapterIndex = 0
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            error.printStackTrace()
         }
     }
 
+    /**
+     * Đánh chỉ mục từ một chương cụ thể để tiếp tục sau khi Worker bị gián đoạn.
+     *
+     * @param file Tệp EPUB cần đánh chỉ mục.
+     * @param bookId Mã định danh của cuốn sách.
+     * @param searchRepository Repository tìm kiếm dữ liệu.
+     * @param startChapterIndex Chỉ số chương bắt đầu, các chương trước đó được xem là đã hoàn tất.
+     * @param onChapterIndexed Callback sau mỗi batch, nhận chỉ số chương cuối đã xử lý.
+     */
+    suspend fun indexBookContentResumable(
+        file: File,
+        bookId: String,
+        searchRepository: SearchRepository,
+        startChapterIndex: Int = 0,
+        onChapterIndexed: suspend (lastChapterIndex: Int) -> Unit = {}
+    ) = withContext(Dispatchers.IO) {
+        ZipFile(file).use { zip ->
+            val parsed = EpubPackageStructureParser.parseStructure(zip)
+            val indexedChapters = mutableListOf<Pair<Int, Pair<String, String>>>()
+            var lastProcessedIndex = startChapterIndex - 1
+
+            parsed.orderedEntries.forEachIndexed { index, entry ->
+                if (index < startChapterIndex) return@forEachIndexed
+                try {
+                    EpubReadLimits.validateZipEntry(entry)
+                    val rawHtml = zip.getInputStream(entry).use { it.readBoundedText() }
+                    val plainText = stripHtmlTags(rawHtml)
+                    val title = parsed.chapterTitles[entry.name]
+                        ?: extractXmlTag(rawHtml, "title")
+                        ?: extractXmlTag(rawHtml, "h1")
+                        ?: "Chương " + (index + 1)
+                    indexedChapters.add(index to (title to plainText))
+                    lastProcessedIndex = index
+
+                    if (indexedChapters.size >= 5) {
+                        searchRepository.indexBookContent(bookId, indexedChapters.toList())
+                        indexedChapters.clear()
+                        onChapterIndexed(lastProcessedIndex)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    lastProcessedIndex = index
+                }
+            }
+
+            if (indexedChapters.isNotEmpty()) {
+                searchRepository.indexBookContent(bookId, indexedChapters.toList())
+                onChapterIndexed(lastProcessedIndex)
+            }
+        }
+    }
     private fun extractXmlTag(xml: String, tagName: String): String? {
         val regex = "(?i)<$tagName[^>]*>(.*?)</$tagName>".toRegex(RegexOption.DOT_MATCHES_ALL)
         return regex.find(xml)?.groupValues?.get(1)?.let { stripHtmlTags(it) }?.takeIf { it.isNotBlank() }

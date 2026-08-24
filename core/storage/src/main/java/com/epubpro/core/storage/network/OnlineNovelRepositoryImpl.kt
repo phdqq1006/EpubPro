@@ -15,7 +15,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.io.InputStream
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -103,29 +103,88 @@ class OnlineNovelRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Tải file EPUB nhị phân dưới dạng luồng dữ liệu (Stream) và ghi thẳng vào internal storage.
+     * Tải EPUB theo luồng, hỗ trợ tiếp tục từ file .part sau khi mạng hoặc process bị gián đoạn.
+     *
+     * @param novelId Mã định danh truyện trên backend.
+     * @param saveFileName Tên file tương thích với contract cũ; file thực tế dùng tên deterministic theo novelId.
+     * @param resumeFilePath Đường dẫn file tạm cần tiếp tục, hoặc null để dùng đường dẫn mặc định.
+     * @return Flow trạng thái tải gồm byte đã ghi, tổng byte và lỗi có thể retry.
      */
-    override fun downloadEpub(novelId: String, saveFileName: String): Flow<DownloadState> = flow {
-        emit(DownloadState.Downloading(0))
+    override fun downloadEpub(
+        novelId: String,
+        saveFileName: String,
+        resumeFilePath: String?
+    ): Flow<DownloadState> = flow {
+        val defaultFiles = storageManager.getOnlineDownloadFiles(novelId)
+        val targetFile = resumeFilePath?.let(::File) ?: defaultFiles.temporary
+        var resumeOffset = targetFile.length()
+        emit(DownloadState.Downloading(0, resumeOffset, null))
+
         try {
-            val response = apiService.downloadEpub(novelId)
-            if (!response.isSuccessful || response.body() == null) {
-                emit(DownloadState.Error("Tải sách thất bại (HTTP ${response.code()}): ${response.message()}"))
+            var response = apiService.downloadEpub(
+                novelId = novelId,
+                range = resumeOffset.takeIf { it > 0 }?.let { "bytes=" + it + "-" }
+            )
+
+            if (response.code() == 416 && resumeOffset > 0) {
+                FileOutputStream(targetFile).use { it.channel.truncate(0) }
+                resumeOffset = 0
+                response = apiService.downloadEpub(novelId = novelId, range = null)
+            }
+
+            val body = response.body()
+            if (!response.isSuccessful || body == null) {
+                emit(
+                    DownloadState.Error(
+                        message = "Tải sách thất bại (HTTP " + response.code() + "): " + response.message(),
+                        isRetryable = response.code() == 408 || response.code() == 429 || response.code() >= 500
+                    )
+                )
                 return@flow
             }
 
-            val body = response.body()!!
-            val inputStream: InputStream = body.byteStream()
+            val append = resumeOffset > 0 && response.code() == 206
+            val initialBytes = if (append) resumeOffset else 0L
+            if (!append && resumeOffset > 0) {
+                FileOutputStream(targetFile).use { it.channel.truncate(0) }
+            }
+            val bodyLength = body.contentLength().takeIf { it > 0L }
+            val totalBytes = response.headers()["Content-Range"]
+                ?.substringAfterLast('/')
+                ?.toLongOrNull()
+                ?: bodyLength?.let { initialBytes + it }
 
-            // Ghi luồng dữ liệu vào file tạm trên thiết bị
-            val targetFile = storageManager.importDownloadedEpub(inputStream, saveFileName)
-            
-            emit(DownloadState.Downloading(100))
+            var lastProgressPercent = -1
+            var lastProgressBytes = initialBytes
+            val downloadedBytes = storageManager.appendOnlineDownload(
+                inputStream = body.byteStream(),
+                targetFile = targetFile,
+                append = append,
+                initialBytes = initialBytes,
+                totalBytes = totalBytes
+            ) { downloaded, total ->
+                val percent = total?.takeIf { it > 0L }
+                    ?.let { (downloaded * 100L / it).toInt().coerceIn(0, 99) }
+                    ?: 0
+                val shouldEmit = percent != lastProgressPercent ||
+                    downloaded - lastProgressBytes >= PROGRESS_UPDATE_BYTES
+                if (shouldEmit) {
+                    lastProgressPercent = percent
+                    lastProgressBytes = downloaded
+                    emit(DownloadState.Downloading(percent, downloaded, total))
+                }
+            }
+            emit(DownloadState.Downloading(100, downloadedBytes, totalBytes))
             emit(DownloadState.Success(targetFile.absolutePath))
-        } catch (e: Exception) {
-            emit(DownloadState.Error(e.message ?: "Lỗi khi tải file EPUB từ server"))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            emit(DownloadState.Error(error.message ?: "Lỗi khi tải file EPUB từ server", isRetryable = true))
         }
     }.flowOn(Dispatchers.IO)
+    private companion object {
+        const val PROGRESS_UPDATE_BYTES = 1024L * 1024L
+    }
 
     /**
      * Yêu cầu AI dịch một chương truyện cụ thể.

@@ -81,11 +81,13 @@ class SearchRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun clearIndexForBook(bookId: String) =
+        searchDao.clearIndexForBook(bookId)
+
     override suspend fun indexBookContent(
         bookId: String,
         chapters: List<Pair<Int, Pair<String, String>>>
     ) {
-        searchDao.clearIndexForBook(bookId)
         val entities = chapters.map { (index, titleAndText) ->
             BookSearchEntity(
                 bookId = bookId,

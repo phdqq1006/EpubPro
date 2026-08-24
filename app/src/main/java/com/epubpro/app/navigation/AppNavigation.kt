@@ -28,6 +28,7 @@ import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
 import com.epubpro.feature.profile.ReadingDefaultsScreen
 import com.epubpro.feature.profile.PageTurnControlScreen
+import com.epubpro.feature.profile.auth.LoginScreen
 import com.epubpro.feature.reader.ReaderScreen
 import com.epubpro.feature.search.SearchScreen
 import kotlinx.coroutines.flow.Flow
@@ -190,9 +191,17 @@ fun AppNavHost(
 
             composable(Screen.Profile.route) {
                 ProfileScreen(
+                    onNavigateToLogin = { navController.navigate(Screen.Login.route) },
                     onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
                     onNavigateToReadingDefaults = { navController.navigate(Screen.ReadingDefaults.route) },
                     onNavigateToContentFilter = { navController.navigate(Screen.ContentFilter.route) }
+                )
+            }
+
+            composable(Screen.Login.route) {
+                LoginScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onLoginSuccess = { navController.popBackStack() }
                 )
             }
 
@@ -336,6 +345,7 @@ sealed class Screen(val route: String) {
         fun createRoute(bookId: String): String = "story_review/${Uri.encode(bookId)}"
     }
     object Profile : Screen("profile")
+    object Login : Screen("login")
     object AudioSettings : Screen("audio_settings")
     object ReadingDefaults : Screen("reading_defaults")
     object PageTurnControl : Screen("page_turn_control")

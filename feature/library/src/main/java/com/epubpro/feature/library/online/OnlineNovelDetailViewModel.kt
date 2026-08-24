@@ -3,18 +3,18 @@ package com.epubpro.feature.library.online
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.storage.AiPreferencesManager
-import com.epubpro.domain.model.DownloadState
+import com.epubpro.core.storage.worker.OnlineNovelDownloadScheduler
+import com.epubpro.core.storage.worker.OnlineNovelDownloadWorker
 import com.epubpro.domain.model.OnlineNovelDetail
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
-import com.epubpro.domain.repository.SearchRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.work.WorkInfo
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -46,9 +46,8 @@ class OnlineNovelDetailViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val onlineNovelRepository: OnlineNovelRepository,
     private val bookRepository: BookRepository,
-    private val searchRepository: SearchRepository,
-    private val epubEngine: EpubEngine,
-    private val aiPreferencesManager: AiPreferencesManager
+    private val aiPreferencesManager: AiPreferencesManager,
+    private val onlineDownloadScheduler: OnlineNovelDownloadScheduler
 ) : ViewModel() {
 
     private val novelId: String = checkNotNull(savedStateHandle["novelId"])
@@ -57,29 +56,81 @@ class OnlineNovelDetailViewModel @Inject constructor(
     val uiState: StateFlow<NovelDetailUiState> = _uiState.asStateFlow()
 
     private var checkDownloadedJob: Job? = null
+    private var activeDownloadWorkId: UUID? = null
 
     init {
         loadDetail()
         checkIfDownloaded()
+        observeDownloadWork()
     }
 
     /**
-     * Kiểm tra xem cuốn truyện hiện tại đã có trong cơ sở dữ liệu Tủ Sách nội bộ hay chưa.
-     * Tự động hủy collector trước đó để tránh rò rỉ hoặc chồng chéo coroutine.
+     * Kiểm tra sách đã tải theo onlineNovelId; sách cũ chưa có ID được đối chiếu thêm title/author.
      */
     private fun checkIfDownloaded() {
         checkDownloadedJob?.cancel()
         checkDownloadedJob = viewModelScope.launch {
             bookRepository.getAllBooks().collect { localBooks ->
-                val currentTitle = _uiState.value.novelDetail?.title?.trim()?.lowercase()
-                if (currentTitle != null) {
-                    val downloaded = localBooks.any { it.title.trim().lowercase() == currentTitle }
-                    _uiState.update { it.copy(isDownloaded = downloaded) }
+                val detail = _uiState.value.novelDetail
+                val downloaded = localBooks.any { book ->
+                    book.onlineNovelId == novelId ||
+                        (book.onlineNovelId == null &&
+                            detail != null &&
+                            book.title.trim().equals(detail.title.trim(), ignoreCase = true) &&
+                            book.author.trim().equals(detail.author.trim(), ignoreCase = true))
                 }
+                _uiState.update { it.copy(isDownloaded = downloaded) }
             }
         }
     }
 
+    /**
+     * Quan sát WorkManager để hiển thị progress và kết quả ngay cả khi màn hình được mở lại.
+     */
+    private fun observeDownloadWork() {
+        viewModelScope.launch {
+            onlineDownloadScheduler.observeNovel(novelId).collect { workInfos ->
+                val workInfo = workInfos.firstOrNull { !it.state.isFinished }
+                    ?: workInfos.maxByOrNull { it.runAttemptCount }
+                if (workInfo == null) return@collect
+
+                if (!workInfo.state.isFinished) {
+                    val progress = workInfo.progress.getInt(
+                        OnlineNovelDownloadWorker.KEY_PROGRESS,
+                        0
+                    )
+                    _uiState.update { it.copy(downloadPercent = progress) }
+                    return@collect
+                }
+
+                if (workInfo.id != activeDownloadWorkId) return@collect
+                when (workInfo.state) {
+                    WorkInfo.State.SUCCEEDED -> _uiState.update {
+                        it.copy(
+                            downloadPercent = null,
+                            isDownloaded = true,
+                            userMessage = "Tải toàn bộ file EPUB thành công! Sách đã có trong Tủ Sách."
+                        )
+                    }
+
+                    WorkInfo.State.FAILED -> _uiState.update {
+                        it.copy(
+                            downloadPercent = null,
+                            errorMessage = workInfo.outputData.getString(
+                                OnlineNovelDownloadWorker.KEY_ERROR_MESSAGE
+                            ) ?: "Không thể tải file EPUB"
+                        )
+                    }
+
+                    WorkInfo.State.CANCELLED -> _uiState.update {
+                        it.copy(downloadPercent = null)
+                    }
+
+                    else -> Unit
+                }
+            }
+        }
+    }
     /**
      * Tải thông tin chi tiết và mục lục chương của bộ truyện từ server backend.
      */
@@ -105,48 +156,32 @@ class OnlineNovelDetailViewModel @Inject constructor(
     }
 
     /**
-     * Tải toàn bộ file EPUB của bộ truyện về máy và tự động nạp vào Tủ Sách offline.
+     * Lập lịch tải toàn bộ EPUB trong Worker foreground và giữ checkpoint để retry.
      */
     fun downloadFullEpub() {
         val detail = _uiState.value.novelDetail ?: return
         if (_uiState.value.downloadPercent != null) return
 
+        _uiState.update { it.copy(downloadPercent = 0, errorMessage = null) }
         viewModelScope.launch {
-            val fileName = "${detail.title.replace(Regex("[\\\\/:*?\"<>|]"), "_")}.epub"
-            onlineNovelRepository.downloadEpub(detail.novelId, fileName).collect { state ->
-                when (state) {
-                    is DownloadState.Downloading -> {
-                        _uiState.update { it.copy(downloadPercent = state.progressPercent) }
-                    }
-                    is DownloadState.Success -> {
-                        _uiState.update {
-                            it.copy(
-                                downloadPercent = null,
-                                isDownloaded = true,
-                                userMessage = "Tải toàn bộ file EPUB thành công! Sách đã có trong Tủ Sách."
-                            )
-                        }
-                        runCatching {
-                            val file = File(state.filePath)
-                            val book = epubEngine.parseEpubMetadata(file)
-                            bookRepository.insertBook(book)
-                            epubEngine.indexBookContent(file, book.id, searchRepository)
-                        }
-                    }
-                    is DownloadState.Error -> {
-                        _uiState.update {
-                            it.copy(
-                                downloadPercent = null,
-                                errorMessage = state.message
-                            )
-                        }
-                    }
-                    is DownloadState.Idle -> Unit
+            runCatching {
+                onlineDownloadScheduler.enqueue(
+                    novelId = detail.novelId,
+                    title = detail.title,
+                    author = detail.author
+                )
+            }.onSuccess { workId ->
+                activeDownloadWorkId = workId
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        downloadPercent = null,
+                        errorMessage = error.message ?: "Không thể lập lịch tải file EPUB"
+                    )
                 }
             }
         }
     }
-
     /**
      * Yêu cầu máy chủ backend gọi AI dịch một chương cụ thể.
      *

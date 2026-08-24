@@ -27,6 +27,7 @@ interface BookmarkRepository {
 
 interface SearchRepository {
     suspend fun searchInBook(bookId: String, query: String): List<SearchResultItem>
+    suspend fun clearIndexForBook(bookId: String)
     suspend fun indexBookContent(bookId: String, chapters: List<Pair<Int, Pair<String, String>>>) // index: (title, textContent)
 }
 interface AiRuleRepository {

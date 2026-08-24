@@ -55,9 +55,16 @@ data class TranslateChapterResult(
 
 sealed class DownloadState {
     object Idle : DownloadState()
-    data class Downloading(val progressPercent: Int) : DownloadState()
+    data class Downloading(
+        val progressPercent: Int,
+        val bytesDownloaded: Long = 0L,
+        val totalBytes: Long? = null
+    ) : DownloadState()
     data class Success(val filePath: String) : DownloadState()
-    data class Error(val message: String) : DownloadState()
+    data class Error(
+        val message: String,
+        val isRetryable: Boolean = true
+    ) : DownloadState()
 }
 
 data class ImportJobStatus(

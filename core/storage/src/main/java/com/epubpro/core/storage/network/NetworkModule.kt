@@ -1,6 +1,8 @@
 package com.epubpro.core.storage.network
 
+import com.epubpro.core.storage.AuthPreferencesManager
 import com.epubpro.core.storage.ServerPreferencesManager
+import com.epubpro.domain.repository.AuthRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -33,6 +35,12 @@ abstract class NetworkBindModule {
     abstract fun bindBookBibleRepository(
         impl: BookBibleRepositoryImpl
     ): BookBibleRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAuthRepository(
+        impl: AuthRepositoryImpl
+    ): AuthRepository
 }
 
 @Module
@@ -52,7 +60,8 @@ object NetworkModule {
     fun provideOkHttpClient(
         dynamicBaseUrlInterceptor: DynamicBaseUrlInterceptor,
         fallbackDns: FallbackDns,
-        serverPreferencesManager: ServerPreferencesManager
+        serverPreferencesManager: ServerPreferencesManager,
+        authPreferencesManager: AuthPreferencesManager
     ): OkHttpClient {
         val prettyLogger = HttpLoggingInterceptor.Logger { message ->
             val tag = "API_HTTP"
@@ -85,13 +94,25 @@ object NetworkModule {
             redactHeader("X-Book-Bible-Client-Key")
             redactHeader("X-Api-Key")
             redactHeader("Authorization")
-            level = HttpLoggingInterceptor.Level.BASIC
+            redactHeader("apikey")
+            level = HttpLoggingInterceptor.Level.HEADERS
         }
 
         val authInterceptor = okhttp3.Interceptor { chain ->
             val original = chain.request()
             val url = original.url.toString()
             val builder = original.newBuilder()
+
+            // Gắn Authorization Bearer token vào các request gọi tới Backend EpubPro
+            if (!url.contains("supabase.co")) {
+                val token = authPreferencesManager.getAuthToken()
+                if (!token.isNullOrBlank() && original.header("Authorization") == null) {
+                    builder.header("Authorization", "Bearer $token")
+                    android.util.Log.d("API_HTTP", "🔑 [AUTH] Đã đính kèm Authorization Bearer (${token.take(8)}...) vào request: ${original.method} ${original.url.encodedPath}")
+                } else if (token.isNullOrBlank()) {
+                    android.util.Log.w("API_HTTP", "⚠️ [AUTH] Request ${original.method} ${original.url.encodedPath} KHÔNG có Token (Chưa đăng nhập / Token trống)")
+                }
+            }
 
             if (url.contains("book-bible")) {
                 val clientKey = serverPreferencesManager.getBookBibleClientKey()
@@ -148,5 +169,17 @@ object NetworkModule {
     @Singleton
     fun provideBookBibleApiService(retrofit: Retrofit): BookBibleApiService {
         return retrofit.create(BookBibleApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBackendAuthApiService(retrofit: Retrofit): BackendAuthApiService {
+        return retrofit.create(BackendAuthApiService::class.java)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSupabaseAuthApiService(retrofit: Retrofit): SupabaseAuthApiService {
+        return retrofit.create(SupabaseAuthApiService::class.java)
     }
 }

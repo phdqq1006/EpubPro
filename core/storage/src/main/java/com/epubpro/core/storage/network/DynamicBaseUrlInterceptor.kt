@@ -26,6 +26,38 @@ class DynamicBaseUrlInterceptor @Inject constructor(
      */
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
+        val originalUrl = originalRequest.url
+        val path = originalUrl.encodedPath
+
+        // 1. Nếu request tới Supabase Auth trực tiếp
+        if (originalUrl.host.contains("supabase.co")) {
+            val cleanRequest = originalRequest.newBuilder()
+                .removeHeader(SKIP_DYNAMIC_BASE_URL_HEADER)
+                .build()
+            return chain.proceed(cleanRequest)
+        }
+
+        // 2. Nếu request tới endpoint cấu hình xác thực Backend (/api/auth/...) hoặc chỉ định bỏ qua
+        if (path.startsWith("/api/auth/") || path == "/api/auth/config" || originalRequest.header(SKIP_DYNAMIC_BASE_URL_HEADER) != null) {
+            val currentBaseUrlString = serverPreferencesManager.getBaseUrl()
+            val newBaseUrl = currentBaseUrlString.toHttpUrlOrNull()
+            val finalUrl = if (newBaseUrl != null) {
+                originalUrl.newBuilder()
+                    .scheme(newBaseUrl.scheme)
+                    .host(newBaseUrl.host)
+                    .port(newBaseUrl.port)
+                    .build()
+            } else {
+                originalUrl
+            }
+
+            val cleanRequest = originalRequest.newBuilder()
+                .url(finalUrl)
+                .removeHeader(SKIP_DYNAMIC_BASE_URL_HEADER)
+                .build()
+            return chain.proceed(cleanRequest)
+        }
+
         val overrideBaseUrl = originalRequest.header(BASE_URL_OVERRIDE_HEADER)
         val request = if (overrideBaseUrl != null) {
             originalRequest.newBuilder()
@@ -42,10 +74,10 @@ class DynamicBaseUrlInterceptor @Inject constructor(
                 return chain.proceed(request)
             }
 
-        val originalUrl = request.url
+        val requestUrl = request.url
         
         // Bóc tách relative path segments từ endpoint gốc (bỏ qua /api/v1 ở đầu nếu có)
-        val relativePathSegments = originalUrl.pathSegments
+        val relativePathSegments = requestUrl.pathSegments
             .dropWhile { it.equals("api", ignoreCase = true) || it.equals("v1", ignoreCase = true) }
 
         val newUrlBuilder = newBaseUrl.newBuilder()
@@ -62,7 +94,7 @@ class DynamicBaseUrlInterceptor @Inject constructor(
             newUrlBuilder.addPathSegment(seg)
         }
         
-        newUrlBuilder.encodedQuery(originalUrl.encodedQuery)
+        newUrlBuilder.encodedQuery(requestUrl.encodedQuery)
 
         val newRequest = request.newBuilder()
             .url(newUrlBuilder.build())
@@ -74,5 +106,8 @@ class DynamicBaseUrlInterceptor @Inject constructor(
     companion object {
         /** Header nội bộ dùng để ghi đè Base URL cho riêng một request và được xóa trước khi gửi lên server. */
         const val BASE_URL_OVERRIDE_HEADER = "X-EpubPro-Base-Url-Override"
+
+        /** Header nội bộ chỉ thị bỏ qua việc thay đổi URL động (dùng cho external APIs như Supabase). */
+        const val SKIP_DYNAMIC_BASE_URL_HEADER = "X-Skip-Dynamic-Base-Url"
     }
 }

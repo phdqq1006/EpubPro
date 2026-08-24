@@ -11,6 +11,7 @@ dependencies {
     implementation(project(":domain"))
     implementation(project(":core:common"))
     implementation(project(":core:database"))
+    implementation(project(":core:epub"))
     implementation(project(":core:designsystem"))
 
     implementation(libs.androidx.core.ktx)

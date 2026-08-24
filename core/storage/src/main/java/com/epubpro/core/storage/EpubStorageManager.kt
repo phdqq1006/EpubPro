@@ -52,6 +52,91 @@ class EpubStorageManager @Inject constructor(
         return targetFile
     }
 
+    /**
+     * Trả về cặp file tạm và file hoàn tất dành riêng cho một truyện online.
+     *
+     * @param novelId Định danh ổn định của truyện online.
+     * @return Cặp đường dẫn deterministic để WorkManager có thể tiếp tục sau retry hoặc process death.
+     */
+    fun getOnlineDownloadFiles(novelId: String): OnlineDownloadFiles {
+        val key = stableFileKey(novelId)
+        return OnlineDownloadFiles(
+            temporary = File(booksDir, "online_$key.epub.part"),
+            completed = File(booksDir, "online_$key.epub")
+        )
+    }
+
+    /**
+     * Ghi nối tiếp dữ liệu EPUB vào file tạm với giới hạn dung lượng và callback tiến độ.
+     *
+     * @param inputStream Luồng dữ liệu HTTP cần ghi.
+     * @param targetFile File tạm đích.
+     * @param append True nếu tiếp tục ghi sau số byte đã có.
+     * @param initialBytes Số byte đã có trước khi ghi.
+     * @param totalBytes Tổng số byte dự kiến, có thể null nếu server không cung cấp.
+     * @param onProgress Callback nhận số byte đã ghi và tổng byte dự kiến.
+     * @return Tổng số byte hiện có trong file sau khi ghi.
+     * @throws IllegalStateException Nếu file vượt quá giới hạn tải tối đa.
+     */
+    suspend fun appendOnlineDownload(
+        inputStream: InputStream,
+        targetFile: File,
+        append: Boolean,
+        initialBytes: Long,
+        totalBytes: Long?,
+        onProgress: suspend (downloadedBytes: Long, totalBytes: Long?) -> Unit
+    ): Long {
+        targetFile.parentFile?.mkdirs()
+        var downloadedBytes = if (append) initialBytes else 0L
+        inputStream.use { input ->
+            FileOutputStream(targetFile, append).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    downloadedBytes += read
+                    check(downloadedBytes <= MAX_ONLINE_DOWNLOAD_BYTES) {
+                        "File EPUB tải xuống vượt quá kích thước tối đa cho phép"
+                    }
+                    output.write(buffer, 0, read)
+                    onProgress(downloadedBytes, totalBytes)
+                }
+                output.fd.sync()
+            }
+        }
+        return downloadedBytes
+    }
+
+    /**
+     * Đổi file tạm thành file EPUB hoàn tất bằng rename cùng thư mục đích.
+     *
+     * @param files Cặp file tạm và file hoàn tất của truyện.
+     * @return File EPUB hoàn tất.
+     * @throws IllegalStateException Nếu không thể đổi tên file atomically.
+     */
+    fun promoteOnlineDownload(files: OnlineDownloadFiles): File {
+        if (files.completed.isFile) {
+            files.temporary.delete()
+            return files.completed
+        }
+        check(files.temporary.isFile) { "Không tìm thấy file tải tạm" }
+        check(files.temporary.renameTo(files.completed)) {
+            "Không thể hoàn tất file EPUB tải xuống"
+        }
+        return files.completed
+    }
+
+    /**
+     * Xóa dữ liệu tải tạm và file hoàn tất của một truyện online.
+     *
+     * @param novelId Định danh ổn định của truyện online.
+     */
+    fun deleteOnlineDownloadFiles(novelId: String) {
+        val files = getOnlineDownloadFiles(novelId)
+        files.temporary.delete()
+        files.completed.delete()
+    }
+
     fun saveCoverImage(bookId: String, inputStream: InputStream): String {
         val coverFile = File(coversDir, "$bookId.jpg")
         FileOutputStream(coverFile).use { output ->
@@ -109,6 +194,11 @@ class EpubStorageManager @Inject constructor(
         aiBookDirectory(bookId).deleteRecursively()
     }
 
+    private fun stableFileKey(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+        .take(32)
+
     private fun aiChapterFile(bookId: String, chapterIndex: Int): File =
         File(aiBookDirectory(bookId), "chapter_$chapterIndex.html")
 
@@ -136,4 +226,20 @@ class EpubStorageManager @Inject constructor(
             error("Không thể lưu cache AI")
         }
     }
+
+    companion object {
+        /** Giới hạn kích thước một file EPUB tải online để tránh làm đầy internal storage. */
+        const val MAX_ONLINE_DOWNLOAD_BYTES: Long = 500L * 1024 * 1024
+    }
 }
+
+/**
+ * Các đường dẫn bền vững cho một tác vụ tải EPUB online.
+ *
+ * @property temporary File đang được ghi nối tiếp.
+ * @property completed File đã tải xong và có thể đưa vào thư viện.
+ */
+data class OnlineDownloadFiles(
+    val temporary: File,
+    val completed: File
+)

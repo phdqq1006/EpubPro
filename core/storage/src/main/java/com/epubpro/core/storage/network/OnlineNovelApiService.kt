@@ -137,7 +137,8 @@ interface OnlineNovelApiService {
     @Streaming
     @GET("library/novels/{novel_id}/export/epub")
     suspend fun downloadEpub(
-        @Path("novel_id") novelId: String
+        @Path("novel_id") novelId: String,
+        @Header("Range") range: String? = null
     ): Response<ResponseBody>
 
     /**
