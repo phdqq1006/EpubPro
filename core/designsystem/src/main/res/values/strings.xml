@@ -145,6 +145,12 @@
     <string name="reader_brightness_extra_dim_format">Độ sáng: %1$d%% • Siêu tối</string>
     <string name="reader_brightness_extra_dim_badge">Siêu tối</string>
     <string name="reader_brightness_hud_format">%1$d%%</string>
+    <string name="reader_action_filter">Lọc từ</string>
+    <string name="reader_action_highlight">Tô màu</string>
+    <string name="reader_action_tts_read">Đọc từ đây</string>
+    <string name="reader_action_ai_polish">AI Thuần Việt</string>
+    <string name="reader_filter_added_format">Đã thêm \"%1$s\" vào bộ lọc nội dung</string>
+    <string name="reader_highlight_added">Đã lưu đoạn highlight</string>
 
     <!-- Reading Defaults Screen -->
     <string name="reading_defaults_title">Mặc định đọc</string>

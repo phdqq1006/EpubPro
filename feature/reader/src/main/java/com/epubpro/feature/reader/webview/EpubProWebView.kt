@@ -213,6 +213,7 @@ private fun WebView.captureTransitionFrame(
  * @param onNextChapterPrefetch Callback preload chương kế tiếp ngay khi gesture commit.
  * @param onPreviousChapterPrefetch Callback preload chương trước ngay khi gesture commit.
  * @param onTextSelected Callback khi người dùng bôi đen chọn đoạn văn bản.
+ * @param onAddSelectionToFilter Callback thêm đoạn văn bản đang chọn vào bộ lọc nội dung.
  * @param onCfiChanged Callback báo mã vị trí CFI thay đổi.
  */
 @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
@@ -239,6 +240,7 @@ fun EpubProWebView(
     onNextChapterPrefetch: () -> Unit = {},
     onPreviousChapterPrefetch: () -> Unit = {},
     onTextSelected: (String) -> Unit,
+    onAddSelectionToFilter: (String) -> Unit = {},
     onCfiChanged: (String) -> Unit
 ) {
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -256,6 +258,7 @@ fun EpubProWebView(
     val currentReaderSettings by rememberUpdatedState(settings)
     val currentFilterPreferences by rememberUpdatedState(filterPreferences)
     val currentOnTextSelected by rememberUpdatedState(onTextSelected)
+    val currentOnAddSelectionToFilter by rememberUpdatedState(onAddSelectionToFilter)
     val currentOnCfiChanged by rememberUpdatedState(onCfiChanged)
 
     var loadedHtmlKey by remember { mutableStateOf("") }
@@ -491,8 +494,11 @@ fun EpubProWebView(
     Box(modifier = modifier.fillMaxSize()) {
         AndroidView(
             factory = { context ->
-                WebView(context).apply {
+                ReaderSelectionWebView(context).apply {
                     webViewRef = this
+                    this.onAddSelectionToFilter = { selectedText ->
+                        currentOnAddSelectionToFilter(selectedText)
+                    }
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     this.settings.javaScriptEnabled = true
                     this.settings.domStorageEnabled = false

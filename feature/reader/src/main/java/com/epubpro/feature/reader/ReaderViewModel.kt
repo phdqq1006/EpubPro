@@ -36,6 +36,7 @@ import com.epubpro.domain.model.BookBibleSource
 import com.epubpro.domain.model.BookBibleSourceType
 import com.epubpro.domain.model.Bookmark
 import com.epubpro.domain.model.ContentFilterPreferences
+import com.epubpro.domain.model.ContentFilterRule
 import com.epubpro.domain.model.Highlight
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReadingProgress
@@ -149,6 +150,40 @@ internal fun calculateReaderProgress(state: ReaderUiState): Float {
     }
     return ((currentChapter + pageProgress) / totalChapters.toFloat())
         .coerceIn(0f, 1f)
+}
+
+/**
+ * Bật bộ lọc và thêm selection dưới dạng rule literal, đồng thời tái sử dụng rule trùng đã có.
+ *
+ * @param selectedText Văn bản người dùng chọn trong màn đọc.
+ * @return Cấu hình bộ lọc mới; giữ nguyên cấu hình nếu selection rỗng.
+ */
+internal fun ContentFilterPreferences.withEnabledLiteralRule(
+    selectedText: String
+): ContentFilterPreferences {
+    val normalizedText = selectedText.trim()
+    if (normalizedText.isEmpty()) return this
+
+    val matchingRule = rules.firstOrNull { rule ->
+        !rule.isRegex && rule.pattern.equals(normalizedText, ignoreCase = true)
+    }
+    if (matchingRule != null) {
+        return copy(
+            isFilterEnabled = true,
+            rules = rules.map { rule ->
+                if (rule.id == matchingRule.id) rule.copy(isEnabled = true) else rule
+            }
+        )
+    }
+
+    return copy(
+        isFilterEnabled = true,
+        rules = rules + ContentFilterRule(
+            pattern = normalizedText,
+            isRegex = false,
+            isEnabled = true
+        )
+    )
 }
 
 private data class ChapterHtmlBundle(
@@ -964,6 +999,17 @@ class ReaderViewModel @Inject constructor(
                     createdAt = System.currentTimeMillis()
                 )
             )
+        }
+    }
+
+    /**
+     * Thêm đoạn văn bản đang chọn vào content filter và bật lọc để cập nhật Reader ngay lập tức.
+     *
+     * @param selectedText Văn bản được chọn trong WebView.
+     */
+    fun addSelectionToContentFilter(selectedText: String) {
+        preferencesManager.updateFilterPreferences { preferences ->
+            preferences.withEnabledLiteralRule(selectedText)
         }
     }
 

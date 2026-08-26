@@ -340,6 +340,7 @@ fun ReaderScreen(
                             e.printStackTrace()
                         }
                     },
+                    onAddSelectionToFilter = viewModel::addSelectionToContentFilter,
                     onCfiChanged = viewModel::updateCfiPosition
                 )
             }

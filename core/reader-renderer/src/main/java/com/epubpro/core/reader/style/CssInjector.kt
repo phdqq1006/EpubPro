@@ -1387,9 +1387,9 @@ object CssInjector {
 
                 window.epubproApplyContentFilter = function() {
                     try {
-                        // filterRulesJson là JSON string đã được quote an toàn cho JavaScript,
-                        // nên cần parse hai lần để lấy lại mảng rule thực tế.
-                        var rules = JSON.parse(JSON.parse($filterRulesJson));
+                        // filterRulesJson là JSON string literal đã được quote an toàn cho JavaScript,
+                        // nên chỉ parse một lần để lấy lại mảng rule thực tế.
+                        var rules = JSON.parse($filterRulesJson);
                         var isEnabled = $isFilterEnabled;
                         if (!isEnabled || !rules || rules.length === 0) return;
 

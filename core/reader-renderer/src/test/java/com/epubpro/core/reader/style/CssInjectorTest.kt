@@ -122,7 +122,7 @@ class CssInjectorTest {
     }
 
     /**
-     * Kiểm tra script giải mã đúng danh sách rule đã quote và chỉ chạy sau khi DOM sẵn sàng.
+     * Kiểm tra script chỉ parse một lần danh sách rule đã quote và chạy sau khi DOM sẵn sàng.
      */
     @Test
     fun generateJsBridgeScriptParsesQuotedFilterRulesAfterDomReady() {
@@ -134,7 +134,8 @@ class CssInjectorTest {
             )
         )
 
-        assertTrue(script.contains("var rules = JSON.parse(JSON.parse("))
+        assertTrue(script.contains("var rules = JSON.parse("))
+        assertFalse(script.contains("JSON.parse(JSON.parse("))
         assertTrue(script.contains("document.addEventListener('DOMContentLoaded'"))
         assertTrue(script.contains("quảng cáo"))
     }
