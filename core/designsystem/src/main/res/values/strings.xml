@@ -266,6 +266,7 @@
     <string name="online_library_retry">Thử lại</string>
     <string name="online_library_download">Tải về máy</string>
     <string name="online_action_download_short">Tải về</string>
+    <string name="online_action_update_short">Cập nhật</string>
     <string name="online_library_downloading">Đang tải %1$d%%...</string>
     <string name="online_library_downloaded">Đã có trong tủ sách</string>
     <string name="online_filter_all">Tất cả</string>
@@ -278,6 +279,7 @@
     <string name="online_library_download_failed">Không thể tải “%1$s”. Vui lòng thử lại.</string>
     <string name="online_library_import_failed">Đã tải file nhưng không thể thêm “%1$s” vào Thư viện.</string>
     <string name="online_library_download_success">Đã tải “%1$s” vào Thư viện thành công!</string>
+    <string name="online_library_update_success">Đã cập nhật “%1$s” thành công!</string>
     <string name="online_library_index_failed">Đã thêm “%1$s” vào Thư viện nhưng chưa thể lập chỉ mục tìm kiếm.</string>
     <string name="online_download_percent_format">%1$d%%</string>
     <string name="online_search_clear">Xóa nội dung tìm kiếm</string>

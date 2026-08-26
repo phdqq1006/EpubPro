@@ -39,39 +39,46 @@ class OnlineNovelDownloadScheduler @Inject constructor(
      * @param novelId Định danh truyện online.
      * @param title Tiêu đề hiển thị.
      * @param author Tác giả để giữ metadata đầu vào cho worker.
+     * @param forceUpdate True nếu cần tải lại file EPUB dù bản cũ đã tồn tại.
      * @return UUID của WorkRequest đang xử lý.
      */
-    suspend fun enqueue(novelId: String, title: String, author: String): UUID = withContext(Dispatchers.IO) {
+    suspend fun enqueue(
+        novelId: String,
+        title: String,
+        author: String,
+        forceUpdate: Boolean = false
+    ): UUID = withContext(Dispatchers.IO) {
         enqueueMutex.withLock {
-        val uniqueName = uniqueWorkName(novelId)
-        val existing = workManager.getWorkInfosForUniqueWork(uniqueName).get()
-            .firstOrNull { !it.state.isFinished }
-        if (existing != null) return@withContext existing.id
+            val uniqueName = uniqueWorkName(novelId)
+            val existing = workManager.getWorkInfosForUniqueWork(uniqueName).get()
+                .firstOrNull { !it.state.isFinished }
+            if (existing != null) return@withContext existing.id
 
-        val request = OneTimeWorkRequestBuilder<OnlineNovelDownloadWorker>()
-            .setInputData(
-                workDataOf(
-                    OnlineNovelDownloadWorker.KEY_NOVEL_ID to novelId,
-                    OnlineNovelDownloadWorker.KEY_TITLE to title,
-                    OnlineNovelDownloadWorker.KEY_AUTHOR to author
+            val request = OneTimeWorkRequestBuilder<OnlineNovelDownloadWorker>()
+                .setInputData(
+                    workDataOf(
+                        OnlineNovelDownloadWorker.KEY_NOVEL_ID to novelId,
+                        OnlineNovelDownloadWorker.KEY_TITLE to title,
+                        OnlineNovelDownloadWorker.KEY_AUTHOR to author,
+                        OnlineNovelDownloadWorker.KEY_FORCE_UPDATE to forceUpdate
+                    )
                 )
-            )
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .setBackoffCriteria(
-                androidx.work.BackoffPolicy.EXPONENTIAL,
-                30L,
-                TimeUnit.SECONDS
-            )
-            .addTag(TAG)
-            .addTag(tagForNovel(novelId))
-            .build()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .setBackoffCriteria(
+                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    30L,
+                    TimeUnit.SECONDS
+                )
+                .addTag(TAG)
+                .addTag(tagForNovel(novelId))
+                .build()
 
-        workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
-        request.id
+            workManager.enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, request)
+            request.id
         }
     }
 

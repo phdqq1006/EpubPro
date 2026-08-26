@@ -115,15 +115,38 @@ class EpubStorageManager @Inject constructor(
      * @throws IllegalStateException Nếu không thể đổi tên file atomically.
      */
     fun promoteOnlineDownload(files: OnlineDownloadFiles): File {
-        if (files.completed.isFile) {
-            files.temporary.delete()
-            return files.completed
-        }
         check(files.temporary.isFile) { "Không tìm thấy file tải tạm" }
-        check(files.temporary.renameTo(files.completed)) {
-            "Không thể hoàn tất file EPUB tải xuống"
+
+        if (files.completed.isFile) {
+            val previousFile = File(files.completed.parentFile, files.completed.name + ".previous")
+            previousFile.delete()
+            check(files.completed.renameTo(previousFile)) {
+                "Không thể chuẩn bị file EPUB cũ để cập nhật"
+            }
+            if (!files.temporary.renameTo(files.completed)) {
+                previousFile.renameTo(files.completed)
+                error("Không thể hoàn tất file EPUB tải xuống")
+            }
+            previousFile.delete()
+        } else {
+            check(files.temporary.renameTo(files.completed)) {
+                "Không thể hoàn tất file EPUB tải xuống"
+            }
         }
+
+        check(files.completed.isFile) { "Không tìm thấy file EPUB đã hoàn tất" }
         return files.completed
+    }
+
+    /**
+     * Xóa riêng file tạm trước khi bắt đầu một lần cập nhật EPUB mới.
+     *
+     * File EPUB đang có trong thư viện được giữ nguyên cho tới khi file mới tải xong.
+     *
+     * @param novelId Định danh ổn định của truyện online.
+     */
+    fun clearOnlineDownloadTemporary(novelId: String) {
+        getOnlineDownloadFiles(novelId).temporary.delete()
     }
 
     /**

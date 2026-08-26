@@ -88,22 +88,27 @@ fun OnlineLibraryScreen(
     }
 
     var pendingDownloadNovel by remember { mutableStateOf<OnlineNovelSummary?>(null) }
+    var pendingDownloadIsUpdate by remember { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ ->
-        pendingDownloadNovel?.let { viewModel.downloadNovel(it) }
+        pendingDownloadNovel?.let {
+            viewModel.downloadNovel(it, forceUpdate = pendingDownloadIsUpdate)
+        }
         pendingDownloadNovel = null
+        pendingDownloadIsUpdate = false
     }
 
-    val onStartDownload: (OnlineNovelSummary) -> Unit = { novel ->
+    val onStartDownload: (OnlineNovelSummary, Boolean) -> Unit = { novel, forceUpdate ->
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             pendingDownloadNovel = novel
+            pendingDownloadIsUpdate = forceUpdate
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            viewModel.downloadNovel(novel)
+            viewModel.downloadNovel(novel, forceUpdate = forceUpdate)
         }
     }
 
@@ -428,7 +433,8 @@ fun OnlineLibraryScreen(
                                 isDownloaded = isDownloaded,
                                 downloadPercent = downloadPercent,
                                 onClick = { onNovelClick(novel.novelId) },
-                                onDownload = { onStartDownload(novel) }
+                                onDownload = { onStartDownload(novel, false) },
+                                onUpdate = { onStartDownload(novel, true) }
                             )
                         }
                     }
@@ -449,6 +455,7 @@ fun OnlineLibraryScreen(
  * @param downloadPercent Phần trăm tiến độ tải sách (null nếu không trong tiến trình tải).
  * @param onClick Callback khi người dùng nhấn vào truyện.
  * @param onDownload Callback khi người dùng nhấn nút tải sách.
+ * @param onUpdate Callback khi nguoi dung nhan nut cap nhat file EPUB.
  */
 @Composable
 fun OnlineNovelCard(
@@ -456,7 +463,8 @@ fun OnlineNovelCard(
     isDownloaded: Boolean,
     downloadPercent: Int?,
     onClick: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    onUpdate: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -675,35 +683,25 @@ fun OnlineNovelCard(
                         }
                     }
                 } else if (isDownloaded) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                        shape = RoundedCornerShape(10.dp),
+                    Button(
+                        onClick = onUpdate,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(34.dp)
+                            .height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = stringResource(R.string.online_library_downloaded),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = stringResource(R.string.online_action_update_short),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 } else {
                     Button(

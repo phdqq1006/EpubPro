@@ -49,19 +49,23 @@ fun OnlineNovelDetailScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
+    var pendingForceUpdate by remember { mutableStateOf(false) }
+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ ->
-        viewModel.downloadFullEpub()
+        viewModel.downloadFullEpub(forceUpdate = pendingForceUpdate)
+        pendingForceUpdate = false
     }
 
-    val onDownloadClick = {
+    val onDownloadClick: (Boolean) -> Unit = { forceUpdate ->
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            pendingForceUpdate = forceUpdate
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            viewModel.downloadFullEpub()
+            viewModel.downloadFullEpub(forceUpdate = forceUpdate)
         }
     }
 
@@ -130,7 +134,8 @@ fun OnlineNovelDetailScreen(
                             detail = detail,
                             isDownloaded = uiState.isDownloaded,
                             downloadPercent = uiState.downloadPercent,
-                            onDownloadClick = onDownloadClick
+                            onDownloadClick = { onDownloadClick(false) },
+                            onUpdateClick = { onDownloadClick(true) }
                         )
                     }
 
@@ -202,13 +207,15 @@ fun OnlineNovelDetailScreen(
  * @param isDownloaded Cờ cho biết truyện này đã được tải về máy hay chưa.
  * @param downloadPercent Phần trăm tiến độ tải sách.
  * @param onDownloadClick Callback khi nhấn nút tải trọn bộ file EPUB.
+ * @param onUpdateClick Callback khi nguoi dung nhan nut cap nhat file EPUB.
  */
 @Composable
 private fun NovelDetailHeader(
     detail: OnlineNovelDetail,
     isDownloaded: Boolean,
     downloadPercent: Int?,
-    onDownloadClick: () -> Unit
+    onDownloadClick: () -> Unit,
+    onUpdateClick: () -> Unit
 ) {
     var isDescriptionExpanded by remember { mutableStateOf(false) }
 
@@ -306,20 +313,16 @@ private fun NovelDetailHeader(
                 }
             } else if (isDownloaded) {
                 Button(
-                    onClick = { /* Already in library */ },
+                    onClick = onUpdateClick,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                    Icon(Icons.Default.Refresh, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = stringResource(R.string.online_library_downloaded),
+                        text = stringResource(R.string.online_action_update_short),
                         fontWeight = FontWeight.Bold
                     )
                 }

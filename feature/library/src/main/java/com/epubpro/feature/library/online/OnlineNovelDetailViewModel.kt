@@ -175,8 +175,10 @@ class OnlineNovelDetailViewModel @Inject constructor(
 
     /**
      * Lập lịch tải toàn bộ EPUB trong Worker foreground và giữ checkpoint để retry.
+     *
+     * @param forceUpdate True nếu cần tải lại full.epub mới từ server và thay bản cũ.
      */
-    fun downloadFullEpub() {
+    fun downloadFullEpub(forceUpdate: Boolean = false) {
         val detail = _uiState.value.novelDetail ?: return
         if (_uiState.value.downloadPercent != null) return
 
@@ -188,7 +190,8 @@ class OnlineNovelDetailViewModel @Inject constructor(
                 onlineDownloadScheduler.enqueue(
                     novelId = detail.novelId,
                     title = detail.title,
-                    author = detail.author
+                    author = detail.author,
+                    forceUpdate = forceUpdate
                 )
             }.onSuccess { workId ->
                 activeDownloadWorkId = workId
@@ -241,7 +244,8 @@ class OnlineNovelDetailViewModel @Inject constructor(
                     }
                     val updatedDetail = state.novelDetail?.copy(
                         chapters = updatedChapters ?: emptyList(),
-                        translatedChapters = (state.novelDetail.translatedChapters + 1).coerceAtMost(state.novelDetail.totalChapters)
+                        translatedChapters = (state.novelDetail.translatedChapters + 1)
+                            .coerceAtMost(state.novelDetail.totalChapters)
                     )
                     state.copy(
                         translatingChapterIndex = null,

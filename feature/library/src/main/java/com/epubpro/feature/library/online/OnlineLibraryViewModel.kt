@@ -1,24 +1,24 @@
 package com.epubpro.feature.library.online
 
 import android.net.Uri
-import androidx.lifecycle.ViewModel
 import androidx.annotation.StringRes
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.epubpro.core.designsystem.R
 import com.epubpro.core.storage.worker.EpubImportScheduler
 import com.epubpro.core.storage.worker.OnlineNovelDownloadScheduler
 import com.epubpro.core.storage.worker.OnlineNovelDownloadWorker
 import com.epubpro.domain.model.Book
-import com.epubpro.feature.library.UserMessage
 import com.epubpro.domain.model.OnlineNovelSummary
 import com.epubpro.domain.repository.BookRepository
 import com.epubpro.domain.repository.OnlineNovelRepository
+import com.epubpro.feature.library.UserMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import androidx.work.WorkInfo
-import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -33,7 +33,7 @@ data class OnlineLibraryUiState(
     val isRefreshing: Boolean = false,
     val isUploading: Boolean = false,
     @StringRes val loadErrorRes: Int? = null,
-    val downloadingNovels: Map<String, Int> = emptyMap(), // novelId -> percent
+    val downloadingNovels: Map<String, Int> = emptyMap(),
     val downloadedNovelIds: Set<String> = emptySet()
 )
 
@@ -108,6 +108,7 @@ class OnlineLibraryViewModel @Inject constructor(
     val events = _events.receiveAsFlow()
     private var localBooks: List<Book> = emptyList()
     private var loadNovelsJob: Job? = null
+
     init {
         loadNovels()
         observeDownloadedBooks()
@@ -142,6 +143,7 @@ class OnlineLibraryViewModel @Inject constructor(
 
     private val pendingDownloadNovelIds = mutableSetOf<String>()
     private val trackedDownloadWorkIds = mutableMapOf<String, UUID>()
+    private val forceUpdateNovelIds = mutableSetOf<String>()
 
     /**
      * Đồng bộ tiến độ các job WorkManager đang tải với trạng thái giao diện và thông báo kết quả.
@@ -187,6 +189,8 @@ class OnlineLibraryViewModel @Inject constructor(
                     trackedDownloadWorkIds.remove(novelId)
                     pendingDownloadNovelIds.remove(novelId)
 
+                    val wasUpdate = forceUpdateNovelIds.remove(novelId)
+
                     val title = finishedWork.outputData.getString(OnlineNovelDownloadWorker.KEY_TITLE)
                         ?: _uiState.value.novels.firstOrNull { it.novelId == novelId }?.title
                         ?: novelId
@@ -194,9 +198,16 @@ class OnlineLibraryViewModel @Inject constructor(
                     when (finishedWork.state) {
                         WorkInfo.State.SUCCEEDED -> {
                             refreshDownloadedNovelIds()
+                            val messageRes = if (
+                                wasUpdate
+                            ) {
+                                R.string.online_library_update_success
+                            } else {
+                                R.string.online_library_download_success
+                            }
                             _events.send(
                                 UserMessage(
-                                    textRes = R.string.online_library_download_success,
+                                    textRes = messageRes,
                                     formatArgs = listOf(title)
                                 )
                             )
@@ -217,10 +228,11 @@ class OnlineLibraryViewModel @Inject constructor(
             }
         }
     }
+
     /**
      * Tải danh sách truyện từ máy chủ backend hoặc làm mới lại danh mục truyện online.
      *
-     * @param isRefresh True nếu là thao tác làm mới danh sách (kéo để làm mới hoặc bấm nút reload).
+     * @param isRefresh True nếu là thao tác làm mới (kéo để làm mới hoặc bấm nút reload).
      */
     fun loadNovels(isRefresh: Boolean = false) {
         if (loadNovelsJob?.isActive == true) return
@@ -315,9 +327,13 @@ class OnlineLibraryViewModel @Inject constructor(
      * Lập lịch tải file EPUB trong Worker foreground để có thể chạy nhiều truyện song song.
      *
      * @param novel Đối tượng tóm tắt của truyện cần tải xuống.
+     * @param forceUpdate True nếu cần tải lại full.epub mới từ server và thay bản cũ.
      */
-    fun downloadNovel(novel: OnlineNovelSummary) {
+    fun downloadNovel(novel: OnlineNovelSummary, forceUpdate: Boolean = false) {
         if (_uiState.value.downloadingNovels.containsKey(novel.novelId)) return
+        if (forceUpdate) {
+            forceUpdateNovelIds.add(novel.novelId)
+        }
 
         pendingDownloadNovelIds.add(novel.novelId)
         _uiState.update { state ->
@@ -330,12 +346,14 @@ class OnlineLibraryViewModel @Inject constructor(
                 onlineDownloadScheduler.enqueue(
                     novelId = novel.novelId,
                     title = novel.title,
-                    author = novel.author
+                    author = novel.author,
+                    forceUpdate = forceUpdate
                 )
             }.onSuccess { workId ->
                 pendingDownloadNovelIds.remove(novel.novelId)
                 trackedDownloadWorkIds[novel.novelId] = workId
             }.onFailure {
+                forceUpdateNovelIds.remove(novel.novelId)
                 pendingDownloadNovelIds.remove(novel.novelId)
                 trackedDownloadWorkIds.remove(novel.novelId)
                 _uiState.update { state ->
@@ -350,6 +368,7 @@ class OnlineLibraryViewModel @Inject constructor(
             }
         }
     }
+
     /**
      * Chuẩn bị và lập lịch tải file EPUB lên máy chủ backend thông qua [EpubImportScheduler].
      *

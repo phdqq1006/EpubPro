@@ -54,6 +54,7 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val novelId = inputData.getString(KEY_NOVEL_ID) ?: return Result.failure()
         val title = inputData.getString(KEY_TITLE) ?: novelId
+        val forceUpdate = inputData.getBoolean(KEY_FORCE_UPDATE, false)
         val files = storageManager.getOnlineDownloadFiles(novelId)
         val notificationId = notificationIdFor(novelId)
 
@@ -61,8 +62,14 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         updateForeground(title, appContext.getString(R.string.online_download_notification_starting), 0, notificationId)
 
         try {
+            if (forceUpdate && runAttemptCount == 0) {
+                checkpointStore.clear(novelId)
+                storageManager.clearOnlineDownloadTemporary(novelId)
+            }
+
             var completedFile = files.completed
-            if (!completedFile.isFile) {
+            var downloadedNewFile = false
+            if (forceUpdate || !completedFile.isFile) {
                 checkpointStore.savePhase(novelId, OnlineNovelDownloadCheckpointStore.PHASE_DOWNLOAD)
                 var terminalError: DownloadState.Error? = null
                 onlineNovelRepository.downloadEpub(
@@ -93,7 +100,8 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
                         }
 
                         is DownloadState.Success -> {
-                            completedFile = storageManager.promoteOnlineDownload(files)
+                            completedFile = files.temporary
+                            downloadedNewFile = true
                         }
 
                         is DownloadState.Error -> terminalError = state
@@ -107,7 +115,11 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
                     }
                     showErrorNotification(title, notificationId)
                     if (!error.isRetryable) {
-                        storageManager.deleteOnlineDownloadFiles(novelId)
+                        if (forceUpdate) {
+                            storageManager.clearOnlineDownloadTemporary(novelId)
+                        } else {
+                            storageManager.deleteOnlineDownloadFiles(novelId)
+                        }
                         checkpointStore.clear(novelId)
                     }
                     return Result.failure(
@@ -121,12 +133,16 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
             }
 
             checkpointStore.savePhase(novelId, OnlineNovelDownloadCheckpointStore.PHASE_IMPORT)
-            val book = try {
-                epubEngine.parseEpubMetadataStrict(completedFile).copy(onlineNovelId = novelId)
+            val parsedBook = try {
+                epubEngine.parseEpubMetadataStrict(completedFile).copy(id = files.completed.name, onlineNovelId = novelId)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                storageManager.deleteOnlineDownloadFiles(novelId)
+                if (forceUpdate) {
+                    storageManager.clearOnlineDownloadTemporary(novelId)
+                } else {
+                    storageManager.deleteOnlineDownloadFiles(novelId)
+                }
                 checkpointStore.clear(novelId)
                 showErrorNotification(title, notificationId)
                 return Result.failure(
@@ -140,7 +156,25 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
                 )
             }
 
+            if (downloadedNewFile) {
+                completedFile = storageManager.promoteOnlineDownload(files)
+            }
+            val previousBook = bookRepository.getBookById(parsedBook.id)
+            val book = if (previousBook == null) {
+                parsedBook.copy(filePath = completedFile.absolutePath)
+            } else {
+                parsedBook.copy(
+                    filePath = completedFile.absolutePath,
+                    coverPath = previousBook.coverPath,
+                    addedAt = previousBook.addedAt,
+                    lastReadAt = previousBook.lastReadAt
+                )
+            }
+
             bookRepository.insertBook(book)
+            if (forceUpdate) {
+                searchRepository.clearIndexForBook(book.id)
+            }
             checkpointStore.savePhase(novelId, OnlineNovelDownloadCheckpointStore.PHASE_INDEX)
             val checkpoint = checkpointStore.get(novelId)
             val totalChapters = book.totalChapters.coerceAtLeast(1)
@@ -316,6 +350,7 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         const val KEY_NOVEL_ID = "online_download_novel_id"
         const val KEY_TITLE = "online_download_title"
         const val KEY_AUTHOR = "online_download_author"
+        const val KEY_FORCE_UPDATE = "online_download_force_update"
         const val KEY_PHASE = "online_download_phase"
         const val KEY_PROGRESS = "online_download_progress"
         const val KEY_BYTES_DOWNLOADED = "online_download_bytes_downloaded"
