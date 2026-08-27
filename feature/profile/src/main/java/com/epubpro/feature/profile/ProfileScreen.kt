@@ -69,6 +69,7 @@ fun ProfileScreen(
     var showAccountDetailDialog by rememberSaveable { mutableStateOf(false) }
 
     val authState by viewModel.authState.collectAsState()
+    val readerSettings by viewModel.readerSettings.collectAsState()
     val scrollState = rememberScrollState()
 
     Column(
@@ -137,6 +138,14 @@ fun ProfileScreen(
                 icon = Icons.Default.Palette,
                 onClick = { },
                 enabled = false
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            ProfileSwitchItem(
+                title = stringResource(R.string.profile_auto_resume_last_book_title),
+                subtitle = stringResource(R.string.profile_auto_resume_last_book_subtitle),
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                checked = readerSettings.autoResumeLastBookOnStartup,
+                onCheckedChange = viewModel::setAutoResumeLastBook
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
             ProfileCardItem(
@@ -861,6 +870,72 @@ private fun AccountInfoRow(
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+/**
+ * Một mục cài đặt dạng Switch có nhãn, phụ đề, biểu tượng và công tắc bật/tắt.
+ *
+ * @param title Tiêu đề của mục cài đặt.
+ * @param subtitle Mô tả phụ giải thích ý nghĩa tính năng.
+ * @param icon Biểu tượng minh họa.
+ * @param checked Trạng thái bật/tắt hiện tại của công tắc.
+ * @param onCheckedChange Callback khi người dùng thay đổi trạng thái công tắc.
+ * @param enabled Trạng thái khả dụng của mục cài đặt.
+ */
+@Composable
+fun ProfileSwitchItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    val titleColor = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    val iconColor = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = { onCheckedChange(!checked) })
+            .padding(horizontal = 18.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(24.dp)
+        )
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = titleColor
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled
         )
     }
 }

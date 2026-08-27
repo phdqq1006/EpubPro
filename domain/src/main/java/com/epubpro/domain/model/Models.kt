@@ -165,7 +165,8 @@ data class ReaderSettings(
     val enableKeyboardNavigation: Boolean = true,
     val enableVolumeKeyNavigation: Boolean = false,
     val pageTurnSpeedMs: Int = 220,
-    val brightness: Float = 0.5f
+    val brightness: Float = 0.5f,
+    val autoResumeLastBookOnStartup: Boolean = false
 ) {
     val marginDp: Int get() = (marginLeftDp + marginRightDp) / 2
 }

@@ -40,6 +40,12 @@ interface BookDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveReadingProgress(progress: ReadingProgressEntity)
+
+    @Query("SELECT * FROM books WHERE lastReadAt > 0 ORDER BY lastReadAt DESC LIMIT 1")
+    suspend fun getLatestReadBook(): BookEntity?
+
+    @Query("SELECT * FROM reading_progress WHERE bookId = :bookId LIMIT 1")
+    suspend fun getReadingProgressDirect(bookId: String): ReadingProgressEntity?
 }
 
 @Dao

@@ -102,6 +102,8 @@
     <string name="profile_content_filter_subtitle">Xóa các đoạn văn bản chứa từ khóa</string>
     <string name="profile_page_turn_gesture_title">Cử chỉ vuốt &amp; Chuyển trang</string>
     <string name="profile_page_turn_gesture_subtitle">Phím âm lượng, chạm mép màn hình, cuộn dọc</string>
+    <string name="profile_auto_resume_last_book_title">Tự động mở truyện vừa đọc</string>
+    <string name="profile_auto_resume_last_book_subtitle">Mở thẳng vào chương sách đang đọc dở khi khởi động ứng dụng</string>
     <string name="profile_stat_books_title">Đã đọc</string>
     <string name="profile_stat_streak_title">Ngày liên tục</string>
     <string name="profile_stat_hours_title">Giờ đọc</string>

@@ -23,6 +23,21 @@ interface BookRepository {
     fun getReadingProgress(bookId: String): Flow<ReadingProgress?>
     fun getAllReadingProgress(): Flow<List<ReadingProgress>>
     suspend fun saveReadingProgress(progress: ReadingProgress)
+
+    /**
+     * Lấy cuốn sách có thời điểm đọc gần nhất ([Book.lastReadAt] > 0).
+     *
+     * @return Đối tượng [Book] đọc gần nhất hoặc null nếu chưa có cuốn sách nào được đọc.
+     */
+    suspend fun getLatestReadBook(): Book?
+
+    /**
+     * Lấy trực tiếp tiến độ đọc của một cuốn sách.
+     *
+     * @param bookId Định danh cuốn sách.
+     * @return Bản ghi [ReadingProgress] hoặc null nếu chưa lưu tiến độ.
+     */
+    suspend fun getReadingProgressDirect(bookId: String): ReadingProgress?
 }
 
 interface BookmarkRepository {

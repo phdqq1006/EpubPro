@@ -99,8 +99,18 @@ class ReaderPreferencesManager @Inject constructor(
             .putBoolean(KEY_ENABLE_VOLUME_KEY_NAV, normalized.enableVolumeKeyNavigation)
             .putInt(KEY_PAGE_TURN_SPEED_MS, normalized.pageTurnSpeedMs)
             .putFloat(KEY_READER_BRIGHTNESS, normalized.brightness)
+            .putBoolean(KEY_AUTO_RESUME_LAST_BOOK, normalized.autoResumeLastBookOnStartup)
             .apply()
         _settings.value = normalized
+    }
+
+    /**
+     * Bật hoặc tắt chế độ tự động mở cuốn sách vừa đọc gần nhất khi khởi động ứng dụng.
+     *
+     * @param enabled true để mở thẳng vào cuốn sách vừa đọc, false để mở Kệ sách mặc định.
+     */
+    fun setAutoResumeLastBookOnStartup(enabled: Boolean) {
+        updateSettings { it.copy(autoResumeLastBookOnStartup = enabled) }
     }
 
     private fun readSettings(): ReaderSettings {
@@ -140,7 +150,8 @@ class ReaderPreferencesManager @Inject constructor(
             enableKeyboardNavigation = prefs.getBoolean(KEY_ENABLE_KEYBOARD_NAV, true),
             enableVolumeKeyNavigation = prefs.getBoolean(KEY_ENABLE_VOLUME_KEY_NAV, false),
             pageTurnSpeedMs = normalizePageTurnSpeed(prefs.getInt(KEY_PAGE_TURN_SPEED_MS, 220)),
-            brightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 0.5f).coerceIn(0.0f, 1.0f)
+            brightness = prefs.getFloat(KEY_READER_BRIGHTNESS, 0.5f).coerceIn(0.0f, 1.0f),
+            autoResumeLastBookOnStartup = prefs.getBoolean(KEY_AUTO_RESUME_LAST_BOOK, false)
         )
     }
 
@@ -285,6 +296,7 @@ class ReaderPreferencesManager @Inject constructor(
         private const val KEY_ENABLE_VOLUME_KEY_NAV = "enable_volume_key_nav"
         private const val KEY_PAGE_TURN_SPEED_MS = "page_turn_speed_ms"
         private const val KEY_READER_BRIGHTNESS = "reader_brightness"
+        private const val KEY_AUTO_RESUME_LAST_BOOK = "auto_resume_last_book_on_startup"
         private const val KEY_FILTER_ENABLED = "content_filter_enabled"
         private const val KEY_FILTER_RULES = "content_filter_rules"
     }

@@ -53,4 +53,10 @@ class ReaderPreferencesMigrationTest {
         assertEquals(0.65f, (0.65f).coerceIn(0.0f, 1.0f), 0.001f)
         assertEquals(1.0f, (1.8f).coerceIn(0.0f, 1.0f), 0.001f)
     }
+
+    @Test
+    fun autoResumeLastBookOnStartupDefaultsToFalse() {
+        val settings = com.epubpro.domain.model.ReaderSettings()
+        org.junit.Assert.assertFalse(settings.autoResumeLastBookOnStartup)
+    }
 }
