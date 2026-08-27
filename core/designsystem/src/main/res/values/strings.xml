@@ -85,6 +85,13 @@
     <string name="profile_content_filter_title">Lọc nội dung</string>
     <string name="profile_coming_soon">Sắp có</string>
     <string name="profile_content_filter_subtitle">Xóa các đoạn văn bản chứa từ khóa</string>
+    <string name="profile_page_turn_gesture_title">Cử chỉ vuốt &amp; Chuyển trang</string>
+    <string name="profile_page_turn_gesture_subtitle">Phím âm lượng, chạm mép màn hình, cuộn dọc</string>
+    <string name="profile_stat_books_title">Đã đọc</string>
+    <string name="profile_stat_streak_title">Ngày liên tục</string>
+    <string name="profile_stat_hours_title">Giờ đọc</string>
+    <string name="profile_vip_badge">VIP</string>
+    <string name="profile_footer_version_note">EpubPro v2.4.0 • Made with ❤️ for Book Lovers</string>
     <string name="profile_navigate_to_format">Đi tới %1$s</string>
 
     <!-- Audio Settings Screen -->
