@@ -49,6 +49,7 @@ class EpubImportWorker @AssistedInject constructor(
         val isTranslated = inputData.getBoolean(KEY_IS_TRANSLATED, true)
         val autoScanCharacters = inputData.getBoolean(KEY_AUTO_SCAN_CHARACTERS, true)
         val novelId = inputData.getString(KEY_NOVEL_ID)
+        val contentType = inputData.getString(KEY_CONTENT_TYPE)
 
         createNotificationChannel()
 
@@ -74,7 +75,9 @@ class EpubImportWorker @AssistedInject constructor(
                 filePath = filePath,
                 isTranslated = isTranslated,
                 novelId = novelId,
-                autoScanCharacters = autoScanCharacters
+                autoScanCharacters = autoScanCharacters,
+                contentType = contentType,
+                originalName = originalName
             )
 
             val initialJob = uploadResult.getOrElse { error ->
@@ -343,6 +346,7 @@ class EpubImportWorker @AssistedInject constructor(
         const val KEY_IS_TRANSLATED = "is_translated"
         const val KEY_AUTO_SCAN_CHARACTERS = "auto_scan_characters"
         const val KEY_NOVEL_ID = "novel_id"
+        const val KEY_CONTENT_TYPE = "content_type"
 
         const val KEY_PROGRESS = "progress"
         const val KEY_CURRENT_STEP = "current_step"

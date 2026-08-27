@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.epubpro.core.designsystem.R
+import com.epubpro.core.bookconverter.BookConversionException
 import com.epubpro.core.reader.engine.EpubEngine
 import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.EpubStorageManager
@@ -17,6 +18,8 @@ import com.epubpro.core.storage.TtsWidgetState
 import com.epubpro.core.storage.TtsWidgetStateStore
 import com.epubpro.core.storage.worker.EpubImportScheduler
 import com.epubpro.core.storage.worker.EpubImportWorker
+import com.epubpro.core.storage.worker.LocalBookImportScheduler
+import com.epubpro.core.storage.worker.LocalBookImportWorker
 import com.epubpro.domain.model.Book
 import com.epubpro.domain.model.ImportJobStatus
 import com.epubpro.domain.repository.BookBibleRepository
@@ -61,7 +64,8 @@ data class LibraryUiState(
     val totalBookCount: Int = 0,
     val isLoading: Boolean = false,
     val searchQuery: String = "",
-    val uploadJobStatus: ImportJobStatus? = null
+    val uploadJobStatus: ImportJobStatus? = null,
+    val localImportJobStatus: ImportJobStatus? = null
 )
 
 /**
@@ -112,6 +116,7 @@ class LibraryViewModel @Inject constructor(
     private val storageManager: EpubStorageManager,
     private val epubEngine: EpubEngine,
     private val epubImportScheduler: EpubImportScheduler,
+    private val localBookImportScheduler: LocalBookImportScheduler,
     private val snapshotStore: ReaderResumeSnapshotStore,
     private val ttsPlaybackSnapshotStore: TtsPlaybackSnapshotStore,
     private val ttsWidgetStateStore: TtsWidgetStateStore,
@@ -122,11 +127,15 @@ class LibraryViewModel @Inject constructor(
     private val _events = Channel<UserMessage>(capacity = Channel.BUFFERED)
     val events = _events.receiveAsFlow()
     private val _uploadJobState = MutableStateFlow<ImportJobStatus?>(null)
+    private val _localImportJobState = MutableStateFlow<ImportJobStatus?>(null)
     private var isDialogDismissedByUser = false
     private var hasActiveUploadSession = false
+    private var isLocalDialogDismissedByUser = false
+    private var hasActiveLocalImportSession = false
 
     init {
         observeImportWorkerProgress()
+        observeLocalImportWorkerProgress()
     }
 
     private val bookItems = combine(
@@ -154,8 +163,9 @@ class LibraryViewModel @Inject constructor(
     val uiState: StateFlow<LibraryUiState> = combine(
         bookItems,
         _searchQuery,
-        _uploadJobState
-    ) { items, query, uploadStatus ->
+        _uploadJobState,
+        _localImportJobState
+    ) { items, query, uploadStatus, localImportStatus ->
         val filtered = if (query.isBlank()) items else items.filter {
             it.book.title.contains(query, ignoreCase = true) ||
                 it.book.author.contains(query, ignoreCase = true)
@@ -165,7 +175,8 @@ class LibraryViewModel @Inject constructor(
             totalBookCount = items.size,
             isLoading = false,
             searchQuery = query,
-            uploadJobStatus = uploadStatus
+            uploadJobStatus = uploadStatus,
+            localImportJobStatus = localImportStatus
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), LibraryUiState(isLoading = true))
 
@@ -252,6 +263,66 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /** Lắng nghe tiến độ chuyển đổi file local từ [LocalBookImportWorker]. */
+    private fun observeLocalImportWorkerProgress() {
+        viewModelScope.launch {
+            WorkManager.getInstance(context)
+                .getWorkInfosByTagFlow(LocalBookImportWorker.TAG)
+                .collect { workInfos ->
+                    val activeWork = workInfos.lastOrNull { !it.state.isFinished }
+                        ?: workInfos.lastOrNull()
+                    if (activeWork == null) return@collect
+
+                    when (activeWork.state) {
+                        WorkInfo.State.ENQUEUED,
+                        WorkInfo.State.RUNNING -> {
+                            hasActiveLocalImportSession = true
+                            if (!isLocalDialogDismissedByUser) {
+                                _localImportJobState.value = ImportJobStatus(
+                                    jobId = activeWork.id.toString(),
+                                    novelId = null,
+                                    title = activeWork.progress.getString(LocalBookImportWorker.KEY_TITLE),
+                                    status = "processing",
+                                    currentStep = activeWork.progress.getString(LocalBookImportWorker.KEY_CURRENT_STEP),
+                                    currentChapter = 0,
+                                    totalChapters = 0,
+                                    progressPercentage = activeWork.progress.getInt(LocalBookImportWorker.KEY_PROGRESS, 0),
+                                    errorMessage = null,
+                                    createdAt = null,
+                                    completedAt = null
+                                )
+                            }
+                        }
+                        WorkInfo.State.SUCCEEDED -> {
+                            val shouldNotify = hasActiveLocalImportSession
+                            hasActiveLocalImportSession = false
+                            isLocalDialogDismissedByUser = false
+                            val title = activeWork.outputData.getString(LocalBookImportWorker.KEY_TITLE).orEmpty()
+                            _localImportJobState.value = null
+                            if (shouldNotify && title.isNotBlank()) {
+                                _events.send(UserMessage(R.string.library_import_success, listOf(title)))
+                            }
+                        }
+                        WorkInfo.State.FAILED -> {
+                            val shouldNotify = hasActiveLocalImportSession
+                            hasActiveLocalImportSession = false
+                            isLocalDialogDismissedByUser = false
+                            _localImportJobState.value = null
+                            if (shouldNotify) {
+                                _events.send(UserMessage(R.string.library_import_book_failed))
+                            }
+                        }
+                        WorkInfo.State.CANCELLED -> {
+                            hasActiveLocalImportSession = false
+                            isLocalDialogDismissedByUser = false
+                            _localImportJobState.value = null
+                        }
+                        else -> Unit
+                    }
+                }
+        }
+    }
+
     /**
      * Cập nhật từ khóa tìm kiếm sách trong thư viện.
      *
@@ -262,44 +333,61 @@ class LibraryViewModel @Inject constructor(
     }
 
     /**
-     * Nạp file EPUB từ bộ nhớ thiết bị vào thư viện sách cục bộ.
+     * Nạp file sách từ bộ nhớ thiết bị vào thư viện sách cục bộ.
      *
-     * @param uri URI nguồn của file EPUB được chọn từ Storage Access Framework.
+     * @param uri URI nguồn của file sách được chọn từ Storage Access Framework.
      * @param originalName Tên gốc của file.
      */
-    fun importEpub(uri: Uri, originalName: String?) {
+    fun importBook(uri: Uri, originalName: String?) {
         viewModelScope.launch {
             try {
-                val file = withContext(Dispatchers.IO) {
-                    storageManager.importEpubFromUri(uri, originalName)
-                }
-                val book = epubEngine.parseEpubMetadata(file)
-                bookRepository.insertBook(book)
-
-                // Memory-safe streaming background FTS indexer
-                epubEngine.indexBookContent(file, book.id, searchRepository)
-                _events.send(
-                    UserMessage(
-                        textRes = R.string.library_import_success,
-                        formatArgs = listOf(book.title)
-                    )
+                hasActiveLocalImportSession = true
+                isLocalDialogDismissedByUser = false
+                _localImportJobState.value = ImportJobStatus(
+                    jobId = "",
+                    novelId = null,
+                    title = originalName,
+                    status = "pending",
+                    currentStep = context.getString(R.string.book_conversion_notification_starting),
+                    currentChapter = 0,
+                    totalChapters = 0,
+                    progressPercentage = 0,
+                    errorMessage = null,
+                    createdAt = null,
+                    completedAt = null
                 )
+                localBookImportScheduler.enqueue(uri, originalName)
             } catch (error: CancellationException) {
+                hasActiveLocalImportSession = false
                 throw error
+            } catch (_: BookConversionException) {
+                hasActiveLocalImportSession = false
+                _localImportJobState.value = null
+                _events.send(UserMessage(R.string.library_import_book_failed))
             } catch (_: Exception) {
+                hasActiveLocalImportSession = false
+                _localImportJobState.value = null
                 _events.send(UserMessage(R.string.library_import_failed))
             }
         }
     }
 
     /**
-     * Lập lịch tải file EPUB lên máy chủ backend thông qua [WorkManager] và [EpubImportWorker].
+     * Tương thích với caller cũ trước khi luồng local hỗ trợ nhiều định dạng.
+     *
+     * @param uri URI file được chọn.
+     * @param originalName Tên file gốc.
+     */
+    fun importEpub(uri: Uri, originalName: String?) = importBook(uri, originalName)
+
+    /**
+     * Lập lịch tải file sách lên máy chủ backend thông qua [WorkManager] và [EpubImportWorker].
      * Tác vụ sẽ tự động hiển thị Notification cập nhật tiến trình và tiếp tục chạy ngay cả khi tắt ứng dụng.
      *
-     * @param uri URI của file EPUB trên thiết bị.
+     * @param uri URI của file sách trên thiết bị.
      * @param originalName Tên hiển thị ban đầu của file.
      */
-    fun uploadEpubToServer(uri: Uri, originalName: String?) {
+    fun uploadEpubToServer(uri: Uri, originalName: String?, contentType: String? = null) {
         viewModelScope.launch {
             try {
                 isDialogDismissedByUser = false
@@ -322,7 +410,8 @@ class LibraryViewModel @Inject constructor(
                     uri = uri,
                     originalName = originalName,
                     isTranslated = true,
-                    autoScanCharacters = true
+                    autoScanCharacters = true,
+                    contentType = contentType
                 )
                 if (enqueued) {
                     hasActiveUploadSession = true
@@ -348,6 +437,20 @@ class LibraryViewModel @Inject constructor(
     fun dismissUploadDialog() {
         isDialogDismissedByUser = true
         _uploadJobState.value = null
+    }
+
+    /** Ẩn dialog chuyển đổi local nhưng giữ Worker tiếp tục chạy nền. */
+    fun dismissLocalImportDialog() {
+        isLocalDialogDismissedByUser = true
+        _localImportJobState.value = null
+    }
+
+    /** Hủy các tác vụ chuyển đổi local đang chờ hoặc đang chạy. */
+    fun cancelLocalImportWork() {
+        hasActiveLocalImportSession = false
+        isLocalDialogDismissedByUser = false
+        WorkManager.getInstance(context).cancelAllWorkByTag(LocalBookImportWorker.TAG)
+        _localImportJobState.value = null
     }
 
     /**

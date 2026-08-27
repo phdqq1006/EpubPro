@@ -188,3 +188,14 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
         db.execSQL("ALTER TABLE books ADD COLUMN onlineNovelId TEXT")
     }
 }
+
+/**
+ * Bổ sung định dạng nguồn của sách để thư viện hiển thị nguồn gốc file.
+ *
+ * @param db Cơ sở dữ liệu SQLite cần nâng cấp.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE books ADD COLUMN sourceFormat TEXT NOT NULL DEFAULT 'EPUB'")
+    }
+}

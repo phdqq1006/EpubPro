@@ -19,6 +19,12 @@ extensions.configure<BaseAppModuleExtension> {
         minSdk = 26
     }
 
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17

@@ -12,6 +12,7 @@ import com.epubpro.domain.model.AiRule
 import com.epubpro.domain.model.AiRuleAction
 import com.epubpro.domain.model.AiRuleScope
 import com.epubpro.domain.model.Book
+import com.epubpro.domain.model.BookSourceFormat
 import com.epubpro.domain.model.Bookmark
 import com.epubpro.domain.model.Highlight
 import com.epubpro.domain.model.ReadingProgress
@@ -26,9 +27,22 @@ data class BookEntity(
     val addedAt: Long,
     val lastReadAt: Long,
     @ColumnInfo(defaultValue = "0") val totalChapters: Int = 0,
-    val onlineNovelId: String? = null
+    val onlineNovelId: String? = null,
+    @ColumnInfo(defaultValue = "EPUB") val sourceFormat: String = BookSourceFormat.EPUB.name
 ) {
-    fun toDomain() = Book(id, title, author, coverPath, filePath, addedAt, lastReadAt, totalChapters, onlineNovelId)
+    fun toDomain() = Book(
+        id = id,
+        title = title,
+        author = author,
+        coverPath = coverPath,
+        filePath = filePath,
+        addedAt = addedAt,
+        lastReadAt = lastReadAt,
+        totalChapters = totalChapters,
+        onlineNovelId = onlineNovelId,
+        sourceFormat = runCatching { BookSourceFormat.valueOf(sourceFormat) }
+            .getOrDefault(BookSourceFormat.EPUB)
+    )
     companion object {
         fun fromDomain(book: Book) = BookEntity(
             id = book.id,
@@ -39,7 +53,8 @@ data class BookEntity(
             addedAt = book.addedAt,
             lastReadAt = book.lastReadAt,
             totalChapters = book.totalChapters,
-            onlineNovelId = book.onlineNovelId
+            onlineNovelId = book.onlineNovelId,
+            sourceFormat = book.sourceFormat.name
         )
     }
 }

@@ -50,4 +50,16 @@ class BookBibleMigrationTest {
 
         verify(db).execSQL("ALTER TABLE books ADD COLUMN onlineNovelId TEXT")
     }
+
+    /**
+     * Kiểm tra migration 6 lên 7 bổ sung định dạng nguồn với giá trị mặc định EPUB.
+     */
+    @Test
+    fun migration6To7AddsSourceFormatColumn() {
+        val db = mock(SupportSQLiteDatabase::class.java)
+
+        MIGRATION_6_7.migrate(db)
+
+        verify(db).execSQL("ALTER TABLE books ADD COLUMN sourceFormat TEXT NOT NULL DEFAULT 'EPUB'")
+    }
 }

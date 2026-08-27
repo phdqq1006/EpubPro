@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +42,32 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.epubpro.core.designsystem.R
 import com.epubpro.feature.library.components.GeneratedBookCover
 
+/**
+ * Đọc tên hiển thị do Storage Access Framework cung cấp cho URI.
+ *
+ * @param context Context dùng để truy vấn ContentResolver.
+ * @param uri URI file người dùng vừa chọn.
+ * @return Tên file hiển thị hoặc null nếu provider không cung cấp.
+ */
+private fun queryDisplayName(context: android.content.Context, uri: Uri): String? {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    return context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (nameIndex < 0) null else cursor.getString(nameIndex)
+    }
+}
+
+/**
+ * Đọc MIME type do Storage Access Framework cung cấp cho URI.
+ *
+ * @param context Context dùng để truy vấn ContentResolver.
+ * @param uri URI file người dùng vừa chọn.
+ * @return MIME type hoặc null nếu provider không cung cấp.
+ */
+private fun queryMimeType(context: android.content.Context, uri: Uri): String? =
+    context.contentResolver.getType(uri)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -76,19 +103,21 @@ fun LibraryScreen(
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.importEpub(it, null) }
+        uri?.let { viewModel.importBook(it, queryDisplayName(context, it)) }
     }
 
     val uploadPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.uploadEpubToServer(it, null) }
+        uri?.let {
+            viewModel.uploadEpubToServer(it, queryDisplayName(context, it), queryMimeType(context, it))
+        }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { _ ->
-        uploadPickerLauncher.launch("application/epub+zip")
+        uploadPickerLauncher.launch("*/*")
     }
 
     val onStartUpload = {
@@ -97,7 +126,7 @@ fun LibraryScreen(
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            uploadPickerLauncher.launch("application/epub+zip")
+            uploadPickerLauncher.launch("*/*")
         }
     }
 
@@ -105,7 +134,7 @@ fun LibraryScreen(
         AddBookBottomSheet(
             onDismissRequest = { showAddBookBottomSheet = false },
             onNavigateToOnlineLibrary = onNavigateToOnlineLibrary,
-            onPickLocalEpub = { filePickerLauncher.launch("application/epub+zip") },
+            onPickLocalEpub = { filePickerLauncher.launch("*/*") },
             onUploadEpubToServer = onStartUpload
         )
     }
@@ -150,14 +179,19 @@ fun LibraryScreen(
             }
         }
 
-    uiState.uploadJobStatus?.let { status ->
+    val activeImportStatus = uiState.localImportJobStatus ?: uiState.uploadJobStatus
+    val isLocalImport = uiState.localImportJobStatus != null
+    activeImportStatus?.let { status ->
         AlertDialog(
             onDismissRequest = {
-                viewModel.dismissUploadDialog()
+                if (isLocalImport) viewModel.dismissLocalImportDialog() else viewModel.dismissUploadDialog()
             },
             title = {
                 Text(
-                    text = stringResource(R.string.epub_import_dialog_title),
+                    text = stringResource(
+                        if (isLocalImport) R.string.book_conversion_dialog_title
+                        else R.string.epub_import_dialog_title
+                    ),
                     fontWeight = FontWeight.Bold
                 )
             },
@@ -202,18 +236,24 @@ fun LibraryScreen(
             },
             confirmButton = {
                 if (status.isFailed || status.isCompleted) {
-                    TextButton(onClick = { viewModel.dismissUploadDialog() }) {
+                    TextButton(onClick = {
+                        if (isLocalImport) viewModel.dismissLocalImportDialog() else viewModel.dismissUploadDialog()
+                    }) {
                         Text(stringResource(R.string.action_close))
                     }
                 } else {
-                    TextButton(onClick = { viewModel.dismissUploadDialog() }) {
+                    TextButton(onClick = {
+                        if (isLocalImport) viewModel.dismissLocalImportDialog() else viewModel.dismissUploadDialog()
+                    }) {
                         Text(stringResource(R.string.action_background))
                     }
                 }
             },
             dismissButton = {
                 if (!status.isFailed && !status.isCompleted) {
-                    TextButton(onClick = { viewModel.cancelUploadWork() }) {
+                    TextButton(onClick = {
+                        if (isLocalImport) viewModel.cancelLocalImportWork() else viewModel.cancelUploadWork()
+                    }) {
                         Text(stringResource(R.string.action_cancel), color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -464,15 +504,39 @@ fun BookCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.book.author,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    minLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = item.book.author,
+                        modifier = Modifier.weight(1f),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        minLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    val sourceLabel = when (item.book.sourceFormat) {
+                        com.epubpro.domain.model.BookSourceFormat.EPUB -> R.string.book_source_format_epub
+                        com.epubpro.domain.model.BookSourceFormat.PRC -> R.string.book_source_format_prc
+                        com.epubpro.domain.model.BookSourceFormat.MOBI -> R.string.book_source_format_mobi
+                        com.epubpro.domain.model.BookSourceFormat.AZW3 -> R.string.book_source_format_azw3
+                    }
+                    Text(
+                        text = stringResource(sourceLabel),
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 5.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
                 Spacer(modifier = Modifier.height(10.dp))
 
                 val progress = item.progressPercentage.coerceIn(0f, 1f)

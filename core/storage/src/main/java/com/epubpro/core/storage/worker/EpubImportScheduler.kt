@@ -38,6 +38,7 @@ class EpubImportScheduler @Inject constructor(
      * @param isTranslated Đánh dấu EPUB đã được dịch hay chưa.
      * @param autoScanCharacters Cho phép server tự động quét nhân vật.
      * @param novelId ID truyện hiện có nếu upload bổ sung, hoặc null nếu tạo truyện mới.
+     * @param contentType MIME type thực tế của file, có thể null nếu provider không cung cấp.
      * @return true nếu đã enqueue, false nếu đang có upload khác chạy.
      * @throws Exception Nếu không đọc được URI hoặc không lập lịch được công việc.
      */
@@ -46,7 +47,8 @@ class EpubImportScheduler @Inject constructor(
         originalName: String?,
         isTranslated: Boolean,
         autoScanCharacters: Boolean,
-        novelId: String? = null
+        novelId: String? = null,
+        contentType: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         enqueueMutex.withLock {
             val workManager = WorkManager.getInstance(context)
@@ -66,7 +68,8 @@ class EpubImportScheduler @Inject constructor(
                             EpubImportWorker.KEY_ORIGINAL_NAME to (originalName ?: "book.epub"),
                             EpubImportWorker.KEY_IS_TRANSLATED to isTranslated,
                             EpubImportWorker.KEY_AUTO_SCAN_CHARACTERS to autoScanCharacters,
-                            EpubImportWorker.KEY_NOVEL_ID to novelId
+                            EpubImportWorker.KEY_NOVEL_ID to novelId,
+                            EpubImportWorker.KEY_CONTENT_TYPE to contentType
                         )
                     )
                     .setConstraints(

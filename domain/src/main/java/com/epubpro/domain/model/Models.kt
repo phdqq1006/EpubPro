@@ -9,8 +9,22 @@ data class Book(
     val addedAt: Long,
     val lastReadAt: Long,
     val totalChapters: Int = 0,
-    val onlineNovelId: String? = null
+    val onlineNovelId: String? = null,
+    val sourceFormat: BookSourceFormat = BookSourceFormat.EPUB
 )
+
+/**
+ * Định dạng nguồn mà người dùng đã nhập vào thư viện.
+ *
+ * File được lưu trong thư viện luôn là EPUB nội bộ; giá trị này chỉ phục vụ
+ * hiển thị nguồn gốc và chẩn đoán quá trình chuyển đổi.
+ */
+enum class BookSourceFormat {
+    EPUB,
+    PRC,
+    MOBI,
+    AZW3
+}
 
 data class ReadingProgress(
     val bookId: String,

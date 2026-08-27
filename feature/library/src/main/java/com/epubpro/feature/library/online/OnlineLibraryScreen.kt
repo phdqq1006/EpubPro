@@ -1,9 +1,11 @@
 package com.epubpro.feature.library.online
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -51,6 +53,32 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.epubpro.core.designsystem.R
 import com.epubpro.domain.model.OnlineNovelSummary
 import com.epubpro.feature.library.components.GeneratedBookCover
+
+/**
+ * Đọc tên hiển thị của tệp được chọn từ ContentResolver.
+ *
+ * @param context Context dùng để truy cập ContentResolver.
+ * @param uri URI của tệp do trình chọn tệp trả về.
+ * @return Tên tệp do nhà cung cấp nội dung cung cấp hoặc null nếu không đọc được.
+ */
+private fun queryUploadDisplayName(context: Context, uri: Uri): String? {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    return context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        if (!cursor.moveToFirst()) return@use null
+        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (nameIndex < 0) null else cursor.getString(nameIndex)
+    }
+}
+
+/**
+ * Lấy MIME type do ContentResolver khai báo cho tệp upload.
+ *
+ * @param context Context dùng để truy cập ContentResolver.
+ * @param uri URI của tệp do trình chọn tệp trả về.
+ * @return MIME type của tệp hoặc null nếu nhà cung cấp không khai báo.
+ */
+private fun queryUploadMimeType(context: Context, uri: Uri): String? =
+    context.contentResolver.getType(uri)
 
 /**
  * Màn hình Kho Truyện Online (Online Library Screen).
@@ -115,7 +143,30 @@ fun OnlineLibraryScreen(
     val uploadPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        uri?.let { viewModel.uploadEpub(it, null, isTranslated = true) }
+        uri?.let {
+            viewModel.uploadEpub(
+                uri = it,
+                originalName = queryUploadDisplayName(context, it),
+                isTranslated = true,
+                contentType = queryUploadMimeType(context, it)
+            )
+        }
+    }
+
+    val uploadNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        uploadPickerLauncher.launch("*/*")
+    }
+
+    val onStartUpload = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            uploadNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            uploadPickerLauncher.launch("*/*")
+        }
     }
 
     Scaffold(
@@ -132,7 +183,7 @@ fun OnlineLibraryScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { uploadPickerLauncher.launch("application/epub+zip") },
+                        onClick = onStartUpload,
                         enabled = !uiState.isUploading
                     ) {
                         if (uiState.isUploading) {
@@ -738,4 +789,3 @@ fun OnlineNovelCard(
         }
     }
 }
-

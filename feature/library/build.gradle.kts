@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:storage"))
+    implementation(project(":core:book-converter"))
     implementation(project(":core:epub"))
     implementation(project(":core:playback"))
 

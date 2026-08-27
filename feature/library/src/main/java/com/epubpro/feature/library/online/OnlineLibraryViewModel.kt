@@ -370,13 +370,14 @@ class OnlineLibraryViewModel @Inject constructor(
     }
 
     /**
-     * Chuẩn bị và lập lịch tải file EPUB lên máy chủ backend thông qua [EpubImportScheduler].
+     * Chuẩn bị và lập lịch tải file sách lên máy chủ backend thông qua [EpubImportScheduler].
      *
-     * @param uri URI của file EPUB trên thiết bị.
+     * @param uri URI của file sách trên thiết bị.
      * @param originalName Tên gốc của file được chọn.
      * @param isTranslated Đánh dấu truyện đã được dịch sang tiếng Việt hay chưa.
+     * @param contentType MIME type do Storage Access Framework cung cấp.
      */
-    fun uploadEpub(uri: Uri, originalName: String?, isTranslated: Boolean) {
+    fun uploadEpub(uri: Uri, originalName: String?, isTranslated: Boolean, contentType: String? = null) {
         if (_uiState.value.isUploading) return
 
         _uiState.update { it.copy(isUploading = true) }
@@ -386,7 +387,8 @@ class OnlineLibraryViewModel @Inject constructor(
                     uri = uri,
                     originalName = originalName,
                     isTranslated = isTranslated,
-                    autoScanCharacters = true
+                    autoScanCharacters = true,
+                    contentType = contentType
                 )
                 _events.send(
                     UserMessage(

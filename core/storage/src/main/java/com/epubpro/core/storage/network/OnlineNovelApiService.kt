@@ -160,7 +160,7 @@ interface OnlineNovelApiService {
     ): TranslateResponseDto
 
     /**
-     * Tải lên một file `.epub` từ điện thoại lên server.
+     * Tải lên một file sách bất kỳ từ điện thoại lên server để backend tự xử lý.
      *
      * @param file File multipart body.
      * @param isTranslated Cờ đánh dấu đã dịch.

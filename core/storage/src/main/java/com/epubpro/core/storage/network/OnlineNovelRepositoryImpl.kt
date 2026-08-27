@@ -262,13 +262,15 @@ class OnlineNovelRepositoryImpl @Inject constructor(
     }
 
     /**
-     * Upload trực tiếp file EPUB từ điện thoại lên server backend.
+     * Upload trực tiếp file từ điện thoại lên server backend với MIME type thực tế.
      */
     override suspend fun uploadEpub(
         filePath: String,
         isTranslated: Boolean,
         novelId: String?,
-        autoScanCharacters: Boolean
+        autoScanCharacters: Boolean,
+        contentType: String?,
+        originalName: String?
     ): Result<ImportJobStatus> = withContext(Dispatchers.IO) {
         runCatchingCancellable {
             val file = File(filePath)
@@ -276,9 +278,15 @@ class OnlineNovelRepositoryImpl @Inject constructor(
                 throw IllegalArgumentException("File không tồn tại: $filePath")
             }
 
-            val mediaType = "application/epub+zip".toMediaTypeOrNull()
+            val mediaType = (contentType ?: "application/octet-stream").toMediaTypeOrNull()
             val requestFile = file.asRequestBody(mediaType)
-            val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+            val uploadName = originalName
+                ?.substringAfterLast('/')
+                ?.substringAfterLast('\\')
+                ?.replace(Regex("[\\r\\n\"]"), "_")
+                ?.takeIf { it.isNotBlank() }
+                ?: file.name
+            val filePart = MultipartBody.Part.createFormData("file", uploadName, requestFile)
             val isTranslatedBody = isTranslated.toString().toRequestBody("text/plain".toMediaTypeOrNull())
             
             val novelIdBody = novelId?.toRequestBody("text/plain".toMediaTypeOrNull())

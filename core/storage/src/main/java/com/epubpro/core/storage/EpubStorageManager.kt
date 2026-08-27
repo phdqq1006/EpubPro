@@ -2,6 +2,7 @@ package com.epubpro.core.storage
 
 import android.content.Context
 import android.net.Uri
+import com.epubpro.core.bookconverter.MobiEpubConverter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileOutputStream
@@ -24,7 +25,7 @@ class EpubStorageManager @Inject constructor(
      */
     fun importEpubFromUri(uri: Uri, originalFileName: String?): File {
         val fileId = UUID.randomUUID().toString()
-        val extension = originalFileName?.substringAfterLast('.', "epub") ?: "epub"
+        val extension = safeExtension(originalFileName, "epub")
         val targetFile = File(booksDir, "$fileId.$extension")
 
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -37,11 +38,66 @@ class EpubStorageManager @Inject constructor(
     }
 
     /**
+     * Sao lưu file PRC/MOBI/AZW3 vào storage nội bộ với giới hạn 100 MiB.
+     *
+     * File nguồn được giữ lại trong lúc Worker chuyển đổi để có thể retry sau process death.
+     *
+     * @param uri URI nguồn từ Storage Access Framework.
+     * @param originalFileName Tên gốc dùng để giữ phần mở rộng phục vụ nhận diện định dạng.
+     * @return File nguồn đã sao lưu trong thư mục books.
+     * @throws IllegalStateException Nếu URI không đọc được hoặc vượt giới hạn dung lượng.
+     */
+    fun importLocalBookSource(uri: Uri, originalFileName: String?): File {
+        val fileId = UUID.randomUUID().toString()
+        val extension = safeExtension(originalFileName, "")
+            .ifBlank { safeExtension(Uri.decode(uri.lastPathSegment), "") }
+            .ifBlank {
+                when (context.contentResolver.getType(uri)?.lowercase()) {
+                    "application/epub+zip" -> "epub"
+                    "application/x-mobipocket-ebook" -> "mobi"
+                    "application/vnd.amazon.mobi8-ebook" -> "azw3"
+                    "application/x-palm-database" -> "prc"
+                    else -> "bin"
+                }
+            }
+        val targetFile = File(booksDir, "$fileId.$extension")
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(targetFile).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        total += read
+                        check(total <= MobiEpubConverter.MAX_INPUT_BYTES) {
+                            "File ebook cục bộ vượt quá giới hạn 100 MiB"
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                    output.fd.sync()
+                }
+            } ?: throw IllegalStateException("Không thể mở file ebook từ URI: $uri")
+            return targetFile
+        } catch (error: Throwable) {
+            targetFile.delete()
+            throw error
+        }
+    }
+
+    /**
+     * Tạo đường dẫn EPUB mới trong storage nội bộ.
+     *
+     * @return File đích chưa có dữ liệu, dùng cho commit atomically sau chuyển đổi.
+     */
+    fun createConvertedEpubFile(): File = File(booksDir, "${UUID.randomUUID()}.epub")
+
+    /**
      * Save downloaded EPUB stream directly into internal app storage
      */
     fun importDownloadedEpub(inputStream: InputStream, originalFileName: String?): File {
         val fileId = UUID.randomUUID().toString()
-        val extension = originalFileName?.substringAfterLast('.', "epub") ?: "epub"
+        val extension = safeExtension(originalFileName, "epub")
         val targetFile = File(booksDir, "$fileId.$extension")
 
         inputStream.use { input ->
@@ -221,6 +277,22 @@ class EpubStorageManager @Inject constructor(
         .digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
         .take(32)
+
+    /**
+     * Chuẩn hóa phần mở rộng do provider bên ngoài cung cấp trước khi đưa vào tên file.
+     *
+     * @param originalFileName Tên file chưa tin cậy từ URI.
+     * @param fallback Phần mở rộng dùng khi tên không hợp lệ.
+     * @return Phần mở rộng chỉ gồm ký tự an toàn.
+     */
+    private fun safeExtension(originalFileName: String?, fallback: String): String =
+        originalFileName
+            ?.substringAfterLast('.', "")
+            ?.lowercase()
+            ?.takeIf {
+                originalFileName.contains('.') && it.matches(Regex("[a-z0-9]{1,8}"))
+            }
+            ?: fallback
 
     private fun aiChapterFile(bookId: String, chapterIndex: Int): File =
         File(aiBookDirectory(bookId), "chapter_$chapterIndex.html")

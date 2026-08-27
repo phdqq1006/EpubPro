@@ -70,19 +70,23 @@ interface OnlineNovelRepository {
     ): Result<TranslateChapterResult>
 
     /**
-     * Tải (Upload) trực tiếp một file sách `.epub` từ thiết bị lên máy chủ backend.
+     * Tải (Upload) trực tiếp file sách bất kỳ từ thiết bị lên máy chủ backend để backend tự xử lý.
      *
-     * @param filePath Đường dẫn tuyệt đối của file `.epub` trên thiết bị.
+     * @param filePath Đường dẫn tuyệt đối của file trên thiết bị.
      * @param isTranslated Đánh dấu file này đã được dịch hoàn chỉnh hay là bản gốc thô.
      * @param novelId (Tùy chọn) ID của truyện.
      * @param autoScanCharacters (Tùy chọn) Tự động gọi AI scan danh sách nhân vật.
+     * @param contentType MIME type của file nguồn, để backend tự chọn bộ xử lý phù hợp.
+     * @param originalName Tên file gốc để backend giữ metadata khi xử lý.
      * @return [Result] chứa trạng thái [ImportJobStatus] để tiếp tục theo dõi tiến trình.
      */
     suspend fun uploadEpub(
         filePath: String,
         isTranslated: Boolean,
         novelId: String? = null,
-        autoScanCharacters: Boolean = false
+        autoScanCharacters: Boolean = false,
+        contentType: String? = null,
+        originalName: String? = null
     ): Result<ImportJobStatus>
 
     /**
