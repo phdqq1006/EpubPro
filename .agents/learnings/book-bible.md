@@ -186,3 +186,8 @@
 - **Ngày**: 2026-08-19
 - **Chi tiết**: Trong ViewModel, sắp xếp danh sách nhân vật đa tiêu chí: Ưu tiên nhân vật chính (`isProtagonist`) $\to$ Nhân vật có tiến triển mới trong chương hiện tại (`changedInCurrentChapter`) $\to$ Theo thứ tự bảng chữ cái (`name`).
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/BookBibleViewModel.kt`, `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`
+
+### Pattern tự động ánh xạ và giải quyết tên Hán sang tiếng Việt (Character Name Resolution & Context Cross-Referencing)
+- **Ngày**: 2026-08-27
+- **Chi tiết**: Khi API lưu đối tượng giao tiếp hoặc quan hệ dưới dạng tên gốc tiếng Hán (`with`, `counterpart_text`), sử dụng từ điển snapshot `buildCharacterNameMap` để ánh xạ `original_name / ID -> vi_name`. Nếu tên thô chứa chữ Hán (`containsHanCharacters`) mà chưa có trong map, tự động đối chiếu với đoạn văn bản ngữ cảnh tiếng Việt (`context`) để trích xuất tên tiếng Việt chuẩn.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`
