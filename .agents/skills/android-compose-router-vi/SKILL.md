@@ -17,6 +17,8 @@ Dùng khi không chắc nên gọi skill nào.
 - Intent/DeepLink/security: `android-intent-security`
 - Edge-to-edge/insets: `android-edge-to-edge`
 - XML → Compose: `android-migrate-xml-views-to-compose`
+- Stitch/screenshot/link/HTML/CSS/DESIGN.md → `android-stitch-ui-integration`
+- Compose theme/token: `android-compose-styles`
 - Compose state/effects: `cb-compose-state-and-effects`
 - Compose component API: `cb-compose-component-design`
 - Compose performance tổng thể: `compose-perf-auditing-compose-performance`

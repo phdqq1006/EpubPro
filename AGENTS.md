@@ -35,6 +35,7 @@ Khi task phù hợp, dùng thêm các skill sau:
 
 #### Jetpack Compose
 
+- `android-compose-styles`: dùng khi thiết kế style/theme/token trong Compose.
 - `cb-compose-state-and-effects`: dùng cho state hoisting, side effect, `LaunchedEffect`, `DisposableEffect`, `rememberUpdatedState`, collect Flow.
 - `cb-compose-component-design`: dùng khi thiết kế Composable API, slot API, caller-placeable component.
 - `cb-compose-performance`: dùng khi review hiệu năng Compose tổng quan.
@@ -72,6 +73,7 @@ Khi task liên quan jank, recomposition, stability, LazyColumn/LazyGrid, modifie
 - `android-agp-9-upgrade`: dùng khi nâng AGP/Gradle/Kotlin/KSP.
 - `android-migrate-xml-views-to-compose`: dùng khi migrate XML/View sang Compose.
 - `android-compose-adaptive`: dùng khi review responsive/adaptive layout, tablet, foldable, landscape.
+- `android-stitch-ui-integration`: dùng khi chuyển đổi giao diện/mockup/code từ Stitch sang Jetpack Compose chuẩn dự án.
 
 ---
 
@@ -100,6 +102,11 @@ Nếu màn hình collect Flow từ ViewModel, dùng thêm:
 - `cb-kotlin-concurrency-and-flow`
 - `compose-perf-collecting-flows-safely`
 - `compose-perf-using-efficient-effects`
+
+Nếu visual reference đến từ Google Stitch (screenshot, MCP, HTML/CSS,
+share link hoặc `DESIGN.md`), dùng thêm:
+
+- `android-stitch-ui-integration`
 
 ### Review bug/regression
 
