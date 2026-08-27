@@ -224,6 +224,27 @@ class EpubStorageManager @Inject constructor(
         return coverFile.absolutePath
     }
 
+    /**
+     * Xóa cover nội bộ của sách nếu đường dẫn thuộc thư mục covers của ứng dụng.
+     *
+     * @param coverPath Đường dẫn cover có thể là file nội bộ hoặc URL từ nguồn online.
+     */
+    fun deleteCoverFile(coverPath: String?) {
+        val path = coverPath?.takeIf { it.isNotBlank() } ?: return
+        if (path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)) {
+            return
+        }
+        try {
+            val coversRoot = coversDir.canonicalFile
+            val coverFile = File(path).canonicalFile
+            if (coverFile.parentFile == coversRoot) {
+                coverFile.delete()
+            }
+        } catch (_: Exception) {
+            // Cleanup không được làm gián đoạn việc xóa bản ghi sách.
+        }
+    }
+
     fun getBookFile(filePath: String): File {
         return File(filePath)
     }

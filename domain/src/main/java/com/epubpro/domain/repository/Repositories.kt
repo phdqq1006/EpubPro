@@ -10,6 +10,16 @@ interface BookRepository {
     suspend fun deleteBook(id: String)
     suspend fun updateLastRead(id: String, timestamp: Long)
 
+    /**
+     * Cập nhật đường dẫn cover nếu sách vẫn giữ đúng file nguồn và chưa có cover.
+     *
+     * @param id Định danh sách.
+     * @param filePath Đường dẫn file EPUB tại thời điểm quét.
+     * @param coverPath Đường dẫn cover đã trích xuất.
+     * @return true nếu bản ghi vẫn hợp lệ và đã được cập nhật.
+     */
+    suspend fun updateCoverPathIfMissing(id: String, filePath: String, coverPath: String): Boolean
+
     fun getReadingProgress(bookId: String): Flow<ReadingProgress?>
     fun getAllReadingProgress(): Flow<List<ReadingProgress>>
     suspend fun saveReadingProgress(progress: ReadingProgress)

@@ -14,12 +14,14 @@ import java.util.zip.ZipFile
  * @property author Tác giả sách đọc từ metadata.
  * @property orderedEntries Danh sách các [ZipEntry] nội dung chương theo đúng thứ tự đọc (spine).
  * @property chapterTitles Bản đồ ánh xạ từ tên tệp entry chuẩn hóa sang tiêu đề chương trích xuất từ TOC.
+ * @property coverEntry Entry ảnh bìa được xác định từ manifest hoặc tên file fallback.
  */
 data class ParsedEpubStructure(
     val title: String,
     val author: String,
     val orderedEntries: List<ZipEntry>,
-    val chapterTitles: Map<String, String>
+    val chapterTitles: Map<String, String>,
+    val coverEntry: ZipEntry? = null
 )
 
 /**
@@ -53,11 +55,17 @@ object EpubPackageStructureParser {
             val htmlEntries = allEntries.filter { isHtmlEntry(it.name) }
             val comparator = naturalOrderComparator()
             val sorted = htmlEntries.sortedWith(Comparator { e1, e2 -> comparator.compare(e1.name, e2.name) })
+            val fallbackCover = allEntries.find { entry ->
+                val lower = entry.name.lowercase()
+                (lower.contains("cover") || lower.contains("frontcover") || lower.contains("titlepage")) &&
+                    (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp"))
+            }
             return ParsedEpubStructure(
                 title = bookTitle,
                 author = bookAuthor,
                 orderedEntries = sorted,
-                chapterTitles = emptyMap()
+                chapterTitles = emptyMap(),
+                coverEntry = fallbackCover
             )
         }
 
@@ -165,6 +173,58 @@ object EpubPackageStructureParser {
                 }
             }
 
+            // 5. Trích xuất Cover Image (EPUB 3 properties="cover-image" -> EPUB 2 meta name="cover" -> Manifest id/href -> Filename Fallback)
+            var coverHref: String? = null
+
+            for ((_, item) in manifestMap) {
+                if (item.properties.contains("cover-image", ignoreCase = true) &&
+                    item.mediaType.startsWith("image/", ignoreCase = true)
+                ) {
+                    coverHref = item.href
+                    break
+                }
+            }
+
+            if (coverHref == null) {
+                val metaCoverId = opfDoc.select("metadata > meta[name=cover]").attr("content").trim()
+                if (metaCoverId.isNotEmpty()) {
+                    coverHref = manifestMap[metaCoverId]?.href
+                }
+            }
+
+            if (coverHref == null) {
+                val coverItem = manifestMap.values.find { item ->
+                    item.mediaType.startsWith("image/", ignoreCase = true) &&
+                        (item.id.equals("cover", ignoreCase = true) ||
+                            item.id.equals("cover-image", ignoreCase = true) ||
+                            item.id.contains("cover", ignoreCase = true) ||
+                            item.href.contains("cover", ignoreCase = true))
+                }
+                coverHref = coverItem?.href
+            }
+
+            var coverEntry: ZipEntry? = null
+            if (!coverHref.isNullOrEmpty()) {
+                val cleanCover = coverHref.substringBefore('#').substringBefore('?')
+                val decodedCover = try {
+                    URLDecoder.decode(cleanCover.replace("+", "%2B"), "UTF-8")
+                } catch (_: Exception) {
+                    cleanCover
+                }
+                val coverFullPath = resolveRelativePath(dirPrefix, decodedCover)
+                coverEntry = entryMap[coverFullPath]
+                    ?: entryMap[decodedCover]
+                    ?: allEntries.find { it.name.equals(coverFullPath, ignoreCase = true) || it.name.endsWith(decodedCover, ignoreCase = true) }
+            }
+
+            if (coverEntry == null) {
+                coverEntry = allEntries.find { entry ->
+                    val lower = entry.name.lowercase()
+                    (lower.contains("cover") || lower.contains("frontcover") || lower.contains("titlepage")) &&
+                        (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp"))
+                }
+            }
+
             val finalEntries = if (orderedEntries.isNotEmpty()) {
                 orderedEntries
             } else {
@@ -177,18 +237,25 @@ object EpubPackageStructureParser {
                 title = bookTitle,
                 author = bookAuthor,
                 orderedEntries = finalEntries,
-                chapterTitles = chapterTitles
+                chapterTitles = chapterTitles,
+                coverEntry = coverEntry
             )
         } catch (e: Exception) {
             e.printStackTrace()
             val htmlEntries = allEntries.filter { isHtmlEntry(it.name) }
             val comparator = naturalOrderComparator()
             val sorted = htmlEntries.sortedWith(Comparator { e1, e2 -> comparator.compare(e1.name, e2.name) })
+            val fallbackCover = allEntries.find { entry ->
+                val lower = entry.name.lowercase()
+                    (lower.contains("cover") || lower.contains("frontcover") || lower.contains("titlepage")) &&
+                    (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp"))
+            }
             return ParsedEpubStructure(
                 title = bookTitle,
                 author = bookAuthor,
                 orderedEntries = sorted,
-                chapterTitles = emptyMap()
+                chapterTitles = emptyMap(),
+                coverEntry = fallbackCover
             )
         }
     }

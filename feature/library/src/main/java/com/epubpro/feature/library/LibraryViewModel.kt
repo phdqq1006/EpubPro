@@ -51,17 +51,36 @@ data class BookItemUiState(
 )
 
 /**
+ * Bộ lọc danh mục sách trong thư viện theo tiến độ đọc.
+ */
+enum class LibraryFilter {
+    ALL,
+    READING,
+    UNREAD,
+    COMPLETED
+}
+
+/**
  * Trạng thái toàn diện của màn hình Thư Viện.
  *
- * @property books Danh sách sách sau khi lọc tìm kiếm.
+ * @property books Danh sách sách sau khi lọc tìm kiếm và bộ lọc tiến độ.
  * @property totalBookCount Tổng số sách trong thư viện trước khi lọc.
+ * @property readingBookCount Số lượng sách đang đọc dở.
+ * @property unreadBookCount Số lượng sách chưa bắt đầu đọc.
+ * @property completedBookCount Số lượng sách đã hoàn thành.
+ * @property selectedFilter Bộ lọc đang được kích hoạt.
  * @property isLoading Trạng thái tải dữ liệu ban đầu.
  * @property searchQuery Từ khóa tìm kiếm hiện tại.
  * @property uploadJobStatus Trạng thái tiến trình tải sách lên server chạy ngầm.
+ * @property localImportJobStatus Trạng thái tiến trình nạp sách cục bộ chạy ngầm.
  */
 data class LibraryUiState(
     val books: List<BookItemUiState> = emptyList(),
     val totalBookCount: Int = 0,
+    val readingBookCount: Int = 0,
+    val unreadBookCount: Int = 0,
+    val completedBookCount: Int = 0,
+    val selectedFilter: LibraryFilter = LibraryFilter.ALL,
     val isLoading: Boolean = false,
     val searchQuery: String = "",
     val uploadJobStatus: ImportJobStatus? = null,
@@ -124,6 +143,7 @@ class LibraryViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
+    private val _selectedFilter = MutableStateFlow(LibraryFilter.ALL)
     private val _events = Channel<UserMessage>(capacity = Channel.BUFFERED)
     val events = _events.receiveAsFlow()
     private val _uploadJobState = MutableStateFlow<ImportJobStatus?>(null)
@@ -136,6 +156,45 @@ class LibraryViewModel @Inject constructor(
     init {
         observeImportWorkerProgress()
         observeLocalImportWorkerProgress()
+        ensureMissingCoversExtracted()
+    }
+
+    /**
+     * Cập nhật bộ lọc tiến độ đọc hiện tại của thư viện.
+     *
+     * @param filter Bộ lọc mới được chọn.
+     */
+    fun onFilterSelected(filter: LibraryFilter) {
+        _selectedFilter.value = filter
+    }
+
+    /**
+     * Tự động quét và trích xuất ảnh bìa chạy nền cho những cuốn sách cũ trong thư viện chưa có coverPath.
+     */
+    private fun ensureMissingCoversExtracted() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                bookRepository.getAllBooks().first().forEach { book ->
+                    if (book.coverPath.isNullOrBlank() && book.filePath.isNotBlank()) {
+                        val file = java.io.File(book.filePath)
+                        if (file.isFile) {
+                            val extractedCover = epubEngine.extractCoverImage(file)
+                            if (!extractedCover.isNullOrBlank()) {
+                                bookRepository.updateCoverPathIfMissing(
+                                    id = book.id,
+                                    filePath = book.filePath,
+                                    coverPath = extractedCover
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Background scan không làm gián đoạn luồng chính
+            }
+        }
     }
 
     private val bookItems = combine(
@@ -163,16 +222,34 @@ class LibraryViewModel @Inject constructor(
     val uiState: StateFlow<LibraryUiState> = combine(
         bookItems,
         _searchQuery,
+        _selectedFilter,
         _uploadJobState,
         _localImportJobState
-    ) { items, query, uploadStatus, localImportStatus ->
-        val filtered = if (query.isBlank()) items else items.filter {
+    ) { items, query, filter, uploadStatus, localImportStatus ->
+        val totalCount = items.size
+        val readingCount = items.count { it.progressPercentage > 0f && it.progressPercentage < 1f }
+        val unreadCount = items.count { it.progressPercentage == 0f && it.currentChapter == 0 }
+        val completedCount = items.count { it.progressPercentage >= 1f || (it.totalChapters > 0 && it.currentChapter >= it.totalChapters) }
+
+        val queryFiltered = if (query.isBlank()) items else items.filter {
             it.book.title.contains(query, ignoreCase = true) ||
                 it.book.author.contains(query, ignoreCase = true)
         }
+
+        val finalFiltered = when (filter) {
+            LibraryFilter.ALL -> queryFiltered
+            LibraryFilter.READING -> queryFiltered.filter { it.progressPercentage > 0f && it.progressPercentage < 1f }
+            LibraryFilter.UNREAD -> queryFiltered.filter { it.progressPercentage == 0f && it.currentChapter == 0 }
+            LibraryFilter.COMPLETED -> queryFiltered.filter { it.progressPercentage >= 1f || (it.totalChapters > 0 && it.currentChapter >= it.totalChapters) }
+        }
+
         LibraryUiState(
-            books = filtered,
-            totalBookCount = items.size,
+            books = finalFiltered,
+            totalBookCount = totalCount,
+            readingBookCount = readingCount,
+            unreadBookCount = unreadCount,
+            completedBookCount = completedCount,
+            selectedFilter = filter,
             isLoading = false,
             searchQuery = query,
             uploadJobStatus = uploadStatus,
@@ -484,6 +561,7 @@ class LibraryViewModel @Inject constructor(
                     epubEngine.deleteBookCache(item.book.filePath)
                     snapshotStore.deleteSnapshot(item.book.id)
                     storageManager.deleteBookFile(item.book.filePath)
+                    storageManager.deleteCoverFile(item.book.coverPath)
                     storageManager.deleteAiBookCache(item.book.id)
                     bookBibleRepository.deleteDataForBook(item.book.id)
                     bookRepository.deleteBook(item.book.id)

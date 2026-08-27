@@ -23,7 +23,7 @@
     <string name="nav_profile">Cá nhân</string>
 
     <!-- Library Screen -->
-    <string name="library_search_placeholder">Tìm tên sách, tác giả...</string>
+    <string name="library_search_placeholder">Tìm kiếm sách, tác giả...</string>
     <string name="library_bookmarks_highlights">Bookmarks &amp; Highlights</string>
     <string name="library_add_book">Thêm sách</string>
     <string name="library_add_epub">Thêm sách EPUB</string>
@@ -42,6 +42,21 @@
     <string name="library_progress_format">%1$d/%2$d chương (%3$d%%)</string>
     <string name="library_not_started">Chưa đọc</string>
     <string name="library_book_menu_format">Tùy chọn cho %1$s</string>
+    <string name="library_filter_all">Tất cả sách (%1$d)</string>
+    <string name="library_filter_reading">Đang đọc (%1$d)</string>
+    <string name="library_filter_unread">Chưa đọc (%1$d)</string>
+    <string name="library_filter_completed">Đã đọc xong (%1$d)</string>
+    <string name="library_filter_offline">Đã tải về</string>
+    <string name="library_filter_favorites">Sách yêu thích</string>
+    <string name="library_sync_status_prefix">Đang nạp EPUB: %1$s...</string>
+    <string name="library_last_read_today">Đọc lần cuối: Hôm nay</string>
+    <string name="library_last_read_yesterday">Đọc lần cuối: Hôm qua</string>
+    <string name="library_last_read_hours_ago">Đọc lần cuối: %1$d giờ trước</string>
+    <string name="library_last_read_days_ago">Đọc lần cuối: %1$d ngày trước</string>
+    <string name="library_last_read_not_started">Chưa bắt đầu</string>
+    <string name="library_status_completed">Đã đọc 100%</string>
+    <string name="library_read_percentage_format">Đã đọc %1$d%%</string>
+    <string name="library_action_clear_search">Xóa tìm kiếm</string>
     <string name="upload_prepare_failed">Không thể chuẩn bị file để tải lên.</string>
 
     <!-- Reader Selection BottomSheet -->

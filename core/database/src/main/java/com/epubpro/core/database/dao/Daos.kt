@@ -21,6 +21,17 @@ interface BookDao {
     @Query("UPDATE books SET lastReadAt = :timestamp WHERE id = :id")
     suspend fun updateLastRead(id: String, timestamp: Long)
 
+    /**
+     * Cập nhật cover khi bản ghi chưa có cover và vẫn trỏ tới file EPUB cũ.
+     *
+     * @param id Định danh sách.
+     * @param filePath Đường dẫn file EPUB cần đối chiếu.
+     * @param coverPath Đường dẫn cover mới.
+     * @return Số bản ghi được cập nhật.
+     */
+    @Query("UPDATE books SET coverPath = :coverPath WHERE id = :id AND filePath = :filePath AND (coverPath IS NULL OR coverPath = '')")
+    suspend fun updateCoverPathIfMissing(id: String, filePath: String, coverPath: String): Int
+
     @Query("SELECT * FROM reading_progress WHERE bookId = :bookId")
     fun getReadingProgress(bookId: String): Flow<ReadingProgressEntity?>
 

@@ -2,6 +2,7 @@ package com.epubpro.core.reader.engine
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.Charset
 import java.util.zip.ZipEntry
 
@@ -40,6 +41,35 @@ object EpubReadLimits {
                 throw IllegalStateException("EPUB entry '${entry.name}' compression ratio ($ratio:1) exceeds safety threshold ($MAX_COMPRESSION_RATIO:1)")
             }
         }
+    }
+
+    /**
+     * Sao chép dữ liệu từ stream nguồn với giới hạn dung lượng tối đa.
+     *
+     * @param input Stream nguồn cần đọc.
+     * @param output Stream đích nhận dữ liệu.
+     * @param maxBytes Dung lượng tối đa được phép ghi.
+     * @return Tổng số bytes đã ghi.
+     * @throws IllegalStateException Nếu dữ liệu vượt quá [maxBytes].
+     */
+    fun copyBounded(
+        input: InputStream,
+        output: OutputStream,
+        maxBytes: Long = MAX_UNCOMPRESSED_ENTRY_SIZE
+    ): Long {
+        require(maxBytes >= 0) { "maxBytes must be non-negative" }
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var totalBytes = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            if (totalBytes > maxBytes - read.toLong()) {
+                throw IllegalStateException("EPUB stream exceeds safety limit ($maxBytes bytes)")
+            }
+            output.write(buffer, 0, read)
+            totalBytes += read
+        }
+        return totalBytes
     }
 
     /**

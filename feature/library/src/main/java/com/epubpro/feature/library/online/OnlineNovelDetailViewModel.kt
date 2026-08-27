@@ -191,6 +191,7 @@ class OnlineNovelDetailViewModel @Inject constructor(
                     novelId = detail.novelId,
                     title = detail.title,
                     author = detail.author,
+                    coverUrl = detail.coverUrl,
                     forceUpdate = forceUpdate
                 )
             }.onSuccess { workId ->

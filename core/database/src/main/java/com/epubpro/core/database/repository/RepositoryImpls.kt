@@ -34,6 +34,9 @@ class BookRepositoryImpl @Inject constructor(
     override suspend fun updateLastRead(id: String, timestamp: Long) =
         bookDao.updateLastRead(id, timestamp)
 
+    override suspend fun updateCoverPathIfMissing(id: String, filePath: String, coverPath: String): Boolean =
+        bookDao.updateCoverPathIfMissing(id, filePath, coverPath) > 0
+
     override fun getReadingProgress(bookId: String): Flow<ReadingProgress?> =
         bookDao.getReadingProgress(bookId).map { it?.toDomain() }
 

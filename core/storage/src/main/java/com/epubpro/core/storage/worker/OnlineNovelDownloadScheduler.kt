@@ -39,6 +39,7 @@ class OnlineNovelDownloadScheduler @Inject constructor(
      * @param novelId Định danh truyện online.
      * @param title Tiêu đề hiển thị.
      * @param author Tác giả để giữ metadata đầu vào cho worker.
+     * @param coverUrl URL ảnh bìa từ danh mục truyện online.
      * @param forceUpdate True nếu cần tải lại file EPUB dù bản cũ đã tồn tại.
      * @return UUID của WorkRequest đang xử lý.
      */
@@ -46,6 +47,7 @@ class OnlineNovelDownloadScheduler @Inject constructor(
         novelId: String,
         title: String,
         author: String,
+        coverUrl: String? = null,
         forceUpdate: Boolean = false
     ): UUID = withContext(Dispatchers.IO) {
         enqueueMutex.withLock {
@@ -60,6 +62,7 @@ class OnlineNovelDownloadScheduler @Inject constructor(
                         OnlineNovelDownloadWorker.KEY_NOVEL_ID to novelId,
                         OnlineNovelDownloadWorker.KEY_TITLE to title,
                         OnlineNovelDownloadWorker.KEY_AUTHOR to author,
+                        OnlineNovelDownloadWorker.KEY_COVER_URL to coverUrl,
                         OnlineNovelDownloadWorker.KEY_FORCE_UPDATE to forceUpdate
                     )
                 )

@@ -24,6 +24,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collect
+import java.io.File
 
 /**
  * Worker chạy foreground cho một truyện online, gồm tải EPUB, import Room và lập chỉ mục FTS.
@@ -54,6 +55,7 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val novelId = inputData.getString(KEY_NOVEL_ID) ?: return Result.failure()
         val title = inputData.getString(KEY_TITLE) ?: novelId
+        val coverUrl = inputData.getString(KEY_COVER_URL)
         val forceUpdate = inputData.getBoolean(KEY_FORCE_UPDATE, false)
         val files = storageManager.getOnlineDownloadFiles(novelId)
         val notificationId = notificationIdFor(novelId)
@@ -160,12 +162,22 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
                 completedFile = storageManager.promoteOnlineDownload(files)
             }
             val previousBook = bookRepository.getBookById(parsedBook.id)
+            val finalCoverPath = parsedBook.coverPath
+                ?: previousBook?.coverPath?.takeIf { path ->
+                    path.startsWith("http://", ignoreCase = true) ||
+                        path.startsWith("https://", ignoreCase = true) ||
+                        File(path).isFile
+                }
+                ?: coverUrl
             val book = if (previousBook == null) {
-                parsedBook.copy(filePath = completedFile.absolutePath)
+                parsedBook.copy(
+                    filePath = completedFile.absolutePath,
+                    coverPath = finalCoverPath
+                )
             } else {
                 parsedBook.copy(
                     filePath = completedFile.absolutePath,
-                    coverPath = previousBook.coverPath,
+                    coverPath = finalCoverPath,
                     addedAt = previousBook.addedAt,
                     lastReadAt = previousBook.lastReadAt
                 )
@@ -350,6 +362,7 @@ class OnlineNovelDownloadWorker @AssistedInject constructor(
         const val KEY_NOVEL_ID = "online_download_novel_id"
         const val KEY_TITLE = "online_download_title"
         const val KEY_AUTHOR = "online_download_author"
+        const val KEY_COVER_URL = "online_download_cover_url"
         const val KEY_FORCE_UPDATE = "online_download_force_update"
         const val KEY_PHASE = "online_download_phase"
         const val KEY_PROGRESS = "online_download_progress"

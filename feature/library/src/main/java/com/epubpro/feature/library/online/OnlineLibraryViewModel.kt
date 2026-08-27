@@ -347,6 +347,7 @@ class OnlineLibraryViewModel @Inject constructor(
                     novelId = novel.novelId,
                     title = novel.title,
                     author = novel.author,
+                    coverUrl = novel.coverUrl,
                     forceUpdate = forceUpdate
                 )
             }.onSuccess { workId ->

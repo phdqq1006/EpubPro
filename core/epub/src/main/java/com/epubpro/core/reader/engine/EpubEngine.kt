@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -71,6 +72,59 @@ class EpubEngine @Inject constructor(
     )
 
     /**
+     * Trích xuất tệp ảnh bìa từ file EPUB và lưu vào thư mục covers nội bộ của ứng dụng.
+     *
+     * @param file Tệp EPUB trên bộ nhớ thiết bị.
+     * @return Đường dẫn tuyệt đối đến tệp ảnh bìa đã trích xuất hoặc null nếu không tìm thấy.
+     */
+    suspend fun extractCoverImage(file: File): String? = withContext(Dispatchers.IO) {
+        if (!file.isFile || file.length() > EpubReadLimits.MAX_EPUB_FILE_SIZE) return@withContext null
+        try {
+            ZipFile(file).use { zip ->
+                val parsed = EpubPackageStructureParser.parseStructure(zip)
+                val coverEntry = parsed.coverEntry ?: return@withContext null
+                extractCoverEntry(zip, file, coverEntry)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Trích xuất một entry ảnh bìa vào file tạm rồi đổi tên nguyên tử sang file đích.
+     *
+     * @param zip Archive EPUB đang mở.
+     * @param file Tệp EPUB nguồn.
+     * @param coverEntry Entry ảnh bìa đã được parser xác định.
+     * @return Đường dẫn tuyệt đối đến ảnh bìa hoặc null nếu không thể ghi ảnh.
+     * @throws Exception Nếu entry vượt giới hạn hoặc thao tác đọc/ghi thất bại.
+     */
+    private fun extractCoverEntry(zip: ZipFile, file: File, coverEntry: ZipEntry): String? {
+        EpubReadLimits.validateZipEntry(coverEntry)
+        val baseDir = try { context.filesDir } catch (_: Exception) { null } ?: file.parentFile ?: return null
+        val coversDir = File(baseDir, "covers").apply { if (!exists() && !mkdirs()) return null }
+        val extension = coverEntry.name.substringAfterLast('.', "jpg").lowercase()
+            .takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
+        val coverFile = File(coversDir, "${file.nameWithoutExtension}_cover.$extension")
+        val temporaryFile = File.createTempFile("${file.nameWithoutExtension}_cover", ".tmp", coversDir)
+        return try {
+            zip.getInputStream(coverEntry).use { input ->
+                temporaryFile.outputStream().use { output ->
+                    EpubReadLimits.copyBounded(input, output)
+                }
+            }
+            if (temporaryFile.length() <= 0L) return null
+            if (coverFile.exists() && !coverFile.delete()) return null
+            if (!temporaryFile.renameTo(coverFile)) return null
+            coverFile.absolutePath
+        } finally {
+            if (temporaryFile.exists()) temporaryFile.delete()
+        }
+    }
+
+    /**
      * Trích xuất thông tin metadata cơ bản (tiêu đề, tác giả, số lượng chương) từ tệp EPUB.
      *
      * @param file Tệp EPUB trên bộ nhớ thiết bị.
@@ -84,6 +138,7 @@ class EpubEngine @Inject constructor(
 
         var title = file.nameWithoutExtension
         var author = "Unknown Author"
+        var coverPath: String? = null
 
         try {
             ZipFile(file).use { zip ->
@@ -94,7 +149,18 @@ class EpubEngine @Inject constructor(
                 if (parsed.author.isNotBlank() && parsed.author != "Unknown Author") {
                     author = parsed.author
                 }
+                if (parsed.coverEntry != null) {
+                    try {
+                        coverPath = extractCoverEntry(zip, file, parsed.coverEntry)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        coverPath = null
+                    }
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -109,7 +175,7 @@ class EpubEngine @Inject constructor(
             id = file.name,
             title = title,
             author = author,
-            coverPath = null,
+            coverPath = coverPath,
             filePath = file.absolutePath,
             addedAt = System.currentTimeMillis(),
             lastReadAt = System.currentTimeMillis(),
@@ -157,6 +223,7 @@ class EpubEngine @Inject constructor(
 
         parseEpubMetadata(file)
     }
+
     /**
      * Trích xuất danh sách tiêu đề chương gọn nhẹ ([EpubChapterHeader]) từ tệp EPUB mà không cần nạp toàn bộ HTML vào RAM.
      *
@@ -334,6 +401,7 @@ class EpubEngine @Inject constructor(
             }
         }
     }
+
     private fun extractXmlTag(xml: String, tagName: String): String? {
         val regex = "(?i)<$tagName[^>]*>(.*?)</$tagName>".toRegex(RegexOption.DOT_MATCHES_ALL)
         return regex.find(xml)?.groupValues?.get(1)?.let { stripHtmlTags(it) }?.takeIf { it.isNotBlank() }
