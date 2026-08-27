@@ -37,6 +37,7 @@ import com.epubpro.domain.model.BookBibleSourceType
 import com.epubpro.domain.model.Bookmark
 import com.epubpro.domain.model.ContentFilterPreferences
 import com.epubpro.domain.model.ContentFilterRule
+import com.epubpro.domain.model.isJavaScriptCompatibleRegex
 import com.epubpro.domain.model.Highlight
 import com.epubpro.domain.model.ReaderSettings
 import com.epubpro.domain.model.ReadingProgress
@@ -111,7 +112,8 @@ data class ReaderUiState(
     val aiError: String? = null,
     val isTestingAiConnection: Boolean = false,
     val aiConnectionMessage: String? = null,
-    val filterPreferences: ContentFilterPreferences = ContentFilterPreferences()
+    val filterPreferences: ContentFilterPreferences = ContentFilterPreferences(),
+    val replaceTextPattern: String? = null
 ) {
     val displayedChapterHtml: String
         get() = if (contentVersion == ReaderContentVersion.AI) {
@@ -153,25 +155,36 @@ internal fun calculateReaderProgress(state: ReaderUiState): Float {
 }
 
 /**
- * Bật bộ lọc và thêm selection dưới dạng rule literal, đồng thời tái sử dụng rule trùng đã có.
+ * Bật bộ lọc và thêm/cập nhật quy tắc thay thế từ ngữ, tự động kích hoạt nếu đang tắt.
  *
- * @param selectedText Văn bản người dùng chọn trong màn đọc.
- * @return Cấu hình bộ lọc mới; giữ nguyên cấu hình nếu selection rỗng.
+ * @param pattern Chuỗi từ gốc hoặc mẫu Regex cần tìm kiếm.
+ * @param replacement Chuỗi mới thay thế (để trống nếu muốn xóa).
+ * @param isRegex `true` nếu mẫu tìm kiếm là biểu thức chính quy.
+ * @return Cấu hình bộ lọc mới sau khi đã cập nhật.
  */
-internal fun ContentFilterPreferences.withEnabledLiteralRule(
-    selectedText: String
+internal fun ContentFilterPreferences.withEnabledReplaceRule(
+    pattern: String,
+    replacement: String = "",
+    isRegex: Boolean = false
 ): ContentFilterPreferences {
-    val normalizedText = selectedText.trim()
-    if (normalizedText.isEmpty()) return this
+    val normalizedPattern = pattern.trim()
+    if (normalizedPattern.isEmpty()) return this
+    if (isRegex && !isJavaScriptCompatibleRegex(normalizedPattern)) return this
 
     val matchingRule = rules.firstOrNull { rule ->
-        !rule.isRegex && rule.pattern.equals(normalizedText, ignoreCase = true)
+        rule.isRegex == isRegex && rule.pattern.equals(normalizedPattern, ignoreCase = true)
     }
     if (matchingRule != null) {
         return copy(
             isFilterEnabled = true,
             rules = rules.map { rule ->
-                if (rule.id == matchingRule.id) rule.copy(isEnabled = true) else rule
+                if (rule.id == matchingRule.id) {
+                    rule.copy(
+                        replacement = replacement,
+                        isRegex = isRegex,
+                        isEnabled = true
+                    )
+                } else rule
             }
         )
     }
@@ -179,12 +192,23 @@ internal fun ContentFilterPreferences.withEnabledLiteralRule(
     return copy(
         isFilterEnabled = true,
         rules = rules + ContentFilterRule(
-            pattern = normalizedText,
-            isRegex = false,
+            pattern = normalizedPattern,
+            replacement = replacement,
+            isRegex = isRegex,
             isEnabled = true
         )
     )
 }
+
+/**
+ * Bật bộ lọc và thêm selection dưới dạng rule literal, đồng thời tái sử dụng rule trùng đã có.
+ *
+ * @param selectedText Văn bản người dùng chọn trong màn đọc.
+ * @return Cấu hình bộ lọc mới; giữ nguyên cấu hình nếu selection rỗng.
+ */
+internal fun ContentFilterPreferences.withEnabledLiteralRule(
+    selectedText: String
+): ContentFilterPreferences = withEnabledReplaceRule(pattern = selectedText, replacement = "", isRegex = false)
 
 private data class ChapterHtmlBundle(
     val current: String,
@@ -1003,14 +1027,42 @@ class ReaderViewModel @Inject constructor(
     }
 
     /**
-     * Thêm đoạn văn bản đang chọn vào content filter và bật lọc để cập nhật Reader ngay lập tức.
+     * Mở BottomSheet thay thế từ ngữ với văn bản được chọn.
+     *
+     * @param selectedText Chuỗi văn bản người dùng vừa bôi đen trong WebView.
+     */
+    fun openReplaceTextBottomSheet(selectedText: String) {
+        _uiState.update { it.copy(replaceTextPattern = selectedText.trim()) }
+    }
+
+    /**
+     * Đóng BottomSheet thay thế từ ngữ.
+     */
+    fun dismissReplaceTextBottomSheet() {
+        _uiState.update { it.copy(replaceTextPattern = null) }
+    }
+
+    /**
+     * Lưu quy tắc thay thế từ ngữ vào cấu hình bộ lọc và áp dụng ngay lập tức cho Reader.
+     *
+     * @param pattern Chuỗi từ/câu gốc cần tìm kiếm.
+     * @param replacement Chuỗi mới thay thế (để trống nếu muốn xóa).
+     * @param isRegex `true` nếu mẫu tìm kiếm là biểu thức chính quy.
+     */
+    fun saveReplaceRule(pattern: String, replacement: String, isRegex: Boolean) {
+        preferencesManager.updateFilterPreferences { preferences ->
+            preferences.withEnabledReplaceRule(pattern, replacement, isRegex)
+        }
+        dismissReplaceTextBottomSheet()
+    }
+
+    /**
+     * Thêm đoạn văn bản đang chọn vào content filter hoặc mở hộp thoại thay thế từ ngữ.
      *
      * @param selectedText Văn bản được chọn trong WebView.
      */
     fun addSelectionToContentFilter(selectedText: String) {
-        preferencesManager.updateFilterPreferences { preferences ->
-            preferences.withEnabledLiteralRule(selectedText)
-        }
+        openReplaceTextBottomSheet(selectedText)
     }
 
     fun openAiBottomSheet() {

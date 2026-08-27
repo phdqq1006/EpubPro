@@ -20,6 +20,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -157,6 +158,7 @@ class ReaderPreferencesManager @Inject constructor(
             val obj = JSONObject().apply {
                 put("id", rule.id)
                 put("pattern", rule.pattern)
+                put("replacement", rule.replacement)
                 put("isRegex", rule.isRegex)
                 put("isEnabled", rule.isEnabled)
             }
@@ -171,6 +173,53 @@ class ReaderPreferencesManager @Inject constructor(
         _filterPreferences.value = filterPreferences
     }
 
+    /**
+     * Thêm mới hoặc cập nhật một quy tắc lọc/thay thế từ ngữ và tự động kích hoạt tính năng.
+     *
+     * @param pattern Chuỗi từ khóa hoặc mẫu Regex cần tìm kiếm.
+     * @param replacement Chuỗi văn bản mới thay thế (để trống nếu muốn xóa).
+     * @param isRegex `true` nếu mẫu tìm kiếm là biểu thức Regex.
+     */
+    @Synchronized
+    fun addOrUpdateFilterRule(
+        pattern: String,
+        replacement: String = "",
+        isRegex: Boolean = false
+    ) {
+        val normalizedPattern = pattern.trim()
+        if (normalizedPattern.isEmpty()) return
+
+        updateFilterPreferences { current ->
+            val existing = current.rules.firstOrNull { rule ->
+                rule.isRegex == isRegex && rule.pattern.equals(normalizedPattern, ignoreCase = true)
+            }
+
+            val updatedRules = if (existing != null) {
+                current.rules.map { rule ->
+                    if (rule.id == existing.id) {
+                        rule.copy(
+                            replacement = replacement,
+                            isRegex = isRegex,
+                            isEnabled = true
+                        )
+                    } else rule
+                }
+            } else {
+                current.rules + ContentFilterRule(
+                    pattern = normalizedPattern,
+                    replacement = replacement,
+                    isRegex = isRegex,
+                    isEnabled = true
+                )
+            }
+
+            current.copy(
+                isFilterEnabled = true,
+                rules = updatedRules
+            )
+        }
+    }
+
     private fun readFilterPreferences(): ContentFilterPreferences {
         val isEnabled = prefs.getBoolean(KEY_FILTER_ENABLED, false)
         val rulesJsonStr = prefs.getString(KEY_FILTER_RULES, "[]") ?: "[]"
@@ -182,8 +231,9 @@ class ReaderPreferencesManager @Inject constructor(
                 val obj = jsonArray.getJSONObject(i)
                 rulesList.add(
                     ContentFilterRule(
-                        id = obj.optString("id"),
+                        id = obj.optString("id", UUID.randomUUID().toString()),
                         pattern = obj.optString("pattern"),
+                        replacement = obj.optString("replacement", ""),
                         isRegex = obj.optBoolean("isRegex", false),
                         isEnabled = obj.optBoolean("isEnabled", true)
                     )

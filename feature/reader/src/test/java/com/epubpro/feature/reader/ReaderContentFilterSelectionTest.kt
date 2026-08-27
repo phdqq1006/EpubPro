@@ -57,4 +57,83 @@ class ReaderContentFilterSelectionTest {
 
         assertSame(original, updated)
     }
+
+    /** Kiểm tra thêm quy tắc thay thế với replacement kích hoạt filter và lưu replacement. */
+    @Test
+    fun replaceRule_addsRuleWithReplacementAndEnablesFilter() {
+        val original = ContentFilterPreferences()
+
+        val updated = original.withEnabledReplaceRule(
+            pattern = "tu sĩ",
+            replacement = "pháp sư",
+            isRegex = false
+        )
+
+        assertTrue(updated.isFilterEnabled)
+        assertEquals(1, updated.rules.size)
+        val rule = updated.rules.single()
+        assertEquals("tu sĩ", rule.pattern)
+        assertEquals("pháp sư", rule.replacement)
+        assertFalse(rule.isRegex)
+        assertTrue(rule.isEnabled)
+    }
+
+    /** Kiểm tra cập nhật quy tắc trùng lặp đã có sẵn. */
+    @Test
+    fun existingDisabledReplaceRule_isUpdatedAndReenabled() {
+        val existingRule = ContentFilterRule(
+            id = "rule-1",
+            pattern = "tu sĩ",
+            replacement = "",
+            isEnabled = false
+        )
+        val original = ContentFilterPreferences(
+            isFilterEnabled = false,
+            rules = listOf(existingRule)
+        )
+
+        val updated = original.withEnabledReplaceRule(
+            pattern = "Tu Sĩ",
+            replacement = "pháp sư",
+            isRegex = false
+        )
+
+        assertTrue(updated.isFilterEnabled)
+        assertEquals(1, updated.rules.size)
+        val rule = updated.rules.single()
+        assertEquals("rule-1", rule.id)
+        assertEquals("pháp sư", rule.replacement)
+        assertTrue(rule.isEnabled)
+    }
+
+    /** Kiểm tra quy tắc Regex sai cú pháp không làm thay đổi preferences. */
+    @Test
+    fun invalidRegexReplaceRule_keepsPreferencesUnchanged() {
+        val original = ContentFilterPreferences(
+            isFilterEnabled = false,
+            rules = emptyList()
+        )
+
+        val updated = original.withEnabledReplaceRule(
+            pattern = "[invalid-regex",
+            replacement = "test",
+            isRegex = true
+        )
+
+        assertSame(original, updated)
+    }
+
+    /** Kiểm tra cú pháp Regex chỉ có trên Java không được lưu để tránh lệch với WebView. */
+    @Test
+    fun javaOnlyRegex_keepsPreferencesUnchanged() {
+        val original = ContentFilterPreferences()
+
+        val updated = original.withEnabledReplaceRule(
+            pattern = "(?s)a",
+            replacement = "b",
+            isRegex = true
+        )
+
+        assertSame(original, updated)
+    }
 }

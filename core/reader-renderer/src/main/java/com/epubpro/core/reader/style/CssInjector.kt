@@ -236,6 +236,7 @@ object CssInjector {
             filterPreferences.rules.filter { it.isEnabled && it.pattern.isNotBlank() }.forEach { rule ->
                 val obj = JSONObject().apply {
                     put("pattern", rule.pattern)
+                    put("replacement", rule.replacement)
                     put("isRegex", rule.isRegex)
                     put("isEnabled", rule.isEnabled)
                 }
@@ -1393,37 +1394,66 @@ object CssInjector {
                         var isEnabled = $isFilterEnabled;
                         if (!isEnabled || !rules || rules.length === 0) return;
 
-                        var activePatterns = [];
+                        var activeRules = [];
+                        var detectPatterns = [];
                         for (var i = 0; i < rules.length; i++) {
                             var r = rules[i];
                             if (!r.isEnabled || !r.pattern) continue;
                             if (r.isRegex) {
                                 try {
                                     new RegExp(r.pattern, 'i');
-                                    activePatterns.push('(?:' + r.pattern + ')');
+                                    var regex = new RegExp(r.pattern, 'gi');
+                                    activeRules.push({ regex: regex, replacement: r.replacement || '' });
+                                    detectPatterns.push('(?:' + r.pattern + ')');
                                 } catch (regexError) {
                                     dbg('FILTER_RULE_ERROR', regexError.toString());
                                 }
                             } else {
                                 var escaped = r.pattern.replace(/[.*+?^${'$'}{}()|[\]\\]/g, '\\${'$'}&');
-                                activePatterns.push('(?:' + escaped + ')');
+                                var regex = new RegExp(escaped, 'gi');
+                                activeRules.push({ regex: regex, replacement: r.replacement || '' });
+                                detectPatterns.push('(?:' + escaped + ')');
                             }
                         }
-                        if (activePatterns.length === 0) return;
-                        var detectRegex = new RegExp(activePatterns.join('|'), 'i');
-                        var replaceRegex = new RegExp(activePatterns.join('|'), 'gi');
+                        if (activeRules.length === 0) return;
+                        var detectRegex = null;
+                        if (detectPatterns.length > 0) {
+                            try {
+                                detectRegex = new RegExp(detectPatterns.join('|'), 'i');
+                            } catch (detectErr) {
+                                dbg('FILTER_DETECT_REGEX_ERR', detectErr.toString());
+                            }
+                        }
 
                         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
                         var node;
                         var nodesToProcess = [];
                         while (node = walker.nextNode()) {
-                            if (detectRegex.test(node.nodeValue)) {
+                            var shouldProcess = false;
+                            if (detectRegex) {
+                                shouldProcess = detectRegex.test(node.nodeValue);
+                            } else {
+                                for (var r = 0; r < activeRules.length; r++) {
+                                    activeRules[r].regex.lastIndex = 0;
+                                    if (activeRules[r].regex.test(node.nodeValue)) {
+                                        shouldProcess = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (shouldProcess) {
                                 nodesToProcess.push(node);
                             }
                         }
                         for (var j = 0; j < nodesToProcess.length; j++) {
                             var n = nodesToProcess[j];
-                            n.nodeValue = n.nodeValue.replace(replaceRegex, '').replace(/\s+/g, ' ');
+                            for (var k = 0; k < activeRules.length; k++) {
+                                activeRules[k].regex.lastIndex = 0;
+                                n.nodeValue = n.nodeValue.replace(activeRules[k].regex, function() {
+                                    return activeRules[k].replacement;
+                                });
+                            }
+                            n.nodeValue = n.nodeValue.replace(/\s+/g, ' ');
                         }
                         document.body.normalize();
                     } catch(e) {

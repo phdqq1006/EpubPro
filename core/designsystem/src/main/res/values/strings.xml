@@ -169,11 +169,36 @@
     <string name="reader_brightness_extra_dim_badge">Siêu tối</string>
     <string name="reader_brightness_hud_format">%1$d%%</string>
     <string name="reader_action_filter">Lọc từ</string>
+    <string name="reader_action_replace">Thay thế</string>
     <string name="reader_action_highlight">Tô màu</string>
     <string name="reader_action_tts_read">Đọc từ đây</string>
     <string name="reader_action_ai_polish">AI Thuần Việt</string>
     <string name="reader_filter_added_format">Đã thêm \"%1$s\" vào bộ lọc nội dung</string>
     <string name="reader_highlight_added">Đã lưu đoạn highlight</string>
+    <string name="replace_text_title">Thay thế từ ngữ</string>
+    <string name="replace_text_edit_title">Sửa quy tắc thay thế</string>
+    <string name="replace_text_original_label">Từ gốc</string>
+    <string name="replace_text_replacement_label">Thay thế bằng</string>
+    <string name="replace_text_placeholder">Để trống để xóa từ khỏi sách</string>
+    <string name="replace_text_regex_label">Biểu thức chính quy (Regex)</string>
+    <string name="replace_text_saved_toast">Đã lưu quy tắc thay thế</string>
+    <string name="replace_text_save_button">Lưu quy tắc</string>
+    <string name="content_filter_rule_format">%1$s ➔ %2$s</string>
+    <string name="content_filter_rule_delete_tag">Xóa</string>
+    <string name="content_filter_add_button">Thêm quy tắc</string>
+    <string name="content_filter_add_title">Thêm quy tắc thay thế / lọc mới</string>
+    <string name="content_filter_empty_list">Chưa có quy tắc lọc/thay thế nào.</string>
+    <string name="content_filter_list_title">Danh sách quy tắc (%1$d)</string>
+    <string name="content_filter_master_title">Bật Lọc &amp; Thay thế</string>
+    <string name="content_filter_master_desc">Áp dụng trong Reader &amp; Giọng đọc TTS</string>
+    <string name="content_filter_screen_title">Lọc &amp; Thay thế từ ngữ</string>
+    <string name="content_filter_pattern_label">Từ gốc hoặc biểu thức Regex</string>
+    <string name="content_filter_pattern_placeholder">Ví dụ: tu sĩ hoặc www\\..*\\.com</string>
+    <string name="content_filter_regex_badge">Biểu thức Regex</string>
+    <string name="content_filter_action_back">Quay lại</string>
+    <string name="content_filter_action_edit">Chỉnh sửa</string>
+    <string name="content_filter_action_delete">Xóa quy tắc</string>
+    <string name="content_filter_invalid_regex">Cú pháp Regex không hợp lệ hoặc không tương thích JavaScript</string>
 
     <!-- Reading Defaults Screen -->
     <string name="reading_defaults_title">Mặc định đọc</string>

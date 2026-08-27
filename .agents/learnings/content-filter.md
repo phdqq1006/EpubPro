@@ -1,46 +1,48 @@
-# Content Filter Feature
+# Content Filter & Replacement Feature
 
-> Tổng hợp kiến thức về hệ thống Lọc nội dung nhạy cảm / từ khóa nhạy cảm trong Reader WebView và TTS Engine.
-> Cập nhật lần cuối: 2026-08-26
+> Tổng hợp kiến thức về hệ thống Lọc & Thay thế từ ngữ (Content Filter & Text Replacement) trong Reader WebView và TTS Audio Engine.
+> Cập nhật lần cuối: 2026-08-27
 
 ---
 
 ## Architecture
 
-### Dual-Layer Content Filtering Architecture (Native Kotlin & JS TreeWalker)
-- **Ngày**: 2026-08-06
-- **Chi tiết**: Tách việc lọc từ khóa thành 2 lớp xử lý độc lập nhưng dùng chung nguồn cấu hình `ContentFilterPreferences` từ `ReaderPreferencesManager`:
-  1. **WebView Layer**: Tiêm JavaScript `TreeWalker` trực tiếp trên các Text Node (`NodeFilter.SHOW_TEXT`) trong DOM. Xóa từ trùng khớp và gọi `document.body.normalize()` để văn bản tự động nối lại liền mạch mà không re-parse lại cây HTML.
-  2. **TTS Engine Layer**: Sử dụng `ContentSanitizer.sanitize(rawText)` làm sạch chuỗi văn bản trước khi gửi sang Android Native TTS / Piper TTS. Tự động skip đoạn văn nếu toàn bộ từ trong đoạn đều bị lọc.
-- **Files liên quan**: `core/playback/src/main/java/com/epubpro/core/reader/filter/ContentSanitizer.kt`, `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `core/playback/src/main/java/com/epubpro/core/reader/tts/TtsService.kt`
+### Dual-Layer Content Filter & Replacement Architecture (Native Kotlin & JS TreeWalker)
+- **Ngày**: 2026-08-27
+- **Chi tiết**: Hợp nhất hệ thống Lọc và Thay thế từ ngữ thành một cấu trúc 2 tầng thống nhất, chia sẻ cấu hình `ContentFilterPreferences` (`rules: List<ContentFilterRule>` gồm `pattern`, `replacement`, `isRegex`, `isEnabled`):
+  1. **WebView Layer**: Tiêm JavaScript `TreeWalker` trực tiếp trên các Text Node (`NodeFilter.SHOW_TEXT`) trong DOM. Thay thế từ trùng khớp theo `replacement` (hoặc xóa nếu rỗng) bằng function replacer và gọi `document.body.normalize()` để văn bản tự động nối lại liền mạch mà không làm mất DOM tree.
+  2. **TTS Engine Layer**: Sử dụng `ContentSanitizer.sanitize(rawText)` làm sạch và thay thế chuỗi văn bản bằng lambda replacer trước khi gửi sang Android Native TTS / Piper TTS.
+- **Files liên quan**: `core/playback/src/main/java/com/epubpro/core/reader/filter/ContentSanitizer.kt`, `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`, `domain/src/main/java/com/epubpro/domain/model/ContentFilterModels.kt`
 
-### Selection-to-Filter dùng chung nguồn cấu hình runtime
-- **Ngày**: 2026-08-26
-- **Chi tiết**: Action “Lọc từ” trong native selection toolbar chỉ thu thập `window.getSelection()` và chuyển text về `ReaderViewModel`. ViewModel chuẩn hóa text, bật global filter, tái kích hoạt rule literal trùng hoặc thêm rule mới qua `ReaderPreferencesManager`. `filterPreferences: StateFlow` tiếp tục là nguồn sự thật duy nhất; thay đổi hash làm Reader WebView reload với script lọc mới, đồng thời TTS nhận cùng cấu hình. Không lưu state rule trong WebView hoặc Compose.
-- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/webview/ReaderSelectionWebView.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`
+### Selection-to-Replace Flow với BottomSheet nhập nhanh
+- **Ngày**: 2026-08-27
+- **Chi tiết**: Action “Thay thế” trong selection toolbar thu thập `window.getSelection()` và mở `ReplaceTextBottomSheet` ngay tại màn đọc. BottomSheet điền sẵn từ gốc, hỗ trợ nhập từ thay thế, bật/tắt Regex kèm validation trực tiếp. Khi lưu, `ReaderPreferencesManager` lưu JSON an toàn và phát `filterPreferences: StateFlow` mới, đồng bộ tức thì cho cả trang sách và giọng đọc TTS mà không cần reload toàn bộ trang.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/webview/ReaderSelectionWebView.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/filter/ReplaceTextBottomSheet.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`
 
 ---
 
 ## Bugs & Solutions
 
-### Kotlin Raw String Template Interpretation Error với Regex Special Characters
-- **Ngày**: 2026-08-06
-- **Vấn đề**: Trình biên dịch Kotlin báo lỗi `e: Expecting an expression` tại dòng JavaScript injection trong `CssInjector.kt`.
-- **Root cause**: Trong chuỗi Kotlin Raw String (`""" ... """`), đoạn mã JS `replace(/[.*+?^${}()|[\]\\]/g, '\\$&')` chứa ký tự `${}` và `$` bị Kotlin nhầm là String Template Interpolation `${...}`.
-- **Fix**: Escape tất cả ký tự `$` thành `${'$'}` để ngăn Kotlin cố evaluate biểu thức JavaScript.
+### Replacement chứa ký tự đặc biệt ($1, $&) gây crash TTS và lỗi hiển thị WebView
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Khi người dùng thay thế từ ngữ bằng chuỗi chứa ký tự `$` (ví dụ `$100`, `$&`), `Regex.replace` trên JVM ném exception `IllegalArgumentException: No group 1` gây crash TTS. Trên WebView, chuỗi bị diễn giải sai thành capture group token.
+- **Root cause**: `String.replace(Regex, replacementString)` mặc định diễn giải ký tự `$` là tham chiếu nhóm capture.
+- **Fix**:
+  - Trong Kotlin: Dùng lambda replacer `result.replace(regex) { rule.replacement }` để coi kết quả trả về là chuỗi ký tự nguyên bản (literal).
+  - Trong JavaScript: Dùng function replacer `n.nodeValue.replace(regex, function() { return rule.replacement; })`.
+- **Files liên quan**: `core/playback/src/main/java/com/epubpro/core/reader/filter/ContentSanitizer.kt`, `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Combined Regex chứa Duplicate Named Capture Groups làm WebView bỏ qua filter
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Khi người dùng thêm 2 quy tắc Regex riêng lẻ nhưng trùng tên capture group (ví dụ `(?<x>a)` và `(?<x>b)`), biểu thức tổng hợp `new RegExp(patterns.join('|'))` ném `SyntaxError: Duplicate capture group name`, rơi vào catch ngoài làm hủy toàn bộ bộ lọc.
+- **Root cause**: Ghép chuỗi regex trực tiếp mà không bọc khối catch riêng cho detection regex.
+- **Fix**: Bọc `try { detectRegex = new RegExp(...) } catch` riêng. Nếu compile detection regex thất bại, tự động fallback sang duyệt trực tiếp từng `activeRules[r].regex.test(node.nodeValue)`.
 - **Files liên quan**: `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
-### Invalid Individual Regex Rule Breaking Entire Combined Regex Filter
-- **Ngày**: 2026-08-06
-- **Vấn đề**: Một quy tắc Regex sai cú pháp làm toàn bộ `ContentSanitizer` trả về `null` và không rule nào được áp dụng.
-- **Root cause**: Gom mọi `rule.pattern` vào combined pattern mà không validate từng regex trước khi compile.
-- **Fix**: Validate riêng từng Regex rule bằng `runCatching { Regex(rule.pattern) }`, chỉ đưa rule hợp lệ vào combined pattern và bỏ qua rule lỗi.
-- **Files liên quan**: `core/playback/src/main/java/com/epubpro/core/reader/filter/ContentSanitizer.kt`
-
 ### UI Row Squishing Button Layout trong Compose
-- **Ngày**: 2026-08-06
-- **Vấn đề**: Nút “Thêm” nằm cùng `Row` với input dài bị ép ngang, khiến label rớt thành nhiều dòng.
-- **Fix**: Dùng `IconButton` làm `trailingIcon` của `OutlinedTextField` để action có kích thước ổn định.
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Đặt Checkbox/Switch và Button cùng một `Row` ngang khiến Button bị ép chặt chiều ngang, text nút nhảy thành nhiều dòng dọc ("T \n + hê \n m").
+- **Fix**: Tách dòng "Biểu thức chính quy (Regex)" thành một `Row` riêng với `Switch`, và chuyển nút "Thêm quy tắc" thành nút Full-width (`Modifier.fillMaxWidth().height(48.dp)`).
 - **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/filter/ContentFilterSettingsScreen.kt`
 
 ### Double JSON.parse làm WebView bỏ qua toàn bộ rule đã lưu
@@ -54,26 +56,43 @@
 
 ## How-To
 
-### Cách thêm một rule lọc và đồng bộ xuống WebView & TTS
-- **Ngày**: 2026-08-26
+### Cách thêm/sửa một quy tắc lọc & thay thế và đồng bộ xuống WebView & TTS
+- **Ngày**: 2026-08-27
 - **Bước thực hiện**:
-  1. Nhận pattern từ `ContentFilterSettingsScreen` hoặc selection toolbar của `ReaderSelectionWebView`.
-  2. Chuẩn hóa input; với selection, tạo rule literal, tránh duplicate và bật lại rule trùng đang tắt.
-  3. Gọi `ReaderPreferencesManager.updateFilterPreferences` để persist JSON và phát `filterPreferences` mới.
-  4. `ReaderViewModel` cập nhật `ReaderUiState`; `EpubProWebView` đổi reload key và inject rules bằng `CssInjector`.
-  5. JavaScript parse rules đúng một lần rồi chạy `TreeWalker`; `TtsService` dùng cùng preferences qua `ContentSanitizer`.
-- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/filter/ContentFilterSettingsViewModel.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`, `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+  1. Nhận `pattern`, `replacement`, `isRegex` từ `ContentFilterSettingsScreen` hoặc `ReplaceTextBottomSheet`.
+  2. Validate cú pháp Regex trên UI (`runCatching { Regex(pattern) }`), hiển thị lỗi inline và chặn lưu nếu không hợp lệ.
+  3. Gọi `ReaderPreferencesManager.updateFilterPreferences` (hoặc `withEnabledReplaceRule`) để lưu JSON và cập nhật `filterPreferences: StateFlow`.
+  4. `ReaderViewModel` và `EpubProWebView` tự động cập nhật script lọc qua `CssInjector`; `TtsService` đồng thời nhận cấu hình mới qua `ContentSanitizer`.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/filter/ContentFilterSettingsViewModel.kt`, `feature/reader/src/main/java/com/epubpro/feature/reader/filter/ReplaceTextBottomSheet.kt`, `core/storage/src/main/java/com/epubpro/core/storage/ReaderPreferencesManager.kt`
 
 ---
 
 ## Patterns
 
-### Compiled Combined Regex Pattern
-- **Ngày**: 2026-08-06
-- **Chi tiết**: Để lọc nhiều rule hiệu quả, gom các rule đang bật thành một biểu thức `(?:pattern1)|(?:pattern2)|...` và compile một lần với chế độ ignore-case. Rule literal phải được escape; rule Regex phải được validate riêng trước khi ghép.
+### Literal Text Replacement Pattern trong Kotlin & JS
+- **Ngày**: 2026-08-27
+- **Chi tiết**: Khi thay thế chuỗi regex mà replacement có thể chứa ký tự đặc biệt do người dùng nhập (`$`, `\`), luôn dùng transform callback:
+  ```kotlin
+  // Kotlin
+  text.replace(regex) { rule.replacement }
+  ```
+  ```javascript
+  // JavaScript
+  nodeValue.replace(regex, function() { return rule.replacement; });
+  ```
 - **Files liên quan**: `core/playback/src/main/java/com/epubpro/core/reader/filter/ContentSanitizer.kt`, `core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
 
-### Mở rộng WebView selection toolbar bằng ActionMode.Callback2
-- **Ngày**: 2026-08-26
-- **Chi tiết**: Khi thêm action nội bộ vào toolbar chọn text, subclass `WebView` và bọc callback gốc bằng `ActionMode.Callback2`. Luôn delegate lifecycle/action hệ thống, thêm menu item sau `onCreateActionMode`/`onPrepareActionMode`, và chuyển tiếp `onGetContentRect` để floating toolbar giữ đúng vị trí. Chỉ đọc selection khi action được bấm; giải mã kết quả `evaluateJavascript` như JSON string và đóng `ActionMode` sau khi lấy text.
-- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/webview/ReaderSelectionWebView.kt`
+### Client-side Regex Validation Pattern trong Material3 BottomSheet & TextField
+- **Ngày**: 2026-08-27
+- **Chi tiết**: Tính toán `errorMessage` reactive bằng `remember(pattern, isRegex)`:
+  ```kotlin
+  val errorMessage = remember(pattern, isRegex) {
+      if (pattern.isBlank()) null
+      else if (isRegex) {
+          runCatching { Regex(pattern); null }.getOrElse { "Cú pháp Regex không hợp lệ" }
+      } else null
+  }
+  val isInputValid = pattern.isNotBlank() && errorMessage == null
+  ```
+  Gán `isError = errorMessage != null`, hiển thị `supportingText` và gán `enabled = isInputValid` cho action Button.
+- **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/filter/ReplaceTextBottomSheet.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/filter/ContentFilterSettingsScreen.kt`

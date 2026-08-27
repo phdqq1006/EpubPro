@@ -67,7 +67,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import android.widget.Toast
 import androidx.compose.material3.Slider
+import com.epubpro.feature.reader.filter.ReplaceTextBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -650,6 +652,21 @@ fun ReaderScreen(
                 onDeleteChapter = viewModel::deleteCurrentAiChapter,
                 onSaveRule = viewModel::saveAiRule,
                 onDeleteRule = viewModel::deleteAiRule
+            )
+        }
+
+        uiState.replaceTextPattern?.let { pattern ->
+            ReplaceTextBottomSheet(
+                initialPattern = pattern,
+                onDismiss = viewModel::dismissReplaceTextBottomSheet,
+                onSaveRule = { targetPattern, replacement, isRegex ->
+                    viewModel.saveReplaceRule(targetPattern, replacement, isRegex)
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.replace_text_saved_toast),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             )
         }
         // Floating Mini Player Bar at bottom

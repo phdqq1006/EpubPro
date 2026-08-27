@@ -58,4 +58,46 @@ class ContentSanitizerTest {
         val result = ContentSanitizer.sanitize(input, prefs)
         assertEquals("Đây là hay.", result)
     }
+
+    @Test
+    fun sanitize_textReplacement_replacesWithNewText() {
+        val prefs = ContentFilterPreferences(
+            isFilterEnabled = true,
+            rules = listOf(
+                ContentFilterRule(pattern = "tu sĩ", replacement = "pháp sư"),
+                ContentFilterRule(pattern = "câu này rất dài và phức tạp", replacement = "câu ngắn")
+            )
+        )
+        val input = "Vị Tu Sĩ nói rằng câu này rất dài và phức tạp trong sách."
+        val result = ContentSanitizer.sanitize(input, prefs)
+        assertEquals("Vị pháp sư nói rằng câu ngắn trong sách.", result)
+    }
+
+    @Test
+    fun sanitize_mixedReplacementAndDeletion_appliesAllRulesCorrectly() {
+        val prefs = ContentFilterPreferences(
+            isFilterEnabled = true,
+            rules = listOf(
+                ContentFilterRule(pattern = "quảng cáo", replacement = ""), // Xóa
+                ContentFilterRule(pattern = "ba", replacement = "bố") // Thay thế
+            )
+        )
+        val input = "Đây là quảng cáo của ba tôi."
+        val result = ContentSanitizer.sanitize(input, prefs)
+        assertEquals("Đây là của bố tôi.", result)
+    }
+
+    @Test
+    fun sanitize_replacementWithSpecialTokens_treatsAsLiteral() {
+        val prefs = ContentFilterPreferences(
+            isFilterEnabled = true,
+            rules = listOf(
+                ContentFilterRule(pattern = "giá tiền", replacement = "$100 USD"),
+                ContentFilterRule(pattern = "kí hiệu", replacement = "$& hoặc $1")
+            )
+        )
+        val input = "Sách có giá tiền và kí hiệu đặc biệt."
+        val result = ContentSanitizer.sanitize(input, prefs)
+        assertEquals("Sách có $100 USD và $& hoặc $1 đặc biệt.", result)
+    }
 }

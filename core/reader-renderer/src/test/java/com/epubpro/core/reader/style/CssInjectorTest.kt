@@ -160,4 +160,44 @@ class CssInjectorTest {
         assertTrue(script.contains("FILTER_RULE_ERROR"))
         assertTrue(script.contains("hợp lệ"))
     }
+
+    /**
+     * Kiểm tra script chứa thông tin thay thế từ ngữ (replacement) và áp dụng thay thế.
+     */
+    @Test
+    fun generateJsBridgeScriptIncludesReplacementRules() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = false,
+            filterPreferences = ContentFilterPreferences(
+                isFilterEnabled = true,
+                rules = listOf(
+                    ContentFilterRule(pattern = "tu sĩ", replacement = "pháp sư")
+                )
+            )
+        )
+
+        assertTrue(script.contains("tu sĩ"))
+        assertTrue(script.contains("pháp sư"))
+        assertTrue(script.contains("activeRules.push"))
+    }
+
+    /**
+     * Kiểm tra script sử dụng function replacer và khối try-catch an toàn cho detectRegex.
+     */
+    @Test
+    fun generateJsBridgeScriptUsesSafeDetectRegexAndFunctionReplacer() {
+        val script = CssInjector.generateJsBridgeScript(
+            isHorizontalPagination = false,
+            filterPreferences = ContentFilterPreferences(
+                isFilterEnabled = true,
+                rules = listOf(
+                    ContentFilterRule(pattern = "a", replacement = "$1", isRegex = true),
+                    ContentFilterRule(pattern = "b", replacement = "$&", isRegex = true)
+                )
+            )
+        )
+
+        assertTrue(script.contains("FILTER_DETECT_REGEX_ERR"))
+        assertTrue(script.contains("return activeRules[k].replacement;"))
+    }
 }

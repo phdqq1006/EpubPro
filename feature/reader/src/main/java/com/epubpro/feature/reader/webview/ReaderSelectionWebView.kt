@@ -24,11 +24,18 @@ internal class ReaderSelectionWebView(
     attrs: AttributeSet? = null
 ) : WebView(context, attrs) {
 
-    /** Callback nhận đoạn văn bản người dùng chọn để thêm vào bộ lọc nội dung. */
-    var onAddSelectionToFilter: (String) -> Unit = {}
+    /** Callback nhận đoạn văn bản người dùng chọn để mở hộp thoại thay thế từ ngữ. */
+    var onOpenReplaceDialog: (String) -> Unit = {}
+
+    /** Callback tương thích cho việc thêm selection vào bộ lọc. */
+    var onAddSelectionToFilter: (String) -> Unit
+        get() = onOpenReplaceDialog
+        set(value) {
+            onOpenReplaceDialog = value
+        }
 
     /**
-     * Bọc callback ActionMode mặc định để giữ nguyên các action hệ thống và bổ sung action lọc.
+     * Bọc callback ActionMode mặc định để giữ nguyên các action hệ thống và bổ sung action thay thế.
      *
      * @param callback Callback ActionMode do WebView cung cấp.
      * @return ActionMode đã được khởi tạo hoặc `null` nếu WebView từ chối tạo.
@@ -55,7 +62,7 @@ internal class ReaderSelectionWebView(
         evaluateJavascript(SELECTED_TEXT_JAVASCRIPT) { encodedText ->
             decodeSelectedText(encodedText)
                 .takeIf(String::isNotBlank)
-                ?.let(onAddSelectionToFilter)
+                ?.let(onOpenReplaceDialog)
             actionMode.finish()
         }
     }
@@ -72,13 +79,13 @@ internal class ReaderSelectionWebView(
             .orEmpty()
             .trim()
 
-    /** Callback ủy quyền cho WebView và chèn thêm action lọc nội dung của EpubPro. */
+    /** Callback ủy quyền cho WebView và chèn thêm action thay thế từ ngữ của EpubPro. */
     private inner class SelectionActionModeCallback(
         private val delegate: ActionMode.Callback
     ) : ActionMode.Callback2() {
 
         /**
-         * Cho delegate khởi tạo ActionMode rồi thêm action lọc vào menu vừa tạo.
+         * Cho delegate khởi tạo ActionMode rồi thêm action thay thế vào menu vừa tạo.
          *
          * @param mode ActionMode hiện tại.
          * @param menu Menu chọn văn bản cần bổ sung action.
@@ -91,7 +98,7 @@ internal class ReaderSelectionWebView(
         }
 
         /**
-         * Đồng bộ thay đổi menu của delegate và khôi phục action lọc nếu WebView dựng lại menu.
+         * Đồng bộ thay đổi menu của delegate và khôi phục action thay thế nếu WebView dựng lại menu.
          *
          * @param mode ActionMode hiện tại.
          * @param menu Menu chọn văn bản đang được chuẩn bị.
@@ -103,7 +110,7 @@ internal class ReaderSelectionWebView(
         }
 
         /**
-         * Xử lý action lọc của EpubPro và chuyển các action hệ thống về delegate gốc.
+         * Xử lý action thay thế của EpubPro và chuyển các action hệ thống về delegate gốc.
          *
          * @param mode ActionMode hiện tại.
          * @param item MenuItem vừa được người dùng chọn.
@@ -143,7 +150,7 @@ internal class ReaderSelectionWebView(
         }
 
         /**
-         * Thêm action lọc nếu menu chưa chứa item tương ứng.
+         * Thêm action thay thế nếu menu chưa chứa item tương ứng.
          *
          * @param menu Menu ActionMode hiện tại.
          * @return `true` khi menu vừa được thay đổi.
@@ -155,7 +162,7 @@ internal class ReaderSelectionWebView(
                 Menu.NONE,
                 FILTER_SELECTION_MENU_ITEM_ID,
                 Menu.NONE,
-                R.string.reader_action_filter
+                R.string.reader_action_replace
             ).setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
             return true
         }
