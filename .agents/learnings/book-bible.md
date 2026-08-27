@@ -60,6 +60,13 @@
 - **Fix**: Chuyển `FlowChips` và `addressTerms` sang `FlowRow(horizontalArrangement = spacedBy(8.dp), verticalArrangement = spacedBy(8.dp))` để tự động bọc dòng mượt mà.
 - **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/BookBibleScreen.kt`
 
+### Lỗi tiêu đề đối tượng giao tiếp trong Xưng hô & Giao tiếp hiển thị chữ Hán
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Tiêu đề người đối thoại trong thẻ "Xưng hô & Giao tiếp" và "Mối quan hệ" hiển thị tên chữ Hán (`司徒微微`, `吴小蝶`, `二王爷`, `陆萝`) dù ngữ cảnh bên dưới đã dịch tiếng Việt.
+- **Root cause**: Backend lưu trường `with`, `counterpart_text`, `counterpart_original_name` bằng tên gốc tiếng Hán. Mapper client lấy trực tiếp chuỗi này làm `targetName` mà không đối chiếu với danh mục nhân vật trong snapshot.
+- **Fix**: Xây dựng `buildCharacterNameMap` trích xuất ánh xạ `originalName / ID / Name -> viName` từ snapshot và hàm `resolveVietnameseCharacterName` (tra cứu map + quét tìm tên tiếng Việt trong ngữ cảnh nếu chứa Hanzi) để chuẩn hóa toàn bộ tiêu đề đối tượng sang tiếng Việt.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`
+
 ### Lỗi hiển thị `null` và Raw JSON trong Dòng thời gian (Timeline Events)
 - **Ngày**: 2026-08-19
 - **Vấn đề**: Các sự kiện kỹ năng/trang bị hiển thị chữ `"null"` thay vì tên kỹ năng, còn sự kiện xưng hô hiển thị chuỗi JSON thô `{"with":"Thẩm Dập",...}`.

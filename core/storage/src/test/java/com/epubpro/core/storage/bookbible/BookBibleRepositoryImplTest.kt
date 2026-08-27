@@ -545,4 +545,91 @@ class BookBibleRepositoryImplTest {
         // 6. Kiểm tra công pháp
         assertTrue(character.techniques.contains("Lưu quang kiếm pháp"))
     }
+
+    @Test
+    fun testChineseAddressTermsResolvedToVietnameseNames() = runBlocking {
+        val source = BookBibleSource(BookBibleSourceType.ONLINE_NOVEL, "test-book")
+        val editionEntity = BookBibleEditionEntity(
+            localSourceKey = source.uniqueKey,
+            backendBookId = "test-book",
+            backendEditionId = "edition-123",
+            title = "Test Book",
+            author = "Tác giả",
+            chapterCount = 100
+        )
+        whenever(mockBookBibleDao.getEditionByLocalSourceKey(source.uniqueKey)).thenReturn(editionEntity)
+        whenever(mockBookBibleDao.getTotalCacheByteSize()).thenReturn(1024L)
+
+        val duPhongJson = """
+        {
+            "character_id": "char-du-phong",
+            "original_name": "杜风",
+            "attributes": {
+                "profile": { "vi_name": "Đỗ Phong", "role": "Nam chính" },
+                "address_terms": [
+                    {
+                        "counterpart_text": "司徒微微",
+                        "counterpart_original_name": "司徒微微",
+                        "self_term": "ta",
+                        "other_term": "ngươi / cô nương / huynh",
+                        "context": "Tư Đồ Vi Vi tiếp đón Đỗ Phong ở lầu ba"
+                    },
+                    {
+                        "with": "陆萝",
+                        "self": "Đỗ mỗ",
+                        "other": "cô nương",
+                        "context": "Khi đến tìm Lục La tại Túy Tiên Lâu"
+                    }
+                ]
+            }
+        }
+        """.trimIndent()
+
+        val tuDoViViJson = """
+        {
+            "character_id": "char-tudo-vivi",
+            "original_name": "司徒微微",
+            "attributes": {
+                "profile": { "vi_name": "Tư Đồ Vi Vi", "role": "Chưởng quầy Thất Xảo Các" }
+            }
+        }
+        """.trimIndent()
+
+        val lucLaJson = """
+        {
+            "character_id": "char-luc-la",
+            "original_name": "陆萝",
+            "attributes": {
+                "profile": { "vi_name": "Lục La", "role": "Bạn bè" }
+            }
+        }
+        """.trimIndent()
+
+        val char1 = gson.fromJson(duPhongJson, CharacterProfileDto::class.java)
+        val char2 = gson.fromJson(tuDoViViJson, CharacterProfileDto::class.java)
+        val char3 = gson.fromJson(lucLaJson, CharacterProfileDto::class.java)
+
+        val apiResponse = CharacterSnapshotResponseDto(
+            bookId = "test-book",
+            editionId = "edition-123",
+            requestedChapter = 52,
+            canonicalChapter = 52,
+            characters = listOf(char1, char2, char3)
+        )
+        whenever(mockApiService.getSnapshot("edition-123", 52)).thenReturn(apiResponse)
+
+        val result = repository.refreshSnapshot(source, 52)
+        assertTrue(result.isSuccess)
+        val duPhong = result.getOrNull()!!.characters.first { it.id == "char-du-phong" }
+
+        assertEquals(2, duPhong.addressTerms.size)
+        val term1 = duPhong.addressTerms.firstOrNull { it.targetName == "Tư Đồ Vi Vi" }
+        org.junit.Assert.assertNotNull(term1)
+        assertEquals("ta", term1!!.selfTerm)
+        assertEquals("ngươi / cô nương / huynh", term1.otherTerm)
+
+        val term2 = duPhong.addressTerms.firstOrNull { it.targetName == "Lục La" }
+        org.junit.Assert.assertNotNull(term2)
+        assertEquals("Đỗ mỗ", term2!!.selfTerm)
+    }
 }

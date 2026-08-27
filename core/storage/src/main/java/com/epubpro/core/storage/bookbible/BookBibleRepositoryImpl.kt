@@ -646,6 +646,8 @@ class BookBibleRepositoryImpl @Inject constructor(
             gson.fromJson<List<CharacterProfileDto>>(entity.payloadJson, characterListType)
         }.getOrNull() ?: emptyList()
 
+        val nameMap = buildCharacterNameMap(characterDtos)
+
         val characters = characterDtos.map { dto ->
             val charId = dto.characterId ?: dto.id ?: ""
 
@@ -732,8 +734,9 @@ class BookBibleRepositoryImpl @Inject constructor(
                     emptyList()
                 }
             }).map { rel ->
+                val resolvedTarget = resolveVietnameseCharacterName(rel.targetName, rel.description, nameMap)
                 CharacterRelationship(
-                    targetName = rel.targetName,
+                    targetName = resolvedTarget,
                     relationType = rel.relationType,
                     description = rel.description
                 )
@@ -801,7 +804,8 @@ class BookBibleRepositoryImpl @Inject constructor(
                 dto.addressTerms
                     ?: profileObjects.firstNotNullOfOrNull { it.get("address_terms") ?: it.get("addressTerms") }
                     ?: dto.attributes?.get("address_terms")
-                    ?: dto.attributes?.get("addressTerms")
+                    ?: dto.attributes?.get("addressTerms"),
+                nameMap
             )
 
             CharacterProfile(
@@ -925,7 +929,124 @@ class BookBibleRepositoryImpl @Inject constructor(
         return list
     }
 
-    private fun extractAddressTerms(jsonElem: com.google.gson.JsonElement?): List<CharacterAddressTerm> {
+    /**
+     * Xây dựng từ điển ánh xạ tên gốc (tiếng Hán hoặc định danh) sang tên hiển thị tiếng Việt chuẩn.
+     *
+     * @param dtos Danh sách DTO hồ sơ nhân vật trong snapshot.
+     * @return Bản đồ tra cứu từ tên gốc / ID sang tên tiếng Việt.
+     */
+    private fun buildCharacterNameMap(dtos: List<CharacterProfileDto>): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        for (dto in dtos) {
+            val profileElem = dto.attributes?.get("profile")
+            var viName: String? = null
+            var origName: String? = dto.originalName
+
+            if (profileElem != null) {
+                if (profileElem.isJsonObject) {
+                    val obj = profileElem.asJsonObject
+                    viName = obj.get("vi_name")?.asStringOrJson() ?: obj.get("name")?.asStringOrJson()
+                    if (origName.isNullOrBlank()) {
+                        origName = obj.get("original_name")?.asStringOrJson()
+                    }
+                } else if (profileElem.isJsonArray) {
+                    for (item in profileElem.asJsonArray) {
+                        if (item.isJsonObject) {
+                            val obj = item.asJsonObject
+                            if (viName.isNullOrBlank()) {
+                                viName = obj.get("vi_name")?.asStringOrJson() ?: obj.get("name")?.asStringOrJson()
+                            }
+                            if (origName.isNullOrBlank()) {
+                                origName = obj.get("original_name")?.asStringOrJson()
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (viName.isNullOrBlank()) {
+                viName = dto.viName
+                    ?: dto.name
+                    ?: dto.attributes?.get("vi_name")?.asStringOrJson()
+                    ?: dto.attributes?.get("name")?.asStringOrJson()
+            }
+
+            val finalViName = viName?.trim()
+            if (!finalViName.isNullOrBlank()) {
+                dto.id?.let { map[it] = finalViName }
+                dto.characterId?.let { map[it] = finalViName }
+                origName?.trim()?.let { if (it.isNotBlank()) map[it] = finalViName }
+                dto.name?.trim()?.let { if (it.isNotBlank()) map[it] = finalViName }
+                dto.viName?.trim()?.let { if (it.isNotBlank()) map[it] = finalViName }
+            }
+        }
+        return map
+    }
+
+    /**
+     * Kiểm tra một chuỗi có chứa ký tự chữ Hán (CJK Unified Ideographs) hay không.
+     *
+     * @param text Chuỗi cần kiểm tra.
+     * @return true nếu có ít nhất một ký tự chữ Hán.
+     */
+    private fun containsHanCharacters(text: String): Boolean {
+        for (char in text) {
+            val ub = Character.UnicodeBlock.of(char)
+            if (ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+                ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+                ub == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+                ub == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+                ub == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Giải quyết tên nhân vật từ tên gốc sang tên tiếng Việt chuẩn dựa trên từ điển snapshot và ngữ cảnh.
+     *
+     * @param rawName Tên thô lấy từ thuộc tính hoặc sự kiện.
+     * @param context Ngữ cảnh diễn giải tiếng Việt nếu có.
+     * @param nameMap Từ điển ánh xạ tên nhân vật đã trích xuất.
+     * @return Tên tiếng Việt chuẩn hoặc tên ban đầu nếu không tìm thấy.
+     */
+    private fun resolveVietnameseCharacterName(
+        rawName: String,
+        context: String?,
+        nameMap: Map<String, String>
+    ): String {
+        val trimmed = rawName.trim()
+        if (trimmed.isBlank()) return trimmed
+
+        // 1. Tra cứu trực tiếp từ map
+        nameMap[trimmed]?.let { return it }
+
+        // 2. Tra cứu không phân biệt hoa thường
+        nameMap.entries.firstOrNull { it.key.equals(trimmed, ignoreCase = true) }?.value?.let { return it }
+
+        // 3. Tra cứu theo mức độ tương đồng tên
+        nameMap.entries.firstOrNull { isSamePerson(it.key, trimmed) }?.value?.let { return it }
+
+        // 4. Nếu tên thô chứa chữ Hán, cố gắng tìm tên tiếng Việt xuất hiện trong ngữ cảnh context
+        if (containsHanCharacters(trimmed) && !context.isNullOrBlank()) {
+            val matchedName = nameMap.values.distinct()
+                .filter { it.isNotBlank() && it.length >= 2 }
+                .sortedByDescending { it.length }
+                .firstOrNull { viName -> context.contains(viName, ignoreCase = true) }
+            if (matchedName != null) {
+                return matchedName
+            }
+        }
+
+        return trimmed
+    }
+
+    private fun extractAddressTerms(
+        jsonElem: com.google.gson.JsonElement?,
+        nameMap: Map<String, String> = emptyMap()
+    ): List<CharacterAddressTerm> {
         if (jsonElem == null || !jsonElem.isJsonArray) return emptyList()
         val rawList = mutableListOf<CharacterAddressTerm>()
         val array = jsonElem.asJsonArray
@@ -933,7 +1054,7 @@ class BookBibleRepositoryImpl @Inject constructor(
             val elem = array.get(i) ?: continue
             if (elem.isJsonObject) {
                 val obj = elem.asJsonObject
-                val targetName = obj.get("with")?.asStringOrJson()
+                val rawTarget = obj.get("with")?.asStringOrJson()
                     ?: obj.get("counterpart_text")?.asStringOrJson()
                     ?: obj.get("counterpart_original_name")?.asStringOrJson()
                     ?: obj.get("target_name")?.asStringOrJson()
@@ -944,10 +1065,12 @@ class BookBibleRepositoryImpl @Inject constructor(
                     ?: obj.get("other_term")?.asStringOrJson()
                 val context = obj.get("context")?.asStringOrJson()
 
-                if (targetName.isNotBlank() || !selfTerm.isNullOrBlank() || !otherTerm.isNullOrBlank()) {
+                val resolvedTarget = resolveVietnameseCharacterName(rawTarget, context, nameMap)
+
+                if (resolvedTarget.isNotBlank() || !selfTerm.isNullOrBlank() || !otherTerm.isNullOrBlank()) {
                     rawList.add(
                         CharacterAddressTerm(
-                            targetName = targetName.ifBlank { "Đối phương" }.trim(),
+                            targetName = resolvedTarget.ifBlank { "Đối phương" }.trim(),
                             selfTerm = selfTerm?.trim(),
                             otherTerm = otherTerm?.trim(),
                             context = context?.trim()
