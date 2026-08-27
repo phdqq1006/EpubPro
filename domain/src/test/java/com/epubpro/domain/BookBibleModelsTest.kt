@@ -128,11 +128,20 @@ class BookBibleModelsTest {
         val main4 = CharacterProfile(id = "4", name = "Vân Hi", role = "Nữ chủ")
         assertTrue(main4.isProtagonist)
 
-        val antagonist1 = CharacterProfile(id = "5", name = "Hồn Diệt Sinh", role = "PHẢN DIỆN")
+        val main5 = CharacterProfile(id = "5", name = "Đỗ Phong", role = "Main character")
+        assertTrue(main5.isProtagonist)
+
+        val main6 = CharacterProfile(id = "6", name = "Trần Dạ", role = "主角 (Nam chính của truyện)")
+        assertTrue(main6.isProtagonist)
+
+        val antagonist1 = CharacterProfile(id = "7", name = "Hồn Diệt Sinh", role = "PHẢN DIỆN")
         assertTrue(antagonist1.isAntagonist)
         assertFalse(antagonist1.isProtagonist)
 
-        val sideChar = CharacterProfile(id = "6", name = "Hải Ba Đông", role = "Bạn hữu")
+        val antagonist2 = CharacterProfile(id = "8", name = "Bàng Chấn", role = "Phản phái / Kẻ thù")
+        assertTrue(antagonist2.isAntagonist)
+
+        val sideChar = CharacterProfile(id = "9", name = "Hải Ba Đông", role = "Bạn hữu")
         assertFalse(sideChar.isProtagonist)
         assertFalse(sideChar.isAntagonist)
     }

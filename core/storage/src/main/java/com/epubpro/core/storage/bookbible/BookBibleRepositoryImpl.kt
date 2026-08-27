@@ -649,53 +649,78 @@ class BookBibleRepositoryImpl @Inject constructor(
         val characters = characterDtos.map { dto ->
             val charId = dto.characterId ?: dto.id ?: ""
 
-            // 1. Kiểm tra object attributes["profile"] lồng nhau (theo Techspec mới)
+            // 1. Kiểm tra object hoặc array attributes["profile"] lồng nhau (hỗ trợ cả JsonObject, JsonArray và JsonPrimitive)
             val profileElem = dto.attributes?.get("profile")
-            val profileObj = if (profileElem != null && profileElem.isJsonObject) profileElem.asJsonObject else null
+            val profileObjects = mutableListOf<com.google.gson.JsonObject>()
+            val profileStrings = mutableListOf<String>()
+            if (profileElem != null) {
+                if (profileElem.isJsonObject) {
+                    profileObjects.add(profileElem.asJsonObject)
+                } else if (profileElem.isJsonArray) {
+                    for (item in profileElem.asJsonArray) {
+                        if (item.isJsonObject) {
+                            profileObjects.add(item.asJsonObject)
+                        } else if (item.isJsonPrimitive) {
+                            val s = item.asStringOrJson().trim()
+                            if (s.isNotBlank()) {
+                                profileStrings.add(s)
+                            }
+                        }
+                    }
+                }
+            }
 
-            val name = profileObj?.get("vi_name")?.asStringOrJson()
-                ?: profileObj?.get("name")?.asStringOrJson()
+            val name = profileObjects.firstNotNullOfOrNull { it.get("vi_name")?.asStringOrJson()?.takeIf { s -> s.isNotBlank() } }
+                ?: profileObjects.firstNotNullOfOrNull { it.get("name")?.asStringOrJson()?.takeIf { s -> s.isNotBlank() } }
                 ?: dto.name
+                ?: dto.viName
                 ?: dto.attributes?.get("name")?.asStringOrJson()
                 ?: dto.attributes?.get("vi_name")?.asStringOrJson()
                 ?: dto.originalName
                 ?: ""
 
             val origName = dto.originalName
-                ?: profileObj?.get("original_name")?.asStringOrJson()
+                ?: profileObjects.firstNotNullOfOrNull { it.get("original_name")?.asStringOrJson()?.takeIf { s -> s.isNotBlank() } }
                 ?: dto.attributes?.get("original_name")?.asStringOrJson()
 
             val isMain = dto.isMain == true
                 || dto.isProtagonistFlag == true
-                || profileObj?.get("is_main")?.asBoolean == true
-                || profileObj?.get("is_protagonist")?.asBoolean == true
-                || dto.attributes?.get("is_main")?.asBoolean == true
-                || dto.attributes?.get("is_protagonist")?.asBoolean == true
+                || profileObjects.any { it.get("is_main")?.asBooleanOrNull() == true || it.get("is_protagonist")?.asBooleanOrNull() == true }
+                || dto.attributes?.get("is_main")?.asBooleanOrNull() == true
+                || dto.attributes?.get("is_protagonist")?.asBooleanOrNull() == true
 
-            val role = profileObj?.get("role")?.asStringOrJson()
+            val role = profileObjects.firstNotNullOfOrNull { it.get("role")?.asStringOrJson()?.takeIf { s -> s.isNotBlank() } }
                 ?: dto.attributes?.get("role")?.asStringOrJson()
                 ?: dto.role
                 ?: (if (isMain) "Nhân vật chính" else null)
 
-            val voiceNotes = profileObj?.get("voice_notes")?.asStringOrJson()
+            val voiceNotes = profileObjects.firstNotNullOfOrNull { it.get("voice_notes")?.asStringOrJson()?.takeIf { s -> s.isNotBlank() } }
                 ?: dto.attributes?.get("voice_notes")?.asStringOrJson()
 
-            val aliases = extractStringList(
-                null,
-                profileObj?.get("aliases") ?: dto.attributes?.get("aliases")
-            )
+            val extractedAliases = mutableListOf<String>()
+            profileObjects.forEach { obj ->
+                extractedAliases.addAll(extractStringList(null, obj.get("aliases")))
+            }
+            extractedAliases.addAll(extractStringList(null, dto.attributes?.get("aliases")))
+            extractedAliases.addAll(profileStrings)
+            val aliases = extractedAliases.distinct()
 
             val realm = dto.cultivationRealm
+                ?: dto.realm
+                ?: profileObjects.firstNotNullOfOrNull { it.get("cultivation_realm")?.asStringOrJson() ?: it.get("realm")?.asStringOrJson() }
                 ?: dto.attributes?.get("cultivation_realm")?.asStringOrJson()
+                ?: dto.attributes?.get("realm")?.asStringOrJson()
+                ?: dto.attributes?.get("cảnh_giới")?.asStringOrJson()
+                ?: dto.attributes?.get("canh_gioi")?.asStringOrJson()
 
-            val lastChanged = profileObj?.get("last_changed_chapter")?.asIntOrNull()
+            val lastChanged = profileObjects.firstNotNullOfOrNull { it.get("last_changed_chapter")?.asIntOrNull() }
                 ?: dto.attributes?.get("last_changed_chapter")?.asIntOrNull()
                 ?: dto.lastChangedChapter
                 ?: 1
 
             val changedInCurr = dto.changedInCurrentChapter
                 || (dto.lastChangedChapter != null && dto.lastChangedChapter == entity.chapterNumber && entity.chapterNumber > 1)
-                || (profileObj?.get("last_changed_chapter")?.asIntOrNull() == entity.chapterNumber && entity.chapterNumber > 1)
+                || (profileObjects.any { it.get("last_changed_chapter")?.asIntOrNull() == entity.chapterNumber } && entity.chapterNumber > 1)
                 || (dto.attributes?.get("last_changed_chapter")?.asIntOrNull() == entity.chapterNumber && entity.chapterNumber > 1)
 
             val relationships = (dto.relationships ?: run {
@@ -716,9 +741,10 @@ class BookBibleRepositoryImpl @Inject constructor(
 
             val standardKeys = setOf(
                 "profile", "name", "vi_name", "original_name", "role", "voice_notes", "aliases",
-                "cultivation_realm", "techniques", "skills", "items", "pets", "relationships",
-                "affiliations", "titles", "last_changed_chapter",
-                "address_terms", "addressTerms", "xưng_hô", "xung_ho", "is_main", "is_protagonist"
+                "cultivation_realm", "realm", "cảnh_giới", "canh_gioi", "techniques", "skills",
+                "items", "pets", "relationships", "affiliations", "titles", "last_changed_chapter",
+                "address_terms", "addressTerms", "xưng_hô", "xung_ho", "is_main", "is_protagonist",
+                "profession", "chức_nghiệp", "nghề_nghiệp"
             )
             val absorbedKeys = mutableSetOf<String>()
 
@@ -766,10 +792,14 @@ class BookBibleRepositoryImpl @Inject constructor(
             val extraAttributes = extractDeduplicatedExtraAttributes(dto.attributes, dto.extraAttributes, allStandardKeys)
 
             val allTitles = (extractStringList(dto.titles, dto.attributes?.get("titles")) + aliases).distinct()
-            val pets = extractPetList(dto.pets ?: profileObj?.get("pets") ?: dto.attributes?.get("pets"))
+            val pets = extractPetList(
+                dto.pets
+                    ?: profileObjects.firstNotNullOfOrNull { it.get("pets") }
+                    ?: dto.attributes?.get("pets")
+            )
             val addressTerms = extractAddressTerms(
                 dto.addressTerms
-                    ?: profileObj?.get("address_terms")
+                    ?: profileObjects.firstNotNullOfOrNull { it.get("address_terms") ?: it.get("addressTerms") }
                     ?: dto.attributes?.get("address_terms")
                     ?: dto.attributes?.get("addressTerms")
             )
@@ -1486,6 +1516,29 @@ class BookBibleRepositoryImpl @Inject constructor(
                 asInt
             } else if (isJsonPrimitive && asJsonPrimitive.isString) {
                 asString.toIntOrNull()
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
+
+    /**
+     * Chuyển đổi an toàn một phần tử [com.google.gson.JsonElement] sang [Boolean].
+     * Hỗ trợ cả kiểu Boolean nguyên bản, chuỗi ("true", "1", "yes") và số nguyên.
+     *
+     * @return Giá trị Boolean hoặc null nếu không thể chuyển đổi.
+     */
+    private fun com.google.gson.JsonElement.asBooleanOrNull(): Boolean? {
+        return runCatching {
+            if (isJsonPrimitive && asJsonPrimitive.isBoolean) {
+                asBoolean
+            } else if (isJsonPrimitive && asJsonPrimitive.isString) {
+                val s = asString.trim().lowercase(Locale.ROOT)
+                if (s in listOf("true", "1", "yes")) true
+                else if (s in listOf("false", "0", "no")) false
+                else null
+            } else if (isJsonPrimitive && asJsonPrimitive.isNumber) {
+                asInt == 1
             } else {
                 null
             }

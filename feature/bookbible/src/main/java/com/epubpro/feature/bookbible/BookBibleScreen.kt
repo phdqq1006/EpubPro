@@ -819,6 +819,7 @@ private fun CharacterDetailContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CharacterProfileTab(character: CharacterProfile) {
     val scrollState = rememberScrollState()
@@ -1064,9 +1065,9 @@ private fun CharacterProfileTab(character: CharacterProfile) {
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            Row(
+                            FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 val self = term.selfTerm
                                 if (!self.isNullOrBlank()) {
@@ -1161,17 +1162,18 @@ private fun ProfileSectionCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FlowChips(items: List<String>) {
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items.forEach { item ->
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.padding(vertical = 2.dp)
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Text(
                     text = item,

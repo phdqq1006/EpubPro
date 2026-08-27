@@ -313,8 +313,20 @@ data class CharacterProfile(
             val r = role?.trim()?.lowercase(java.util.Locale.ROOT) ?: return false
             return r in listOf(
                 "protagonist", "main", "lead", "mc", "nhân vật chính", "nhan vat chinh",
-                "nam chính", "nam chinh", "nữ chính", "nu chinh", "chính", "nam chủ", "nam chu", "nữ chủ", "nu chu"
-            ) || r.startsWith("nam chính") || r.startsWith("nữ chính") || r.startsWith("nhân vật chính") || r.startsWith("nam chủ") || r.startsWith("nữ chủ")
+                "nam chính", "nam chinh", "nữ chính", "nu chinh", "chính", "nam chủ", "nam chu", "nữ chủ", "nu chu",
+                "main character", "lead character", "central character", "hero", "heroine",
+                "chủ giác", "chu giac", "nam chủ giác", "nam chu giac", "nữ chủ giác", "nu chu giac",
+                "主角", "男主角", "女主角", "男主", "女主"
+            ) || r.startsWith("nam chính") || r.startsWith("nữ chính") || r.startsWith("nhân vật chính")
+                || r.startsWith("nam chủ") || r.startsWith("nữ chủ")
+                || r.startsWith("main character") || r.startsWith("protagonist")
+                || r.contains("nhân vật chính") || r.contains("nhan vat chinh")
+                || r.contains("nam chính") || r.contains("nam chinh")
+                || r.contains("nữ chính") || r.contains("nu chinh")
+                || r.contains("nam chủ") || r.contains("nam chu")
+                || r.contains("nữ chủ") || r.contains("nu chu")
+                || r.contains("main character") || r.contains("protagonist")
+                || r.contains("主角") || r.contains("男主") || r.contains("女主")
         }
 
     /**
@@ -324,8 +336,14 @@ data class CharacterProfile(
         get() {
             val r = role?.trim()?.lowercase(java.util.Locale.ROOT) ?: return false
             return r in listOf(
-                "antagonist", "villain", "phản diện", "phan dien", "kẻ thù", "ke thu"
-            ) || r.startsWith("phản diện") || r.startsWith("kẻ thù")
+                "antagonist", "villain", "phản diện", "phan dien", "kẻ thù", "ke thu",
+                "phản phái", "phan phai", "反派", "敌人", "反角"
+            ) || r.startsWith("phản diện") || r.startsWith("kẻ thù") || r.startsWith("phản phái")
+                || r.startsWith("antagonist") || r.startsWith("villain")
+                || r.contains("phản diện") || r.contains("phan dien")
+                || r.contains("kẻ thù") || r.contains("ke thu")
+                || r.contains("phản phái") || r.contains("phan phai")
+                || r.contains("反派")
         }
 }
 

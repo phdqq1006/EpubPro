@@ -1,7 +1,7 @@
 # Book Bible (Tiến trình nhân vật & Dòng thời gian)
 
 > Tổng hợp kiến thức về hệ thống Chapter-Aware Character Profile Book Bible (Tiến trình hồ sơ nhân vật theo chương không spoiler) trong dự án.
-> Cập nhật lần cuối: 2026-08-21
+> Cập nhật lần cuối: 2026-08-27
 
 ---
 
@@ -45,6 +45,20 @@
 ---
 
 ## Bugs & Solutions
+
+### Lỗi không nhận diện được Nhân vật chính khi `attributes["profile"]` là JsonArray
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Nhân vật chính (Đỗ Phong) không xuất hiện ở Hero Card "Nhân vật chính ⭐" mà bị đẩy vào danh sách chung dưới tên gốc tiếng Hán `杜风` và không có vai trò.
+- **Root cause**: Backend tích lũy profile qua nhiều chương thành JsonArray `[...]` chứa nhiều object và string thay vì một JsonObject `{...}` đơn lẻ. Parser client cũ chỉ kiểm tra `profileElem.isJsonObject` nên `profileObj` bị `null`, mất `vi_name`, `role`, `isMain`.
+- **Fix**: Nâng cấp parser trong `BookBibleRepositoryImpl` duyệt qua mọi phần tử trong JsonArray/JsonObject, gom `vi_name`, `role`, `aliases`, `realm`, và mở rộng hàm `isProtagonist`/`isAntagonist` trong `BookBibleModels` với từ điển đa ngôn ngữ (tiếng Việt, tiếng Anh *"Main character"*, tiếng Trung *"主角", "男主"*).
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/bookbible/BookBibleRepositoryImpl.kt`, `domain/src/main/java/com/epubpro/domain/model/BookBibleModels.kt`
+
+### Lỗi Card bị phình to 500-700dp tạo khoảng trắng khổng lồ do `FlowChips` dùng `Row`
+- **Ngày**: 2026-08-27
+- **Vấn đề**: Màn hình chi tiết hồ sơ nhân vật xuất hiện khoảng trống trắng khổng lồ giữa các Card, các chip chữ dài bị bóp dẹt theo chiều dọc thành 20-30 dòng.
+- **Root cause**: `FlowChips` dùng `Row` đơn hàng ngang. Khi có 3-5 chip tràn màn hình, chip tràn phải bị bóp width chỉ còn ~10dp khiến văn bản dài wrap thành 20-30 dòng dọc. Trong Compose, `Row` tính chiều cao theo phần tử con cao nhất $\to$ Card phình to 500-700dp.
+- **Fix**: Chuyển `FlowChips` và `addressTerms` sang `FlowRow(horizontalArrangement = spacedBy(8.dp), verticalArrangement = spacedBy(8.dp))` để tự động bọc dòng mượt mà.
+- **Files liên quan**: `feature/bookbible/src/main/java/com/epubpro/feature/bookbible/BookBibleScreen.kt`
 
 ### Lỗi hiển thị `null` và Raw JSON trong Dòng thời gian (Timeline Events)
 - **Ngày**: 2026-08-19

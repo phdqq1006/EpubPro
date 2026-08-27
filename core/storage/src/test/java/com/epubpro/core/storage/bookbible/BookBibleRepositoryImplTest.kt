@@ -435,4 +435,114 @@ class BookBibleRepositoryImplTest {
         assertNull(attrMap["membership"])
         assertNull(attrMap["Loạn Phi Phong Chuy Pháp"])
     }
+
+    /**
+     * Kiểm tra trường hợp attributes["profile"] trả về dưới dạng JsonArray lồng nhau
+     * (gồm các JSON Object và chuỗi mô tả tích lũy qua nhiều chương) vẫn trích xuất
+     * chính xác tên tiếng Việt, vai trò Nam chính (isProtagonist = true), cảnh giới và các danh hiệu.
+     */
+    @Test
+    fun testProfileAsJsonArrayExtractsMainCharacterAndAliases() = runBlocking {
+        val source = BookBibleSource(BookBibleSourceType.ONLINE_NOVEL, "van-thu-chien-than")
+        val editionEntity = BookBibleEditionEntity(
+            localSourceKey = source.uniqueKey,
+            backendBookId = "van-thu-chien-than",
+            backendEditionId = "edition-09b38f054dfb52ef715c6cbc",
+            title = "Vạn Thú Chiến Thần",
+            author = "Tác giả",
+            chapterCount = 100
+        )
+        whenever(mockBookBibleDao.getEditionByLocalSourceKey(source.uniqueKey)).thenReturn(editionEntity)
+        whenever(mockBookBibleDao.getTotalCacheByteSize()).thenReturn(1024L)
+
+        val characterJson = """
+            {
+                "character_id": "char-9168ffd6411e0a68325a5798",
+                "original_name": "杜风",
+                "attributes": {
+                    "profile": [
+                        {
+                            "role": "Nam chính",
+                            "aliases": [
+                                "Số 1 Đỗ Phong",
+                                "Đỗ Phong",
+                                "Thần Đế Đỗ Phong"
+                            ],
+                            "vi_name": "Đỗ Phong",
+                            "voice_notes": "Điềm tĩnh, cơ trí"
+                        },
+                        "Đan Hoàng chi tử (kiếp trước)",
+                        {
+                            "aliases": [
+                                "Thất Vương Tử",
+                                "七王子"
+                            ]
+                        }
+                    ],
+                    "realm": "Tôi Thể Kỳ tầng sáu",
+                    "profession": "Nhị tinh trận pháp sư",
+                    "techniques": [
+                        "Lưu quang kiếm pháp",
+                        "Thăng Nguyệt Kiếm Pháp (Hồ Nguyệt Trảm)"
+                    ],
+                    "weapon": [
+                        "Ngân Long kiếm"
+                    ],
+                    "equipment": [
+                        "Thẻ vàng phòng đấu giá",
+                        "Cánh giả bộ phi hành"
+                    ]
+                },
+                "changed_in_current_chapter": false,
+                "last_changed_chapter": 36
+            }
+        """.trimIndent()
+        val charDto = gson.fromJson(characterJson, CharacterProfileDto::class.java)
+
+        val apiResponse = CharacterSnapshotResponseDto(
+            bookId = "van-thu-chien-than",
+            editionId = "edition-09b38f054dfb52ef715c6cbc",
+            requestedChapter = 52,
+            canonicalChapter = 52,
+            bookRevision = 1,
+            projectionRevision = 1,
+            projectionStatus = "ready",
+            snapshotStatus = "complete",
+            completeThroughChapter = 52,
+            pendingChapters = emptyList(),
+            coverage = CoverageDto(processedRanges = listOf(listOf(1, 52)), missingRanges = emptyList()),
+            characters = listOf(charDto)
+        )
+        whenever(mockApiService.getSnapshot("edition-09b38f054dfb52ef715c6cbc", 52)).thenReturn(apiResponse)
+
+        val result = repository.refreshSnapshot(source, 52)
+        assertTrue(result.isSuccess)
+        val character = result.getOrNull()!!.characters.first()
+
+        // 1. Kiểm tra tên tiếng Việt được trích xuất từ object con trong JsonArray
+        assertEquals("Đỗ Phong", character.name)
+        assertEquals("杜风", character.originalName)
+
+        // 2. Kiểm tra vai trò và nhận diện Nhân vật chính
+        assertEquals("Nam chính", character.role)
+        assertTrue(character.isProtagonist)
+
+        // 3. Kiểm tra cảnh giới từ trường realm
+        assertEquals("Tôi Thể Kỳ tầng sáu", character.cultivationRealm)
+
+        // 4. Kiểm tra bí danh được gộp từ các object con và chuỗi string trong mảng profile
+        assertTrue(character.titles.contains("Số 1 Đỗ Phong"))
+        assertTrue(character.titles.contains("Thần Đế Đỗ Phong"))
+        assertTrue(character.titles.contains("Đan Hoàng chi tử (kiếp trước)"))
+        assertTrue(character.titles.contains("Thất Vương Tử"))
+        assertTrue(character.titles.contains("七王子"))
+
+        // 5. Kiểm tra vũ khí và trang bị được đưa vào items
+        assertTrue(character.items.contains("Ngân Long kiếm"))
+        assertTrue(character.items.contains("Thẻ vàng phòng đấu giá"))
+        assertTrue(character.items.contains("Cánh giả bộ phi hành"))
+
+        // 6. Kiểm tra công pháp
+        assertTrue(character.techniques.contains("Lưu quang kiếm pháp"))
+    }
 }
