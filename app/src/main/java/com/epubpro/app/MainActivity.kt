@@ -23,6 +23,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private val intentViewModel: MainIntentViewModel by viewModels()
     private var bubbleStartupRestored = false
     private var hasDispatchedStartupBook = false
+    private var autoResumeJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,8 +77,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        dispatchOpenBookRequest(intent)
-        dispatchOpenLibraryRequest(intent)
+        val hasExplicitOpenBook = dispatchOpenBookRequest(intent)
+        val hasExplicitOpenLibrary = dispatchOpenLibraryRequest(intent)
+        if (hasExplicitOpenBook || hasExplicitOpenLibrary) {
+            autoResumeJob?.cancel()
+        }
     }
 
     /**
@@ -86,9 +92,10 @@ class MainActivity : ComponentActivity() {
         val settings = readerPreferencesManager.getSettings()
         if (!settings.autoResumeLastBookOnStartup) return
 
-        lifecycleScope.launch {
+        autoResumeJob = lifecycleScope.launch {
             val latestBook = bookRepository.getLatestReadBook() ?: return@launch
             val progress = bookRepository.getReadingProgressDirect(latestBook.id)
+            if (!isActive) return@launch
             val chapterIndex = progress?.chapterIndex ?: 0
             hasDispatchedStartupBook = true
             intentViewModel.dispatch(

@@ -1,7 +1,7 @@
 # EPUB Reader & Layout Engine
 
 > Tổng hợp kiến thức về hệ thống đọc EPUB, WebView rendering, TTS, tối ưu bộ nhớ RAM, Room FTS5 và cài đặt mặc định đọc / chuyển trang trong dự án.
-> Cập nhật lần cuối: 2026-08-19
+> Cập nhật lần cuối: 2026-08-28
 
 ---
 
@@ -31,6 +31,11 @@
 - **Ngày**: 2026-08-05
 - **Chi tiết**: Số trang không phải vị trí bền vững vì font, margin hoặc theme có thể repaginate chương. Reader lưu index paragraph đầu tiên đang thấy qua JS bridge. Khi nội dung phải render lại, WebView tìm paragraph đó rồi tính lại trang ngang hoặc `scrollIntoView()` trong chế độ cuộn dọc. Chỉ fallback về page index khi chưa có semantic anchor.
 - **Files liên quan**: `feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt`, `core/reader/src/main/java/com/epubpro/core/reader/style/CssInjector.kt`
+
+### Startup Resume Navigation Priority
+- **Ngày**: 2026-08-28
+- **Chi tiết**: Auto-resume là điều hướng nền, nên chỉ chạy khi app khởi động mới và không có Intent điều hướng rõ ràng. Truy vấn sách/tiến độ phải nằm trong `Job` của `lifecycleScope`; một Intent mở sách hoặc Kệ sách đến sau phải hủy Job này để ý định mới nhất của người dùng luôn được ưu tiên.
+- **Files liên quan**: `app/src/main/java/com/epubpro/app/MainActivity.kt`, `core/database/src/main/java/com/epubpro/core/database/dao/Daos.kt`
 
 ### Explicit Reader State Projection Broadcast
 - **Ngày**: 2026-08-19
@@ -100,6 +105,20 @@
 - **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt
 
 ## Bugs & Solutions
+
+### Auto-resume ghi đè Intent điều hướng đến muộn
+- **Ngày**: 2026-08-28
+- **Vấn đề**: Khi startup query còn chạy, notification hoặc widget có thể yêu cầu mở một đích khác.
+- **Root cause**: Coroutine auto-resume không có ownership để hủy khi `onNewIntent` xử lý điều hướng rõ ràng.
+- **Fix**: Lưu `Job`, hủy khi có open-book/open-library hợp lệ và kiểm tra cancellation trước khi dispatch request auto-resume.
+- **Files liên quan**: `app/src/main/java/com/epubpro/app/MainActivity.kt`
+
+### Auto-resume mở lại sách đã hoàn thành
+- **Ngày**: 2026-08-28
+- **Vấn đề**: Tùy chọn khôi phục sách đang đọc dở vẫn có thể mở cuốn vừa hoàn thành.
+- **Root cause**: Query chỉ sắp xếp `lastReadAt`, không xét `ReadingProgress.progressPercentage`.
+- **Fix**: Join `books` với `reading_progress`, chỉ chọn `progressPercentage < 1.0`, rồi sắp xếp theo `lastReadAt` giảm dần.
+- **Files liên quan**: `core/database/src/main/java/com/epubpro/core/database/dao/Daos.kt`
 
 ### Lỗi giật lác (Jitter) và hở chữ khi vuốt lật trang ngang do Native Scroll Conflict
 - **Ngày**: 2026-08-04
@@ -295,6 +314,15 @@
 
 ## How-To
 
+### Cách triển khai auto-resume sách đang đọc dở an toàn
+- **Ngày**: 2026-08-28
+- **Bước thực hiện**:
+  1. Chỉ khởi chạy auto-resume khi `savedInstanceState == null` và không có Intent điều hướng hợp lệ.
+  2. Truy vấn sách mới đọc nhất có `progressPercentage < 1.0` cùng vị trí đọc đã lưu.
+  3. Dispatch `TtsOpenBookRequest` từ `lifecycleScope` và lưu `Job` tương ứng.
+  4. Hủy Job khi `onNewIntent` nhận yêu cầu mở sách hoặc Kệ sách để ưu tiên thao tác mới nhất.
+- **Files liên quan**: `app/src/main/java/com/epubpro/app/MainActivity.kt`, `core/database/src/main/java/com/epubpro/core/database/dao/Daos.kt`
+
 ### Cách triển khai điều chỉnh độ sáng độc lập và Extra Dim trong Compose Reader
 - **Ngày**: 2026-08-17
 - **Bước thực hiện**:
@@ -381,6 +409,11 @@
 - **Files lien quan**: core/reader-renderer/src/main/java/com/epubpro/core/reader/style/CssInjector.kt, feature/reader/src/main/java/com/epubpro/feature/reader/ReaderViewModel.kt, feature/reader/src/main/java/com/epubpro/feature/reader/webview/EpubProWebView.kt
 
 ## Patterns
+
+### Explicit Intent Cancels Deferred Startup Navigation Pattern
+- **Ngày**: 2026-08-28
+- **Chi tiết**: Với điều hướng startup cần I/O bất đồng bộ, giữ `Job` của tác vụ deferred. Mọi Intent điều hướng hợp lệ đến sau phải cancel Job; trước khi phát event, xác nhận coroutine còn active. Pattern này loại bỏ race giữa kết quả nền cũ và ý định mới nhất của người dùng.
+- **Files liên quan**: `app/src/main/java/com/epubpro/app/MainActivity.kt`
 
 ### Canvas Dotted Tap Zone Diagram Pattern
 - **Ngày**: 2026-08-03
