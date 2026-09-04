@@ -1,7 +1,7 @@
 # Authentication & Supabase Integration
 
 > Tổng hợp kiến thức về hệ thống xác thực tài khoản, tích hợp Supabase Auth, Dynamic URL routing và quản lý phiên trong dự án EpubPro.
-> Cập nhật lần cuối: 2026-08-24
+> Cập nhật lần cuối: 2026-09-04
 
 ---
 
@@ -18,6 +18,11 @@
 - **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/network/TokenRefreshManager.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/NetworkModule.kt`
 
 ---
+
+### Google Sign-In kết hợp quyền Google Drive tối thiểu
+- **Ngày**: 2026-09-04
+- **Chi tiết**: Màn hình đăng nhập dùng `rememberLauncherForActivityResult` để mở Google Sign-In, nhận `GoogleSignInAccount` rồi chuyển kết quả vào ViewModel. Flow yêu cầu `email`, `profile` và scope `drive.file`; scope được khai báo tập trung trong `GoogleDriveAuthManager` để đồng nhất với `AccountManager` lấy access token Drive.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/auth/LoginScreen.kt`, `feature/profile/src/main/java/com/epubpro/feature/profile/auth/AuthViewModel.kt`, `core/storage/src/main/java/com/epubpro/core/storage/sync/GoogleDriveAuthManager.kt`
 
 ## Bugs & Solutions
 
@@ -44,6 +49,13 @@
 
 ---
 
+### Google Sign-In chưa thể xác thực production nếu thiếu OAuth client ID
+- **Ngày**: 2026-09-04
+- **Vấn đề**: Có thể mở account chooser nhưng không nhận được ID token/backend session hợp lệ khi project chưa có OAuth Web Client ID và `google-services.json`.
+- **Root cause**: `GoogleSignInOptions` chỉ có thể gọi `requestIdToken` khi đã có client ID hợp lệ; repository hiện còn fallback token cục bộ cho Google.
+- **Fix**: Đã nối UI, ViewModel và scope Drive tối thiểu; cần bổ sung OAuth client ID, SHA-1/SHA-256 đúng application ID và endpoint exchange ID token trước khi bật production.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/auth/LoginScreen.kt`, `core/storage/src/main/java/com/epubpro/core/storage/network/AuthRepositoryImpl.kt`
+
 ## How-To
 
 ### Quy trình tích hợp và kiểm tra luồng xác thực Supabase
@@ -58,8 +70,23 @@
 
 ---
 
+### Quy trình thêm Google Sign-In vào Compose
+- **Ngày**: 2026-09-04
+- **Bước thực hiện**:
+  1. Thêm `play-services-auth` qua version catalog.
+  2. Tạo `GoogleSignInOptions` với `requestEmail`, `requestProfile` và scope cần thiết.
+  3. Dùng `rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult())`.
+  4. Bỏ qua cancel; với kết quả thành công, đọc account qua `ApiException` và gọi ViewModel.
+  5. Hiển thị lỗi bằng string resource, không hardcode trong Compose.
+  6. Chạy unit test ViewModel, assemble APK và cài lên thiết bị có Google Play Services.
+- **Files liên quan**: `feature/profile/src/main/java/com/epubpro/feature/profile/auth/LoginScreen.kt`, `feature/profile/src/test/java/com/epubpro/feature/profile/auth/AuthViewModelTest.kt`
+
 ## Patterns
 
+### Không lưu OAuth token Drive vào DataStore
+- **Ngày**: 2026-09-04
+- **Chi tiết**: `GoogleDriveAuthManager` chỉ lấy access token ngắn hạn từ `AccountManager` trong lúc gọi Drive, không ghi token vào DataStore, manifest hoặc log. Khi API trả 401, token cần được invalidate và phiên sync chuyển sang `AUTH_REQUIRED`.
+- **Files liên quan**: `core/storage/src/main/java/com/epubpro/core/storage/sync/GoogleDriveAuthManager.kt`, `core/storage/src/main/java/com/epubpro/core/storage/sync/GoogleDriveDataSource.kt`
 ### Safe Logging trong Android Module thuần JVM Unit Tests
 - **Ngày**: 2026-08-24
 - **Chi tiết**: Trong module Android library (như `:core:storage`), gọi trực tiếp `android.util.Log` trong các class được test bằng JUnit 4 thuần JVM sẽ ném `RuntimeException: Method d in android.util.Log not mocked`.

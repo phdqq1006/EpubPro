@@ -172,4 +172,33 @@ class AuthViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Hoàn tất đăng nhập bằng tài khoản Google sau khi Google Sign-In trả kết quả.
+     *
+     * @param idToken ID token Google nếu OAuth client đã cấu hình.
+     * @param email Email tài khoản Google.
+     * @param displayName Tên hiển thị tài khoản Google.
+     */
+    fun loginWithGoogle(idToken: String?, email: String?, displayName: String?) {
+        if (_uiState.value.isLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            val result = authRepository.loginWithGoogle(idToken, email, displayName)
+            _uiState.update { it.copy(isLoading = false) }
+            result.onSuccess { user ->
+                _effects.send(AuthUiEffect.LoginSuccess(user))
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(errorMessage = error.message)
+                }
+            }
+        }
+    }
+    /**
+     * Hiển thị lỗi khi Google Sign-In bị hủy hoặc trả về kết quả không hợp lệ.
+     */
+    fun showGoogleSignInError(message: String) {
+        _uiState.update { it.copy(errorMessage = message) }
+    }
 }

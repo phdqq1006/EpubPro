@@ -589,4 +589,24 @@
     <string name="auth_account_detail_joined">Ngày tham gia</string>
     <string name="auth_account_detail_token_status">Trạng thái phiên</string>
     <string name="auth_account_detail_token_valid">Đang kết nối Supabase</string>
+    <string name="sync_screen_title">Đồng bộ Google Drive</string>
+    <string name="sync_icon_description">Trạng thái đồng bộ</string>
+    <string name="sync_progress">Đã xử lý %1$d/%2$d</string>
+    <string name="sync_action_check">Kiểm tra thay đổi</string>
+    <string name="sync_action_backup">Sao lưu lên Drive</string>
+    <string name="sync_action_restore">Khôi phục từ Drive</string>
+    <string name="sync_conflict_keys_title">Các mục cần xử lý</string>
+    <string name="sync_status_ready">Sẵn sàng đồng bộ</string>
+    <string name="sync_status_changes_pending">Local có thay đổi chưa sao lưu</string>
+    <string name="sync_status_syncing_up">Đang sao lưu lên Drive</string>
+    <string name="sync_status_syncing_down">Đang khôi phục từ Drive</string>
+    <string name="sync_status_synced">Đã đồng bộ</string>
+    <string name="sync_status_drive_pending">Drive có thay đổi cần khôi phục</string>
+    <string name="sync_status_conflict">Phát hiện xung đột</string>
+    <string name="sync_status_auth_required">Cần xác thực Google</string>
+    <string name="sync_status_error">Đồng bộ thất bại</string>
+    <string name="sync_notification_channel_name">Đồng bộ EpubPro</string>
+    <string name="sync_notification_title">EpubPro sync</string>
+    <string name="sync_notification_running">Đang đồng bộ dữ liệu</string>
+    <string name="auth_google_sign_in_failed">Đăng nhập Google thất bại. Vui lòng thử lại.</string>
 </resources>
