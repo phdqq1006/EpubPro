@@ -61,3 +61,8 @@
 - **Ngày**: 2026-08-03
 - **Chi tiết**: Khi phát hành qua Google Play Store, ưu tiên xuất file Android App Bundle (`.\gradlew.bat bundleRelease`) để Google Play tự chia nhỏ APK theo thiết bị (~30MB). Khi xuất APK dùng trực tiếp, áp dụng `abiFilters` để loại bỏ x86 giả lập.
 - **Files liên quan**: `app/build.gradle.kts`
+
+### Automated Tester Distribution via GitHub Releases & Actions
+- **Ngày**: 2026-09-09
+- **Chi tiết**: Phân phối bản thử nghiệm APK cho Tester độc lập không phụ thuộc vào Firebase hay Google Play Console. Thiết lập workflow GitHub Actions kích hoạt qua `workflow_dispatch` (UI) hoặc Git tag `v*`, tự động build APK release, ký số (hỗ trợ fallback sang debug keystore), xuất bản GitHub Pre-release kèm link download trực tiếp và sinh mã QR Code để tester quét camera cài đặt tức thì trên thiết bị Android thật.
+- **Files liên quan**: `.github/workflows/distribute-github-release.yml`, `docs/github-release-tester-guide.md`

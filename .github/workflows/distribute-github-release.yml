@@ -1,0 +1,147 @@
+name: Distribute APK to GitHub Releases (App Tester)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Tên phiên bản / Git Tag (ví dụ: v1.0.0-beta.1 hoặc v1.0.0-test)'
+        required: true
+        default: 'v1.0.0-test'
+        type: string
+      release_title:
+        description: 'Tiêu đề bản phát hành'
+        required: false
+        default: 'EpubPro Test Build'
+        type: string
+      release_notes:
+        description: 'Nội dung ghi chú cập nhật (Changelog cho Tester)'
+        required: false
+        default: 'Bản build thử nghiệm tính năng mới từ GitHub Actions.'
+        type: string
+      is_prerelease:
+        description: 'Đánh dấu là Pre-release (Dành riêng cho tester)'
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: distribute-github-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    name: Build APK & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 2. Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 3. Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: 4. Configure Release Keystore (Optional)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Đang cấu hình Release KeyStore từ GitHub Secret..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > release.jks
+            cat <<EOF > keystore.properties
+          STORE_FILE=release.jks
+          STORE_PASSWORD=$STORE_PASSWORD
+          KEY_ALIAS=$KEY_ALIAS
+          KEY_PASSWORD=$KEY_PASSWORD
+          EOF
+            echo "Đã tạo keystore.properties thành công."
+          else
+            echo "Chưa cấu hình Secret RELEASE_KEYSTORE_BASE64, ứng dụng sẽ tự động ký bằng Debug Signing (vẫn cài và test bình thường)."
+          fi
+
+      - name: 5. Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: 6. Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: 7. Determine Release Metadata & Rename APK
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.version_tag }}"
+            TITLE="${{ inputs.release_title }} ($TAG)"
+            NOTES="${{ inputs.release_notes }}"
+            PRERELEASE="${{ inputs.is_prerelease }}"
+          else
+            TAG="${{ github.ref_name }}"
+            TITLE="EpubPro Release $TAG"
+            NOTES="Bản phát hành tự động từ Git Tag $TAG."
+            PRERELEASE=true
+          fi
+
+          # Chuẩn bị file APK với tên rõ ràng theo phiên bản
+          APK_NAME="EpubPro-${TAG}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "./${APK_NAME}"
+
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${APK_NAME}"
+          QR_URL="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${DOWNLOAD_URL}"
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+          echo "qr_url=$QR_URL" >> $GITHUB_OUTPUT
+
+          # Chuẩn bị body markdown với mã QR quét tải trên điện thoại
+          cat <<EOF > release_body.md
+          ## 📱 Thông tin bản thử nghiệm (${TAG})
+
+          ${NOTES}
+
+          ---
+
+          ### ⬇️ Hướng dẫn cài đặt cho Tester:
+          1. **Tải trực tiếp bằng điện thoại:**
+             - [👉 Bấm vào đây để tải ${APK_NAME}](${DOWNLOAD_URL})
+          2. **Hoặc quét mã QR dưới đây bằng điện thoại Android để tải ngay:**
+
+          ![Quét mã QR để cài đặt](${QR_URL})
+
+          ---
+          *Bản dựng được tự động xuất bởi GitHub Actions.*
+          EOF
+
+      - name: 8. Publish GitHub Release with APK & QR Code
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body_path: release_body.md
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          files: ${{ steps.meta.outputs.apk_name }}
+
+      - name: 9. Upload Artifact to GitHub Actions Run
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ steps.meta.outputs.apk_name }}
+          path: ${{ steps.meta.outputs.apk_name }}
+          retention-days: 14

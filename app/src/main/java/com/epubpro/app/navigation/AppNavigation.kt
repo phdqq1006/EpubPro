@@ -31,6 +31,7 @@ import com.epubpro.core.reader.tts.TtsOpenBookRequest
 import com.epubpro.feature.bookmark.BookmarkScreen
 import com.epubpro.feature.library.LibraryScreen
 import com.epubpro.feature.profile.ProfileScreen
+import com.epubpro.feature.profile.sync.SyncScreen
 import com.epubpro.feature.profile.ReadingDefaultsScreen
 import com.epubpro.feature.profile.PageTurnControlScreen
 import com.epubpro.feature.profile.auth.LoginScreen
@@ -215,8 +216,13 @@ fun AppNavHost(
                     onNavigateToLogin = { navController.navigate(Screen.Login.route) },
                     onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
                     onNavigateToReadingDefaults = { navController.navigate(Screen.ReadingDefaults.route) },
-                    onNavigateToContentFilter = { navController.navigate(Screen.ContentFilter.route) }
+                    onNavigateToContentFilter = { navController.navigate(Screen.ContentFilter.route) },
+                    onNavigateToSync = { navController.navigate(Screen.Sync.route) }
                 )
+            }
+
+            composable(Screen.Sync.route) {
+                SyncScreen(onNavigateBack = { navController.popBackStack() })
             }
 
             composable(Screen.Login.route) {
@@ -366,6 +372,7 @@ sealed class Screen(val route: String) {
         fun createRoute(bookId: String): String = "story_review/${Uri.encode(bookId)}"
     }
     object Profile : Screen("profile")
+    object Sync : Screen("sync")
     object Login : Screen("login")
     object AudioSettings : Screen("audio_settings")
     object ReadingDefaults : Screen("reading_defaults")

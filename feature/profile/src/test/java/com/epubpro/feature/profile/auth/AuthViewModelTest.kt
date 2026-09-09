@@ -99,4 +99,23 @@ class AuthViewModelTest {
         assertNotNull(state.errorMessage)
         assertEquals("Email không đúng.", state.errorMessage)
     }
+    @Test
+    fun testGoogleLoginSuccessSendsEffect() = runTest {
+        val testUser = User(
+            id = "google-u1",
+            email = "google@example.com",
+            displayName = "Google User",
+            provider = AuthProvider.GOOGLE
+        )
+        whenever(mockAuthRepository.loginWithGoogle("id-token", "google@example.com", "Google User"))
+            .thenReturn(Result.success(testUser))
+
+        viewModel.loginWithGoogle("id-token", "google@example.com", "Google User")
+        advanceUntilIdle()
+
+        val effect = viewModel.effects.first()
+        assertTrue(effect is AuthUiEffect.LoginSuccess)
+        assertEquals("google@example.com", (effect as AuthUiEffect.LoginSuccess).user.email)
+    }
+
 }

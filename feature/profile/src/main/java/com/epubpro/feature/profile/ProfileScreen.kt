@@ -54,6 +54,7 @@ import java.util.Locale
  * @param onNavigateToAudioSettings Callback mở cài đặt âm thanh TTS.
  * @param onNavigateToReadingDefaults Callback mở cài đặt mặc định đọc.
  * @param onNavigateToContentFilter Callback mở màn hình lọc nội dung.
+ * @param onNavigateToSync Callback mở màn hình đồng bộ Google Drive.
  * @param viewModel ViewModel quản lý dữ liệu cấu hình và trạng thái tài khoản.
  */
 @Composable
@@ -62,6 +63,7 @@ fun ProfileScreen(
     onNavigateToAudioSettings: () -> Unit = {},
     onNavigateToReadingDefaults: () -> Unit = {},
     onNavigateToContentFilter: () -> Unit = {},
+    onNavigateToSync: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     var showServerSettingsDialog by rememberSaveable { mutableStateOf(false) }
@@ -112,8 +114,7 @@ fun ProfileScreen(
                 title = stringResource(R.string.profile_drive_sync_title),
                 subtitle = stringResource(R.string.profile_drive_sync_subtitle),
                 icon = Icons.Default.CloudSync,
-                onClick = { },
-                enabled = false
+                onClick = onNavigateToSync
             )
         }
 
