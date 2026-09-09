@@ -56,4 +56,6 @@ epub_structure_cache/
 **/epub_structure_cache/
 dummy.kt
 test.kt
+.github_token
+release-notes.txt
 
