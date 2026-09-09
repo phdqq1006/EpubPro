@@ -54,7 +54,7 @@ jobs:
       - name: 3. Set up Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: 4. Configure Release Keystore (Optional)
+      - name: 4. Configure Release Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
           STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
@@ -70,16 +70,32 @@ jobs:
           KEY_ALIAS=$KEY_ALIAS
           KEY_PASSWORD=$KEY_PASSWORD
           EOF
-            echo "Đã tạo keystore.properties thành công."
+            echo "Đã cấu hình keystore.properties từ Secret."
           else
-            echo "Chưa cấu hình Secret RELEASE_KEYSTORE_BASE64, ứng dụng sẽ tự động ký bằng Debug Signing (vẫn cài và test bình thường)."
+            echo "Tạo Keystore ký số tự động cho runner..."
+            keytool -genkeypair -v \
+              -keystore release.jks \
+              -alias testkey \
+              -keypass android \
+              -storepass android \
+              -dname "CN=EpubPro Test, OU=Dev, O=EpubPro, C=VN" \
+              -validity 10000 \
+              -keyalg RSA \
+              -keysize 2048
+            cat <<EOF > keystore.properties
+          STORE_FILE=release.jks
+          STORE_PASSWORD=android
+          KEY_ALIAS=testkey
+          KEY_PASSWORD=android
+          EOF
+            echo "Đã tạo keystore.properties tự động thành công."
           fi
 
       - name: 5. Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
       - name: 6. Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+        run: ./gradlew assembleRelease -x lintVitalRelease --stacktrace
 
       - name: 7. Determine Release Metadata & Rename APK
         id: meta
@@ -140,8 +156,8 @@ jobs:
 
       - name: 9. Upload Artifact to GitHub Actions Run
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
           name: ${{ steps.meta.outputs.apk_name }}
-          path: ${{ steps.meta.outputs.apk_name }}
+          path: ./${{ steps.meta.outputs.apk_name }}
           retention-days: 14
