@@ -42,6 +42,8 @@ android {
                 keyAlias = debugSigning.keyAlias
                 keyPassword = debugSigning.keyPassword
             }
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
@@ -90,4 +92,8 @@ dependencies {
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.hilt.work)
     kapt(libs.androidx.hilt.compiler)
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.kotlin)
 }
