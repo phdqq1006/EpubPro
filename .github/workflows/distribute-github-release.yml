@@ -61,9 +61,11 @@ jobs:
           KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
+          mkdir -p app
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Đang cấu hình Release KeyStore từ GitHub Secret..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > release.jks
+            echo "$KEYSTORE_BASE64" | base64 --decode > app/release.jks
+            cp app/release.jks release.jks
             cat <<EOF > keystore.properties
           STORE_FILE=release.jks
           STORE_PASSWORD=$STORE_PASSWORD
@@ -72,9 +74,9 @@ jobs:
           EOF
             echo "Đã cấu hình keystore.properties từ Secret."
           else
-            echo "Tạo Keystore ký số tự động cho runner..."
+            echo "Tạo Keystore ký số tự động cho runner tại app/release.jks..."
             keytool -genkeypair -v \
-              -keystore release.jks \
+              -keystore app/release.jks \
               -alias testkey \
               -keypass android \
               -storepass android \
@@ -82,6 +84,7 @@ jobs:
               -validity 10000 \
               -keyalg RSA \
               -keysize 2048
+            cp app/release.jks release.jks
             cat <<EOF > keystore.properties
           STORE_FILE=release.jks
           STORE_PASSWORD=android
