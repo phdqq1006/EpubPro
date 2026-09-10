@@ -37,6 +37,8 @@ android {
                 keyAlias = "epubpro"
                 keyPassword = "epubpro_shared_key"
             }
+            enableV1Signing = true
+            enableV2Signing = true
         }
 
         create("release") {
