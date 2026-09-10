@@ -52,8 +52,10 @@ class EpubStorageManager @Inject constructor(
         val extension = safeExtension(originalFileName, "")
             .ifBlank { safeExtension(Uri.decode(uri.lastPathSegment), "") }
             .ifBlank {
-                when (context.contentResolver.getType(uri)?.lowercase()) {
-                    "application/epub+zip" -> "epub"
+                when (context.contentResolver.getType(uri)?.lowercase()?.substringBefore(';')?.trim()) {
+                    "application/epub+zip",
+                    "application/epub",
+                    "application/x-zip-compressed-epub" -> "epub"
                     "application/x-mobipocket-ebook" -> "mobi"
                     "application/vnd.amazon.mobi8-ebook" -> "azw3"
                     "application/x-palm-database" -> "prc"

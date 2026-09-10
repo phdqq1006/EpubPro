@@ -1,5 +1,6 @@
 package com.epubpro.feature.library
 
+import androidx.compose.foundation.verticalScroll
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -144,6 +145,33 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pendingImports by viewModel.pendingLocalImports.collectAsStateWithLifecycle()
+    pendingImports.firstOrNull()?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissPendingLocalImport(pending.sourcePath) },
+            title = { Text(stringResource(R.string.library_duplicate_epub_title)) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.library_duplicate_epub_message))
+                    pending.matches.forEach { book ->
+                        TextButton(onClick = { viewModel.resolveLocalImport(pending.sourcePath, book.id) }) {
+                            Text(stringResource(R.string.library_duplicate_epub_update, book.title))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.resolveLocalImport(pending.sourcePath, null) }) {
+                    Text(stringResource(R.string.library_duplicate_epub_add_new))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissPendingLocalImport(pending.sourcePath) }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }

@@ -58,6 +58,7 @@
     <string name="library_read_percentage_format">Đã đọc %1$d%%</string>
     <string name="library_action_clear_search">Xóa tìm kiếm</string>
     <string name="upload_prepare_failed">Không thể chuẩn bị file để tải lên.</string>
+    <string name="import_external_started">Đang chuẩn bị nạp sách “%1$s”...</string>
 
     <!-- Reader Selection BottomSheet -->
     <string name="reader_selection_title">Chọn trình đọc sách</string>
@@ -609,4 +610,8 @@
     <string name="sync_notification_title">EpubPro sync</string>
     <string name="sync_notification_running">Đang đồng bộ dữ liệu</string>
     <string name="auth_google_sign_in_failed">Đăng nhập Google thất bại. Vui lòng thử lại.</string>
+    <string name="library_duplicate_epub_title">Truyện đã có trong thư viện</string>
+    <string name="library_duplicate_epub_message">EPUB có cùng ID với truyện bên dưới. Bạn có thể thêm bản mới hoặc cập nhật truyện đã có. Vị trí đọc và đánh dấu được giữ lại, nhưng có thể lệch nếu nội dung chương thay đổi.</string>
+    <string name="library_duplicate_epub_update">Cập nhật: %1$s</string>
+    <string name="library_duplicate_epub_add_new">Thêm bản mới</string>
 </resources>

@@ -3,6 +3,7 @@ package com.epubpro.app
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -10,7 +11,10 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.rememberNavController
+import com.epubpro.app.intent.ExternalBookImportHandler
+import com.epubpro.app.intent.ExternalBookImportRequest
 import com.epubpro.app.navigation.AppNavHost
+import com.epubpro.core.designsystem.R
 import com.epubpro.core.designsystem.theme.EpubProTheme
 import com.epubpro.core.reader.tts.TtsOpenBookContract
 import com.epubpro.core.reader.tts.TtsOpenBookRequest
@@ -18,6 +22,7 @@ import com.epubpro.core.reader.tts.TtsService
 import com.epubpro.core.reader.tts.TtsWidgetContract
 import com.epubpro.core.storage.ReaderPreferencesManager
 import com.epubpro.core.storage.TtsBubblePreferencesManager
+import com.epubpro.core.storage.worker.LocalBookImportScheduler
 import com.epubpro.domain.repository.BookRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.channels.Channel
@@ -39,6 +44,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var bookRepository: BookRepository
 
+    @Inject
+    lateinit var localBookImportScheduler: LocalBookImportScheduler
+
     private val intentViewModel: MainIntentViewModel by viewModels()
     private var bubbleStartupRestored = false
     private var hasDispatchedStartupBook = false
@@ -48,8 +56,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val hasExplicitOpenBook = dispatchOpenBookRequest(intent)
         val hasExplicitOpenLibrary = dispatchOpenLibraryRequest(intent)
+        val hasExplicitImportBook = dispatchImportBookRequest(intent)
 
-        if (savedInstanceState == null && !hasExplicitOpenBook && !hasExplicitOpenLibrary) {
+        if (savedInstanceState == null && !hasExplicitOpenBook && !hasExplicitOpenLibrary && !hasExplicitImportBook) {
             checkAndAutoResumeLastBook()
         }
 
@@ -79,7 +88,8 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         val hasExplicitOpenBook = dispatchOpenBookRequest(intent)
         val hasExplicitOpenLibrary = dispatchOpenLibraryRequest(intent)
-        if (hasExplicitOpenBook || hasExplicitOpenLibrary) {
+        val hasExplicitImportBook = dispatchImportBookRequest(intent)
+        if (hasExplicitOpenBook || hasExplicitOpenLibrary || hasExplicitImportBook) {
             autoResumeJob?.cancel()
         }
     }
@@ -137,6 +147,57 @@ class MainActivity : ComponentActivity() {
         intentViewModel.dispatchOpenLibrary()
         intent.action = null
         return true
+    }
+
+    /**
+     * Phân tích và xử lý yêu cầu nạp sách từ ứng dụng bên ngoài qua Intent.
+     *
+     * @param intent Intent nhận được từ hệ thống hoặc ứng dụng chia sẻ/mở file.
+     * @return true nếu intent chứa yêu cầu nạp sách hợp lệ và đã được tiếp nhận, ngược lại false.
+     */
+    private fun dispatchImportBookRequest(intent: Intent?): Boolean {
+        val request = ExternalBookImportHandler.parse(intent, contentResolver) ?: return false
+        handleExternalBookImport(request)
+        intent?.apply {
+            action = null
+            data = null
+            removeExtra(Intent.EXTRA_STREAM)
+        }
+        return true
+    }
+
+    /**
+     * Thực hiện điều hướng UI về Kệ sách, hiển thị thông báo và lập lịch nạp file sách bất đồng bộ.
+     *
+     * @param request Thông tin yêu cầu nạp sách gồm URI và tên hiển thị.
+     */
+    private fun handleExternalBookImport(request: ExternalBookImportRequest) {
+        intentViewModel.dispatchOpenLibrary()
+        val bookTitle = request.displayName ?: getString(R.string.nav_library)
+        Toast.makeText(
+            this,
+            getString(R.string.import_external_started, bookTitle),
+            Toast.LENGTH_SHORT
+        ).show()
+
+        lifecycleScope.launch {
+            try {
+                localBookImportScheduler.enqueue(request.uri, request.displayName)
+            } catch (error: Exception) {
+                val errorMsg = when {
+                    error.message?.contains("100 MiB") == true -> {
+                        getString(R.string.book_conversion_error_too_large)
+                    }
+                    error.javaClass.name.endsWith("BookConversionException") -> {
+                        getString(R.string.library_import_book_failed)
+                    }
+                    else -> {
+                        getString(R.string.library_import_failed)
+                    }
+                }
+                Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun restoreEnabledAudioBubble() {

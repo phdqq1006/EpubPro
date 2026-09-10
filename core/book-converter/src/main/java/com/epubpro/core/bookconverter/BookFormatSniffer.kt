@@ -24,7 +24,26 @@ class BookFormatSniffer @Inject constructor() {
         "prc" -> BookSourceFormat.PRC
         "mobi" -> BookSourceFormat.MOBI
         "azw3" -> BookSourceFormat.AZW3
-        else -> detectPalmDatabaseFormat(file)
+        else -> detectPalmDatabaseFormat(file) ?: detectEpubFormat(file)
+    }
+
+    /**
+     * Nhận diện file EPUB dựa trên cấu trúc file nén ZIP và các entry đặc trưng (mimetype hoặc container.xml).
+     *
+     * Phương thức này phục vụ trường hợp file EPUB được mở từ ứng dụng bên ngoài bị gán tên tạm hoặc thiếu extension.
+     *
+     * @param file File nguồn cần kiểm tra cấu trúc.
+     * @return [BookSourceFormat.EPUB] nếu là file EPUB hợp lệ, ngược lại trả về null.
+     */
+    private fun detectEpubFormat(file: File): BookSourceFormat? {
+        if (!file.isFile || file.length() < 58L) return null
+        return runCatching {
+            java.util.zip.ZipFile(file).use { zip ->
+                val hasMimetype = zip.getEntry("mimetype") != null
+                val hasContainer = zip.getEntry("META-INF/container.xml") != null
+                if (hasMimetype || hasContainer) BookSourceFormat.EPUB else null
+            }
+        }.getOrNull()
     }
 
     /**
