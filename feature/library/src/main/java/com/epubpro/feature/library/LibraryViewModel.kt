@@ -142,6 +142,35 @@ class LibraryViewModel @Inject constructor(
     private val bookBibleRepository: BookBibleRepository
 ) : ViewModel() {
 
+    val pendingLocalImports = localBookImportScheduler.pendingImports
+
+    /**
+     * Áp dụng lựa chọn cho yêu cầu import đang chờ.
+     *
+     * @param sourcePath Khóa yêu cầu import.
+     * @param replacementBookId ID truyện cần cập nhật hoặc null để tạo bản mới.
+     */
+    fun resolveLocalImport(sourcePath: String, replacementBookId: String?) {
+        viewModelScope.launch {
+            try {
+                localBookImportScheduler.resolve(sourcePath, replacementBookId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _events.send(UserMessage(R.string.library_import_failed))
+            }
+        }
+    }
+
+    /**
+     * Hủy lựa chọn trùng ID và dọn file chưa nhập vào thư viện.
+     *
+     * @param sourcePath Khóa yêu cầu cần hủy.
+     */
+    fun dismissPendingLocalImport(sourcePath: String) {
+        viewModelScope.launch { localBookImportScheduler.dismiss(sourcePath) }
+    }
+
     private val _searchQuery = MutableStateFlow("")
     private val _selectedFilter = MutableStateFlow(LibraryFilter.ALL)
     private val _events = Channel<UserMessage>(capacity = Channel.BUFFERED)
@@ -433,7 +462,10 @@ class LibraryViewModel @Inject constructor(
                     createdAt = null,
                     completedAt = null
                 )
-                localBookImportScheduler.enqueue(uri, originalName)
+                if (localBookImportScheduler.enqueue(uri, originalName) == null) {
+                    hasActiveLocalImportSession = false
+                    _localImportJobState.value = null
+                }
             } catch (error: CancellationException) {
                 hasActiveLocalImportSession = false
                 throw error

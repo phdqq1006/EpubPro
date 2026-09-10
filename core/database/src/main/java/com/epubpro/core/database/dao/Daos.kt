@@ -15,6 +15,15 @@ interface BookDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBook(book: BookEntity)
 
+    /**
+     * Cập nhật bản ghi sẵn có, giữ các quan hệ phụ thuộc thay vì REPLACE xóa bản ghi cũ.
+     *
+     * @param book Metadata mới với ID nội bộ giữ nguyên.
+     * @return Số bản ghi đã cập nhật.
+     */
+    @Update
+    suspend fun updateBook(book: BookEntity): Int
+
     @Query("DELETE FROM books WHERE id = :id")
     suspend fun deleteBook(id: String)
 
@@ -94,6 +103,15 @@ interface SearchDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSearchIndex(indices: List<BookSearchEntity>)
+
+    /**
+     * Chuyển chỉ mục đã chuẩn bị sang truyện đích trong transaction cập nhật EPUB.
+     *
+     * @param stagedBookId ID tạm dùng khi đánh chỉ mục.
+     * @param bookId ID nội bộ của truyện được cập nhật.
+     */
+    @Query("UPDATE book_search_fts SET bookId = :bookId WHERE bookId = :stagedBookId")
+    suspend fun moveIndex(stagedBookId: String, bookId: String)
 
     @Query("DELETE FROM book_search_fts WHERE bookId = :bookId")
     suspend fun clearIndexForBook(bookId: String)

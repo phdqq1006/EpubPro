@@ -43,6 +43,33 @@ class BookFormatSnifferTest {
         }
     }
 
+    /** Kiểm tra nhận diện EPUB từ cấu trúc ZIP container khi file mang extension .bin hoặc không có extension. */
+    @Test
+    fun recognizesEpubZipContainerWithoutExtension() {
+        val epubBinFile = createEpubZipFixture()
+        try {
+            assertEquals(BookSourceFormat.EPUB, sniffer.sniff(epubBinFile))
+        } finally {
+            epubBinFile.delete()
+        }
+    }
+
+    /**
+     * Tạo file tạm có định dạng ZIP chứa entry mimetype của EPUB để kiểm thử.
+     *
+     * @return File tạm mô phỏng file EPUB.
+     */
+    private fun createEpubZipFixture(): File {
+        val file = Files.createTempFile("book-epub-", ".bin").toFile()
+        java.util.zip.ZipOutputStream(java.io.FileOutputStream(file)).use { zos ->
+            val entry = java.util.zip.ZipEntry("mimetype")
+            zos.putNextEntry(entry)
+            zos.write("application/epub+zip".toByteArray(Charsets.US_ASCII))
+            zos.closeEntry()
+        }
+        return file
+    }
+
     /**
      * Tạo file tạm có Palm Database header tối thiểu cho kiểm thử nhận diện.
      *

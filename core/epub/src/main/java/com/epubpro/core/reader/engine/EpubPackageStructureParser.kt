@@ -37,6 +37,33 @@ data class ParsedEpubStructure(
 object EpubPackageStructureParser {
 
     /**
+     * Đọc ID xuất bản được unique-identifier của OPF tham chiếu, không suy đoán từ tên truyện.
+     *
+     * @param zip Gói EPUB đang mở.
+     * @return ID không rỗng, hoặc null nếu không có tham chiếu hợp lệ.
+     * @throws java.io.IOException Nếu không đọc được dữ liệu ZIP.
+     */
+    fun readPublicationIdentifier(zip: ZipFile): String? {
+        val entries = zip.entries().toList()
+        val opf = findOpfEntry(zip, entries, entries.associateBy { it.name }) ?: return null
+        EpubReadLimits.validateZipEntry(opf)
+        val content = zip.getInputStream(opf).use { it.readBoundedText() }
+        val document = Jsoup.parse(content, "", Parser.xmlParser())
+        val packageElement = document.getAllElements().firstOrNull {
+            it.tagName().substringAfter(':') == "package"
+        } ?: return null
+        val reference = packageElement.attr("unique-identifier").trim().takeIf { it.isNotEmpty() }
+            ?: return null
+        val metadata = packageElement.children().firstOrNull {
+            it.tagName().substringAfter(':') == "metadata"
+        } ?: return null
+        return metadata.children().firstOrNull {
+            it.tagName().substringAfter(':') == "identifier" && it.attr("id") == reference
+        }?.text()?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+
+    /**
      * Phân tích toàn diện cấu trúc gói EPUB từ tệp [ZipFile].
      *
      * @param zip Đối tượng [ZipFile] đang mở của tệp sách.

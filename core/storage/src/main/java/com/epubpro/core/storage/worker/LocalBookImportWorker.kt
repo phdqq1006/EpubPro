@@ -26,6 +26,8 @@ import com.epubpro.domain.model.BookSourceFormat
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 
@@ -42,7 +44,8 @@ class LocalBookImportWorker @AssistedInject constructor(
     private val converter: MobiEpubConverter,
     private val epubEngine: EpubEngine,
     private val bookRepository: BookRepository,
-    private val searchRepository: SearchRepository
+    private val searchRepository: SearchRepository,
+    private val replacement: LocalBookReplacement
 ) : CoroutineWorker(appContext, workerParams) {
 
     private val notificationManager =
@@ -68,9 +71,15 @@ class LocalBookImportWorker @AssistedInject constructor(
         createNotificationChannel()
         updateProgress(BookConversionStage.VALIDATING, 0, originalName)
         return try {
+            val targetBookId = inputData.getString(KEY_REPLACEMENT_BOOK_ID) ?: outputFile.name
+            val committed = bookRepository.getBookById(targetBookId)
+            if (committed != null && committed.filePath == outputFile.absolutePath) {
+                sourceFile.delete()
+                return Result.success(workDataOf(KEY_TITLE to committed.title, KEY_PROGRESS to 100))
+            }
             var lastProgress = -1
             val conversion = when {
-                sourceFile.isFile && sourceFile.extension.equals("epub", ignoreCase = true) -> {
+                sourceFile.isFile && scheduledSourceFormat == BookSourceFormat.EPUB -> {
                     copyExistingEpub(sourceFile, outputFile)
                 }
                 sourceFile.isFile -> {
@@ -89,9 +98,15 @@ class LocalBookImportWorker @AssistedInject constructor(
             val parsedBook = epubEngine.parseEpubMetadataStrict(conversion.epubFile)
                 .copy(sourceFormat = conversion.sourceFormat)
             updateProgress(BookConversionStage.PACKAGING, 92, parsedBook.title)
-            bookRepository.insertBook(parsedBook)
+            val replacementBookId = inputData.getString(KEY_REPLACEMENT_BOOK_ID)
+            if (replacementBookId != null) {
+                replacement.replace(parsedBook, replacementBookId,
+                    inputData.getString(KEY_PUBLICATION_IDENTIFIER).orEmpty())
+            } else {
+                bookRepository.insertBook(parsedBook)
+                epubEngine.indexBookContent(conversion.epubFile, parsedBook.id, searchRepository)
+            }
             updateProgress(BookConversionStage.PACKAGING, 95, parsedBook.title)
-            epubEngine.indexBookContent(conversion.epubFile, parsedBook.id, searchRepository)
             updateProgress(BookConversionStage.COMPLETED, 100, parsedBook.title)
             showSuccessNotification(parsedBook.title)
             sourceFile.delete()
@@ -105,12 +120,12 @@ class LocalBookImportWorker @AssistedInject constructor(
         } catch (error: CancellationException) {
             // Hủy chủ động không cần giữ lại source; process death không đi qua nhánh này.
             sourceFile.delete()
-            outputFile.delete()
+            deleteUncommittedOutput(outputFile)
             throw error
         } catch (error: BookConversionException) {
             showErrorNotification(originalName, errorMessage(error.code))
             sourceFile.delete()
-            outputFile.delete()
+            deleteUncommittedOutput(outputFile)
             failure(error.code)
         } catch (error: IOException) {
             if (runAttemptCount < MAX_RETRY_COUNT) {
@@ -118,15 +133,29 @@ class LocalBookImportWorker @AssistedInject constructor(
             } else {
                 showErrorNotification(originalName, error.message ?: errorMessage(BookConversionErrorCode.OUTPUT_FAILED))
                 sourceFile.delete()
-                outputFile.delete()
+                deleteUncommittedOutput(outputFile)
                 failure(BookConversionErrorCode.OUTPUT_FAILED)
             }
         } catch (error: Exception) {
             showErrorNotification(originalName, error.message ?: errorMessage(BookConversionErrorCode.INVALID_OR_CORRUPTED_FILE))
             sourceFile.delete()
-            outputFile.delete()
+            deleteUncommittedOutput(outputFile)
             failure(BookConversionErrorCode.INVALID_OR_CORRUPTED_FILE)
         }
+    }
+
+    /**
+     * Chỉ dọn output chưa được commit, kể cả khi cancellation đến ngay sau transaction.
+     *
+     * @param outputFile File đích của tác vụ.
+     */
+    private suspend fun deleteUncommittedOutput(outputFile: File) = withContext(NonCancellable) {
+        val targetId = inputData.getString(KEY_REPLACEMENT_BOOK_ID) ?: outputFile.name
+        if (bookRepository.getBookById(targetId)?.filePath != outputFile.absolutePath) {
+            searchRepository.clearIndexForBook(outputFile.name)
+            outputFile.delete()
+        }
+        Unit
     }
 
     /**
@@ -293,6 +322,8 @@ class LocalBookImportWorker @AssistedInject constructor(
     companion object {
         const val UNIQUE_WORK_NAME = "local_book_import_work"
         const val TAG = "local_book_import"
+        const val KEY_REPLACEMENT_BOOK_ID = "replacement_book_id"
+        const val KEY_PUBLICATION_IDENTIFIER = "publication_identifier"
         const val KEY_SOURCE_PATH = "source_path"
         const val KEY_OUTPUT_PATH = "output_path"
         const val KEY_ORIGINAL_NAME = "original_name"
