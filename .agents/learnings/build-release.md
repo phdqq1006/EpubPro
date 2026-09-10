@@ -66,3 +66,12 @@
 - **Ngày**: 2026-09-09
 - **Chi tiết**: Phân phối bản thử nghiệm APK cho Tester độc lập không phụ thuộc vào Firebase hay Google Play Console. Thiết lập workflow GitHub Actions kích hoạt qua `workflow_dispatch` (UI) hoặc Git tag `v*`, tự động build APK release, ký số (hỗ trợ fallback sang debug keystore), xuất bản GitHub Pre-release kèm link download trực tiếp và sinh mã QR Code để tester quét camera cài đặt tức thì trên thiết bị Android thật.
 - **Files liên quan**: `.github/workflows/distribute-github-release.yml`, `docs/github-release-tester-guide.md`
+
+### Shared Project Keystore Pattern for Cross-Environment APK Overwrite (Cài đè không mất dữ liệu)
+- **Ngày**: 2026-09-10
+- **Vấn đề**: Khi build ở các môi trường khác nhau (máy dev qua Android Studio/cable USB, script local `publish-apk.bat`, GitHub Actions CI/CD), mỗi môi trường ký một key khác nhau gây lỗi `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (Ứng dụng chưa được cài đặt) khi cài đè giữa các bản.
+- **Giải pháp**:
+  1. Tạo Keystore dùng chung cố định `keystore/tester.jks` lưu trong repo (thêm ngoại lệ `!keystore/tester.jks` trong `.gitignore`).
+  2. Trong `app/build.gradle.kts`, cấu hình cả `debug` và `release` signingConfigs mặc định đều trỏ vào `keystore/tester.jks` (kèm `enableV1Signing = true`, `enableV2Signing = true`).
+  3. Khi đó: Bản nạp qua Android Studio, bản build qua `publish-apk.bat`, và bản tải từ GitHub Release đều có chung 100% chữ ký chứng chỉ (Certificate/SHA-256), cho phép người dùng và tester cài đè cập nhật mượt mà trên mọi máy Android (kể cả Android 15 / One UI 7) mà không phải gỡ app cũ hay mất dữ liệu sách.
+- **Files liên quan**: `keystore/tester.jks`, `app/build.gradle.kts`, `.gitignore`, `.github/workflows/distribute-github-release.yml`

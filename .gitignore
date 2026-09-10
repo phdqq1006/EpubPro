@@ -23,6 +23,7 @@ build/
 # Keystore files
 *.jks
 *.keystore
+!keystore/tester.jks
 
 # Google Services
 google-services.json
@@ -50,6 +51,7 @@ captures/
 
 # Temporary files & extracted libs
 *.zip
+*.apk
 lib-sherpa-onnx/
 sherpa-onnx-extracted/
 epub_structure_cache/
