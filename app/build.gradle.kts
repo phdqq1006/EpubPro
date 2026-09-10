@@ -28,6 +28,17 @@ android {
     }
 
     signingConfigs {
+        val sharedKeystore = rootProject.file("keystore/tester.jks")
+
+        getByName("debug") {
+            if (sharedKeystore.exists()) {
+                storeFile = sharedKeystore
+                storePassword = "epubpro_shared_key"
+                keyAlias = "epubpro"
+                keyPassword = "epubpro_shared_key"
+            }
+        }
+
         create("release") {
             val storeFileProp = keystoreProperties.getProperty("STORE_FILE")
             if (!storeFileProp.isNullOrEmpty()) {
@@ -35,6 +46,11 @@ android {
                 storePassword = keystoreProperties.getProperty("STORE_PASSWORD")
                 keyAlias = keystoreProperties.getProperty("KEY_ALIAS")
                 keyPassword = keystoreProperties.getProperty("KEY_PASSWORD")
+            } else if (sharedKeystore.exists()) {
+                storeFile = sharedKeystore
+                storePassword = "epubpro_shared_key"
+                keyAlias = "epubpro"
+                keyPassword = "epubpro_shared_key"
             } else {
                 val debugSigning = signingConfigs.getByName("debug")
                 storeFile = debugSigning.storeFile
